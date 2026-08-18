@@ -1,0 +1,35 @@
+# Build
+/target/
+**/*.rs.bk
+
+# Local / private planning
+/plan/
+/private/
+/.local/
+*.private.md
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+**/dist/
+
+# Local quality store / CAS
+.weavatrix-quality/
+*.db
+*.db-journal
+
+# Logs / scratch
+*.log
+*.tmp

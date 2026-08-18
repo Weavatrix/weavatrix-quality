@@ -1,0 +1,23 @@
+[package]
+name = "wvq-domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Stable typed contracts for Weavatrix Quality (WVQ)"
+publish = false
+keywords = ["weavatrix", "quality", "wvq"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
