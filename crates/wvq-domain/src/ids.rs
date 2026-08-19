@@ -109,6 +109,10 @@ typed_id!(
     /// Identity of a sealed oracle (`oseal-<digest-prefix>`).
     OracleSealId
 );
+typed_id!(
+    /// Weavatrix snapshot / Git revision identity. Opaque; not re-hashed by WVQ.
+    RevisionId
+);
 
 /// Digest of canonical bytes. Stored as lowercase even-length hex.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]

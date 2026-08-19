@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (M1 complete)
+Session: sequential implementation (Task 4 done)
 
 ## Now
 
-**Milestone:** M1 done. Next is M2.
+**Milestone:** M2 in progress (Weavatrix embed landed).
 
 **Current task:** none in progress.
 
-**Next task:** Task 4 — embed `weavatrix-rust` (`docs/development-plan.md`, spec §39).
+**Next task:** Task 5 — Quality Debt Ratchet (`docs/development-plan.md`, spec §40).
 
 **Load next** (do not load the whole spec):
 
-- spec §3 authority, §10 gate catalogue intro, §39 Task 4
-- `weavatrix-rust` `CodeEvidenceProvider` sketch
-- `crates/wvq-intelligence/` (to be created)
+- spec §9 Quality Debt Ratchet, §40 Task 5
+- `crates/wvq-domain/src/finding.rs` (`FindingState`)
+- `crates/wvq-intelligence/src/weavatrix.rs`
 
 ## Done
 
@@ -26,14 +26,15 @@ Session: sequential implementation (M1 complete)
 - [x] Task 1 — typed IDs, `Severity`, `FindingState`, `SubjectRef`, `QualityFinding`
 - [x] Task 2 — `OpenSpec` change-delta reader with file/line provenance
 - [x] Task 3 — `quality.yaml` compile + `OracleSeal` (AI metadata does not move the seal)
+- [x] Task 4 — embed `weavatrix-rust` as the only `CodeEvidenceProvider` (no second graph)
 
 ## Not started
 
-Tasks 4–35. See `docs/development-plan.md`.
+Tasks 5–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(spec): compile and seal quality obligations`
+`feat(intelligence): embed weavatrix engine`
 
 ## Open questions
 

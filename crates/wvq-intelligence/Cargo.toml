@@ -1,0 +1,23 @@
+[package]
+name = "wvq-intelligence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Weavatrix-backed code evidence for Weavatrix Quality. No second parser or code graph."
+publish = false
+keywords = ["weavatrix", "quality", "wvq"]
+categories = ["development-tools"]
+
+[dependencies]
+blazingly-json = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+weavatrix-rust = { workspace = true }
+wvq-domain = { workspace = true }
+
+[lints]
+workspace = true
