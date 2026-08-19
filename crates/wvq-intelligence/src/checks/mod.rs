@@ -1,15 +1,21 @@
 //! Quality gates derived from Weavatrix evidence. No second code graph.
 
 mod architecture;
+mod dead_code;
+mod duplicates;
 mod size;
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
 use crate::debt::{DebtBaseline, DebtDelta, classify_debt};
 use crate::weavatrix::IntelligenceError;
-use wvq_domain::QualityFinding;
+use wvq_domain::{CheckId, FindingState, QualityFinding, Severity};
 
 pub use architecture::map_architecture_violation;
+pub use dead_code::{dead_ids, live_ids, map_dead_code_report};
+pub use duplicates::{family_sizes, map_duplicates_report};
 pub use size::size_growth_findings;
 
 /// Map a `verify_architecture` report into WVQ findings and ratchet base/head.
@@ -51,4 +57,63 @@ pub fn map_architecture_report(report: &Value) -> Result<Vec<QualityFinding>, In
         }
     }
     Ok(findings)
+}
+
+/// Ratchet `find_dead_code` base/head reports.
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when a candidate has no node id.
+pub fn gate_dead_code(
+    base: &Value,
+    head: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let prior_dead = dead_ids(base);
+    let prior_live = live_ids(base);
+    let base_findings = map_dead_code_report(base, &BTreeSet::new(), &BTreeSet::new())?;
+    let head_findings = map_dead_code_report(head, &prior_dead, &prior_live)?;
+    Ok(relabel_returned(
+        classify_debt(&base_findings, &head_findings, baseline),
+        "WVQ-DEAD-",
+        "WVQ-DEAD-004",
+        Severity::Error,
+    ))
+}
+
+/// Ratchet `find_duplicates` base/head reports.
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when a family has no id.
+pub fn gate_clones(
+    base: &Value,
+    head: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let prior = family_sizes(base);
+    let base_findings = map_duplicates_report(base, &BTreeMap::new())?;
+    let head_findings = map_duplicates_report(head, &prior)?;
+    Ok(relabel_returned(
+        classify_debt(&base_findings, &head_findings, baseline),
+        "WVQ-CLONE-",
+        "WVQ-CLONE-005",
+        Severity::Error,
+    ))
+}
+
+fn relabel_returned(
+    mut delta: DebtDelta,
+    prefix: &str,
+    returned_id: &str,
+    severity: Severity,
+) -> DebtDelta {
+    for finding in &mut delta.returned {
+        if finding.check.as_str().starts_with(prefix) {
+            finding.check = CheckId::new(returned_id).expect("static returned check id");
+            finding.severity = severity;
+            finding.state = FindingState::Returned;
+        }
+    }
+    delta
 }
