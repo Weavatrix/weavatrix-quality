@@ -4,11 +4,13 @@ members = [
     "crates/wvq-domain",
     "crates/wvq-spec",
     "crates/wvq-intelligence",
+    "crates/wvq-runtime",
 ]
 default-members = [
     "crates/wvq-domain",
     "crates/wvq-spec",
     "crates/wvq-intelligence",
+    "crates/wvq-runtime",
 ]
 
 [workspace.package]
@@ -26,6 +28,7 @@ publish = false
 wvq-domain = { path = "crates/wvq-domain", version = "0.0.1" }
 wvq-spec = { path = "crates/wvq-spec", version = "0.0.1" }
 wvq-intelligence = { path = "crates/wvq-intelligence", version = "0.0.1" }
+wvq-runtime = { path = "crates/wvq-runtime", version = "0.0.1" }
 
 blazingly-json = "0.1"
 weavatrix-rust = { version = "2.6.0", default-features = false }
@@ -35,6 +38,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 sha2 = "0.10"
 thiserror = "2.0"
+quick-xml = "0.37"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

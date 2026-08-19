@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="bun test" tests="2" failures="0" errors="0" time="0.050">
+  <testsuite name="src/add.test.ts" tests="2" failures="0" errors="0" skipped="0" time="0.020">
+    <testcase name="bun adds numbers" classname="src/add.test.ts" time="0.010"/>
+    <testcase name="bun totals a list" classname="src/add.test.ts" time="0.008"/>
+  </testsuite>
+</testsuites>

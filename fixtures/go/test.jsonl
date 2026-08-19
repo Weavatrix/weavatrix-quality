@@ -1,0 +1,8 @@
+{"Time":"2026-08-19T12:00:00.000000000Z","Action":"run","Package":"example.com/add","Test":"TestAdd"}
+{"Time":"2026-08-19T12:00:00.010000000Z","Action":"pass","Package":"example.com/add","Test":"TestAdd","Elapsed":0.01}
+{"Time":"2026-08-19T12:00:00.011000000Z","Action":"run","Package":"example.com/add","Test":"TestOverflow"}
+{"Time":"2026-08-19T12:00:00.020000000Z","Action":"output","Package":"example.com/add","Test":"TestOverflow","Output":"    add_test.go:12: overflow"}
+{"Time":"2026-08-19T12:00:00.021000000Z","Action":"fail","Package":"example.com/add","Test":"TestOverflow","Elapsed":0.01}
+{"Time":"2026-08-19T12:00:00.022000000Z","Action":"run","Package":"example.com/add","Test":"TestSkip"}
+{"Time":"2026-08-19T12:00:00.023000000Z","Action":"skip","Package":"example.com/add","Test":"TestSkip","Elapsed":0}
+{"Time":"2026-08-19T12:00:00.030000000Z","Action":"fail","Package":"example.com/add","Elapsed":0.03}

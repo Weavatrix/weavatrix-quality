@@ -1,21 +1,20 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 9 / M2 done)
+Session: sequential implementation (Task 10 done)
 
 ## Now
 
-**Milestone:** M2 done. Next is M3 (runners + selection).
+**Milestone:** M3 in progress (normalization landed).
 
 **Current task:** none in progress.
 
-**Next task:** Task 10 — runner result normalization (`docs/development-plan.md`, spec §45).
+**Next task:** Task 11 — bounded executor registry (`docs/development-plan.md`, spec §46).
 
 **Load next** (do not load the whole spec):
 
-- spec §15 runners, §45 Task 10
-- `crates/wvq-runtime/` (to be created)
-- JUnit / LCOV / `go test -json` fixtures
+- spec §15 Executor trait, §26 no arbitrary shell, §46 Task 11
+- `crates/wvq-runtime/src/normalize.rs`
 
 ## Done
 
@@ -32,14 +31,15 @@ Session: sequential implementation (Task 9 / M2 done)
 - [x] Task 7 — dead-code + clone delta (`WVQ-DEAD-*`, `WVQ-CLONE-*`)
 - [x] Task 8 — topology drift (`WVQ-GRAPH-*`, base/head numbers)
 - [x] Task 9 — API + history risk (`WVQ-API-*`, `WVQ-HIST-*`, `RiskEvidence[]`)
+- [x] Task 10 — runner result normalization (JUnit / LCOV / `go test -json`)
 
 ## Not started
 
-Tasks 10–35. See `docs/development-plan.md`.
+Tasks 11–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(checks): connect contracts and historical risk`
+`feat(runtime): normalize test evidence`
 
 ## Open questions
 

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="vitest tests" tests="3" failures="1" errors="0" time="0.142">
+  <testsuite name="src/add.test.ts" tests="3" failures="1" errors="0" skipped="1" time="0.041">
+    <testcase classname="src/add.test.ts" name="adds two numbers" time="0.012"/>
+    <testcase classname="src/add.test.ts" name="skips bigint" time="0.001">
+      <skipped/>
+    </testcase>
+    <testcase classname="src/add.test.ts" name="rejects overflow" time="0.028">
+      <failure message="expected 1 to be 2">AssertionError: expected 1 to be 2</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
