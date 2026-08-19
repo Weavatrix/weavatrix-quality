@@ -15,7 +15,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | **done** |
 | M3 | Runner normalize + coverage map + minimal selection | 10–13 | **done** |
 | M4 | Store + Proof + CLI/MCP | 14–16 | **done** |
-| M0b | Shadow benchmark harness | 17 | after M4 (spec listed M0 early; implement when there is something to measure) |
+| M0b | Shadow benchmark harness | 17 | **done** |
 | M5 | Browser TestProgram bridge | 18 | not started |
 | M6 | Recorder + BehaviorGraph + base/head diff | 19–20 | not started |
 | M7 | Flake + safe healing | 21 | not started |
@@ -66,7 +66,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 
 ### Measurement
 
-- [ ] **Task 17** — shadow benchmark harness → `bench: add shadow quality evaluation` — §52
+- [x] **Task 17** — shadow benchmark harness → `bench: add shadow quality evaluation` — §52
 
 ### M5–M10 — behavior and humans
 

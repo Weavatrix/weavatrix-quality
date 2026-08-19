@@ -69,6 +69,7 @@ If STATUS and the working tree disagree, the working tree + `git log` win; fix S
 | `wvq-store` | SQLite + CAS | Task 14 |
 | `wvq-proof` | Proof assembly, protection snapshots | Task 15 |
 | `wvq-command-bus` | Shared CLI/HTTP/MCP commands | Task 16 |
+| `wvq-bench` | Shadow selected-vs-full evaluation | Task 17 |
 | `wvq-spec-recovery` | Brownfield spec recovery | Task 24 |
 | `apps/wvq-cli` | `wvq` binary | Task 16 |
 | `apps/wvq-mcp` | `mcport` MCP | Task 16 |

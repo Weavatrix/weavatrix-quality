@@ -1,0 +1,22 @@
+[package]
+name = "wvq-bench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Shadow quality evaluation harness for Weavatrix Quality"
+publish = false
+keywords = ["weavatrix", "quality", "benchmark"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+wvq-intelligence = { workspace = true }
+wvq-runtime = { workspace = true }
+
+[lints]
+workspace = true

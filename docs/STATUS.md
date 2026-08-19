@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 16 done)
+Session: sequential implementation (Task 17 done)
 
 ## Now
 
-**Milestone:** M4 done (ledger + Proof + CLI/MCP).
+**Milestone:** M0b done (shadow harness). M5 next.
 
 **Current task:** none in progress.
 
-**Next task:** Task 17 — shadow benchmark harness (`docs/development-plan.md`, spec §52).
+**Next task:** Task 18 — Browser TestProgram vertical slice (`docs/development-plan.md`, spec §53).
 
 **Load next** (do not load the whole spec):
 
-- spec §52 Task 17
-- `docs/development-plan.md` Task 17
-- existing crates for selected-vs-full metrics
+- spec §53 Task 18, §15 runners, §16 browser token economy
+- `js/playwright-runner`
+- `crates/wvq-runtime` executor registry
 
 ## Done
 
@@ -39,14 +39,15 @@ Session: sequential implementation (Task 16 done)
 - [x] Task 14 — SQLite + CAS evidence ledger (immutable proofs)
 - [x] Task 15 — Proof engine (`PROVEN`/`CONTRADICTED`/`PARTIAL`/`UNPROVEN`/`HUMAN_REQUIRED`)
 - [x] Task 16 — command bus, CLI `wvq`, MCP via `mcport` (seven default tools)
+- [x] Task 17 — shadow benchmark harness (selected vs full; no published 10×)
 
 ## Not started
 
-Tasks 17–35. See `docs/development-plan.md`.
+Tasks 18–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(product): add CLI and bounded MCP`
+`bench: add shadow quality evaluation`
 
 ## Open questions
 
