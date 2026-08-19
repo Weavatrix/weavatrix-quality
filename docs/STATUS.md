@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 7 done)
+Session: sequential implementation (Task 8 done)
 
 ## Now
 
-**Milestone:** M2 in progress (through dead-code/clone).
+**Milestone:** M2 in progress (through topology). Next: API + history risk.
 
 **Current task:** none in progress.
 
-**Next task:** Task 8 — topology drift (`docs/development-plan.md`, spec §43).
+**Next task:** Task 9 — API + history risk (`docs/development-plan.md`, spec §44).
 
 **Load next** (do not load the whole spec):
 
-- spec §10.5 graph-topology, §43 Task 8
+- spec §10.6 API, §10.8 history, §13 risk, §44 Task 9
 - `crates/wvq-intelligence/src/checks/`
-- Weavatrix `god_nodes` / graph stats / `graph_diff`
+- Weavatrix `list_endpoints` / `git_history`
 
 ## Done
 
@@ -30,14 +30,15 @@ Session: sequential implementation (Task 7 done)
 - [x] Task 5 — Quality Debt Ratchet (`existing/new/fixed/returned/excepted`)
 - [x] Task 6 — architecture + size gates (`WVQ-ARCH-*`, `WVQ-SIZE-*`)
 - [x] Task 7 — dead-code + clone delta (`WVQ-DEAD-*`, `WVQ-CLONE-*`)
+- [x] Task 8 — topology drift (`WVQ-GRAPH-*`, base/head numbers)
 
 ## Not started
 
-Tasks 8–35. See `docs/development-plan.md`.
+Tasks 9–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(checks): detect new dead code and clones`
+`feat(checks): report graph topology drift`
 
 ## Open questions
 

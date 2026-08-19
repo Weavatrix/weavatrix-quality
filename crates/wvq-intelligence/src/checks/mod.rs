@@ -4,6 +4,7 @@ mod architecture;
 mod dead_code;
 mod duplicates;
 mod size;
+mod topology;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -17,6 +18,7 @@ pub use architecture::map_architecture_violation;
 pub use dead_code::{dead_ids, live_ids, map_dead_code_report};
 pub use duplicates::{family_sizes, map_duplicates_report};
 pub use size::size_growth_findings;
+pub use topology::map_topology_delta;
 
 /// Map a `verify_architecture` report into WVQ findings and ratchet base/head.
 ///
@@ -100,6 +102,20 @@ pub fn gate_clones(
         "WVQ-CLONE-005",
         Severity::Error,
     ))
+}
+
+/// Compare Weavatrix topology snapshots (hubs, degrees, community edges).
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when a node or edge has no id.
+pub fn gate_topology(
+    base: &Value,
+    head: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let findings = map_topology_delta(base, head)?;
+    Ok(classify_debt(&[], &findings, baseline))
 }
 
 fn relabel_returned(
