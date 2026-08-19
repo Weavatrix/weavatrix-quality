@@ -1,21 +1,20 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 12 done)
+Session: sequential implementation (Task 13 / M3 done)
 
 ## Now
 
-**Milestone:** M3 in progress (through coverage mapping).
+**Milestone:** M3 done. Next is M4 (store + Proof + CLI/MCP).
 
 **Current task:** none in progress.
 
-**Next task:** Task 13 — minimal selection (`docs/development-plan.md`, spec §48).
+**Next task:** Task 14 — SQLite + CAS (`docs/development-plan.md`, spec §49).
 
 **Load next** (do not load the whole spec):
 
-- spec §19 impact-based selection, §48 Task 13
-- `crates/wvq-intelligence` coverage + risk
-- Weavatrix `select_tests`
+- spec §28 storage, §49 Task 14
+- `crates/wvq-store/` (to be created)
 
 ## Done
 
@@ -35,14 +34,15 @@ Session: sequential implementation (Task 12 done)
 - [x] Task 10 — runner result normalization (JUnit / LCOV / `go test -json`)
 - [x] Task 11 — bounded executor registry (no arbitrary shell)
 - [x] Task 12 — dynamic coverage ↔ Weavatrix (`WVQ-COV-*`, unmeasured ≠ uncovered)
+- [x] Task 13 — minimal selection (greedy weighted set cover + explanation chain)
 
 ## Not started
 
-Tasks 13–35. See `docs/development-plan.md`.
+Tasks 14–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(coverage): map runtime evidence to impacted code`
+`feat(selection): choose minimal impacted regression`
 
 ## Open questions
 

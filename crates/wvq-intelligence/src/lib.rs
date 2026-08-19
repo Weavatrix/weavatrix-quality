@@ -10,6 +10,7 @@
 mod checks;
 mod debt;
 mod risk;
+mod selection;
 mod weavatrix;
 
 pub use checks::{
@@ -18,6 +19,9 @@ pub use checks::{
     map_architecture_violation, map_coverage_to_nodes,
 };
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
+pub use selection::{
+    ObligationNeed, SelectedTest, SelectionInput, SelectionPlan, TestCandidate, select_minimal_plan,
+};
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use weavatrix::{
     CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider,
