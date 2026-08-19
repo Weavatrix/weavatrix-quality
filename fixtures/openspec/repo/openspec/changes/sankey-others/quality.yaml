@@ -1,0 +1,39 @@
+quality_contract_v: 1
+change: sankey-others
+
+risk:
+  default: high
+
+requirements:
+  - capability: sankey
+    requirement: visual-limit-others
+    scenarios:
+      - scenario: overflow-grouped
+        actors:
+          include: [admin, viewer]
+        dimensions:
+          visual_limit:
+            values: [1, 10, 100]
+          cardinality:
+            classes: [below_limit, exact_limit, above_limit]
+        obligations:
+          - id: others-visible
+            kind: behavioral
+          - id: overflow-grouped
+            kind: invariant
+          - id: others-count
+            kind: invariant
+          - id: others-details-api
+            kind: api
+        evidence:
+          required: [dom, network]
+          on_failure: [screenshot, trace]
+        mutation:
+          operators:
+            - boundary_flip
+            - omit_group
+            - wrong_count
+
+ai:
+  planning_tokens: 8000
+  runtime_tokens: 0

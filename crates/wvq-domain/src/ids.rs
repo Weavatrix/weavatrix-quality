@@ -105,6 +105,10 @@ typed_id!(
     /// Stable quality-check identity (`WVQ-DEAD-001`).
     CheckId
 );
+typed_id!(
+    /// Identity of a sealed oracle (`oseal-<digest-prefix>`).
+    OracleSealId
+);
 
 /// Digest of canonical bytes. Stored as lowercase even-length hex.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]

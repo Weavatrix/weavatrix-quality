@@ -13,6 +13,10 @@ keywords = ["weavatrix", "quality", "openspec"]
 categories = ["development-tools"]
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 wvq-domain = { workspace = true }
 

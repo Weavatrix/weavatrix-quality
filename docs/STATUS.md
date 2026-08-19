@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 2 done)
+Session: sequential implementation (M1 complete)
 
 ## Now
 
-**Milestone:** M1 in progress (domain + OpenSpec reader).
+**Milestone:** M1 done. Next is M2.
 
 **Current task:** none in progress.
 
-**Next task:** Task 3 — quality contract and OracleSeal (`docs/development-plan.md`, spec §38).
+**Next task:** Task 4 — embed `weavatrix-rust` (`docs/development-plan.md`, spec §39).
 
 **Load next** (do not load the whole spec):
 
-- spec §6 `quality.yaml`, §7 TestObligation, §8 OracleSeal, §38 Task 3
-- `crates/wvq-spec/src/openspec.rs`
-- `crates/wvq-spec/src/{quality_yaml,obligations,seal}.rs` (to be created)
+- spec §3 authority, §10 gate catalogue intro, §39 Task 4
+- `weavatrix-rust` `CodeEvidenceProvider` sketch
+- `crates/wvq-intelligence/` (to be created)
 
 ## Done
 
@@ -25,14 +25,15 @@ Session: sequential implementation (Task 2 done)
 - [x] Agent context files so later sessions do not re-derive the product
 - [x] Task 1 — typed IDs, `Severity`, `FindingState`, `SubjectRef`, `QualityFinding`
 - [x] Task 2 — `OpenSpec` change-delta reader with file/line provenance
+- [x] Task 3 — `quality.yaml` compile + `OracleSeal` (AI metadata does not move the seal)
 
 ## Not started
 
-Tasks 3–35. See `docs/development-plan.md`.
+Tasks 4–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(spec): read OpenSpec change deltas`
+`feat(spec): compile and seal quality obligations`
 
 ## Open questions
 
