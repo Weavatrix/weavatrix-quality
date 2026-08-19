@@ -18,7 +18,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 3);
+    assert_eq!(store.schema_version().unwrap(), 4);
 }
 
 #[test]
@@ -124,4 +124,20 @@ fn failure_fingerprints_cluster_occurrences() {
             .unwrap(),
         Some(2)
     );
+}
+
+#[test]
+fn mutation_results_persist() {
+    let store = open_temp();
+    store
+        .put_mutation_result("ts-0-src/add.ts:1", "CmpGtGe", "src/add.ts:1", "survived")
+        .unwrap();
+    assert_eq!(
+        store
+            .mutation_status("ts-0-src/add.ts:1")
+            .unwrap()
+            .as_deref(),
+        Some("survived")
+    );
+    assert_eq!(store.mutation_status("ts-0-absent").unwrap(), None);
 }

@@ -469,6 +469,49 @@ impl Store {
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         Ok(row.and_then(|value| u32::try_from(value).ok()))
     }
+
+    /// Persist a mutant and its killed/survived status.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_mutation_result(
+        &self,
+        case_id: &str,
+        operator: &str,
+        region: &str,
+        status: &str,
+    ) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO mutation_cases (id, operator, region) VALUES (?1, ?2, ?3)",
+                params![case_id, operator, region],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO mutation_results (id, case_id, status) VALUES (?1, ?2, ?3)",
+                params![format!("res-{case_id}"), case_id, status],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Recorded killed/survived status for one mutant.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn mutation_status(&self, case_id: &str) -> Result<Option<String>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT status FROM mutation_results WHERE case_id = ?1",
+                [case_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))
+    }
 }
 
 /// Manual session identity stored for replay.

@@ -1,0 +1,3 @@
+ALTER TABLE mutation_cases ADD COLUMN operator TEXT NOT NULL DEFAULT '';
+ALTER TABLE mutation_cases ADD COLUMN region TEXT NOT NULL DEFAULT '';
+ALTER TABLE mutation_results ADD COLUMN status TEXT NOT NULL DEFAULT '';

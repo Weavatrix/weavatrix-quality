@@ -494,6 +494,7 @@ impl QualityService for LiveService {
                 execution: ExecutionEvidence::Absent,
                 spec_ambiguous: false,
                 quality_debt: Vec::new(),
+                mutation: None,
             });
             verdicts.push(assembled.proof.verdict);
             proofs.push(ProofSummary {

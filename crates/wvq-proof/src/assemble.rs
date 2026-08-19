@@ -6,6 +6,7 @@ use wvq_domain::{
 };
 use wvq_spec::EvidenceKind;
 
+use crate::mutation::MutationSummary;
 use crate::verdict::{ProofVerdict, VerdictInput, decide_verdict};
 
 /// Observed execution for one obligation.
@@ -58,6 +59,8 @@ pub struct AssemblyInput {
     pub spec_ambiguous: bool,
     /// Debt findings. Recorded beside the proof, never mixed into the verdict.
     pub quality_debt: Vec<QualityFinding>,
+    /// Mutation killed/survived. Survived relevant mutants weaken a green run.
+    pub mutation: Option<MutationSummary>,
 }
 
 /// Spec §27 Proof record.
@@ -85,6 +88,8 @@ pub struct Proof {
     pub observations: Vec<String>,
     /// Artifacts.
     pub artifacts: Vec<ArtifactId>,
+    /// Mutation summary, when run.
+    pub mutation: Option<MutationSummary>,
     /// Verdict. Not a percentage.
     pub verdict: ProofVerdict,
 }
@@ -109,13 +114,21 @@ pub fn assemble(input: AssemblyInput) -> ProofAssembly {
         } => (false, *seal_contradicted, present.clone()),
         ExecutionEvidence::Absent => (false, false, Vec::new()),
     };
-    let verdict = decide_verdict(&VerdictInput {
+    let mut verdict = decide_verdict(&VerdictInput {
         required_evidence: input.required_evidence,
         present_evidence: present,
         execution_passed,
         seal_contradicted,
         spec_ambiguous: input.spec_ambiguous,
     });
+    if input
+        .mutation
+        .as_ref()
+        .is_some_and(|summary| summary.survived > 0)
+        && verdict == ProofVerdict::Proven
+    {
+        verdict = ProofVerdict::Partial;
+    }
     ProofAssembly {
         proof: Proof {
             schema_v: 1,
@@ -129,6 +142,7 @@ pub fn assemble(input: AssemblyInput) -> ProofAssembly {
             run: input.run,
             observations: input.observations,
             artifacts: input.artifacts,
+            mutation: input.mutation,
             verdict,
         },
         debt: input.quality_debt,

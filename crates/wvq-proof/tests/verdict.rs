@@ -38,6 +38,7 @@ fn base_input(execution: ExecutionEvidence) -> AssemblyInput {
         execution,
         spec_ambiguous: false,
         quality_debt: vec![],
+        mutation: None,
     }
 }
 
