@@ -2,6 +2,7 @@
 
 mod api;
 mod architecture;
+mod coverage;
 mod dead_code;
 mod duplicates;
 mod history;
@@ -18,6 +19,9 @@ use wvq_domain::{CheckId, FindingState, QualityFinding, Severity};
 
 pub use api::map_api_delta;
 pub use architecture::map_architecture_violation;
+pub use coverage::{
+    CoverageMeasurement, NodeCoverage, map_coverage_findings, map_coverage_to_nodes,
+};
 pub use history::map_history_risk;
 pub use dead_code::{dead_ids, live_ids, map_dead_code_report};
 pub use duplicates::{family_sizes, map_duplicates_report};
@@ -134,6 +138,22 @@ pub fn gate_history(
     baseline: &DebtBaseline,
 ) -> Result<DebtDelta, IntelligenceError> {
     let findings = map_history_risk(report)?;
+    Ok(classify_debt(&[], &findings, baseline))
+}
+
+/// Overlay measured coverage on Weavatrix node spans and ratchet findings.
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when a node has no id.
+pub fn gate_coverage(
+    base_cov: Option<&wvq_runtime::CoverageArtifact>,
+    head_cov: Option<&wvq_runtime::CoverageArtifact>,
+    base_graph: &Value,
+    head_graph: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let findings = map_coverage_findings(base_cov, head_cov, base_graph, head_graph)?;
     Ok(classify_debt(&[], &findings, baseline))
 }
 

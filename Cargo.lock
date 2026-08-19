@@ -400,6 +400,7 @@ dependencies = [
  "thiserror",
  "weavatrix-rust",
  "wvq-domain",
+ "wvq-runtime",
 ]
 
 [[package]]

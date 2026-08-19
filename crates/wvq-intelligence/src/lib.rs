@@ -13,8 +13,9 @@ mod risk;
 mod weavatrix;
 
 pub use checks::{
-    gate_api, gate_architecture, gate_clones, gate_dead_code, gate_history, gate_topology,
-    map_architecture_report, map_architecture_violation,
+    CoverageMeasurement, NodeCoverage, gate_api, gate_architecture, gate_clones, gate_coverage,
+    gate_dead_code, gate_history, gate_topology, map_architecture_report,
+    map_architecture_violation, map_coverage_to_nodes,
 };
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};

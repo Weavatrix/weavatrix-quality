@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 11 done)
+Session: sequential implementation (Task 12 done)
 
 ## Now
 
-**Milestone:** M3 in progress (normalize + bounded executors).
+**Milestone:** M3 in progress (through coverage mapping).
 
 **Current task:** none in progress.
 
-**Next task:** Task 12 — dynamic coverage ↔ Weavatrix (`docs/development-plan.md`, spec §47).
+**Next task:** Task 13 — minimal selection (`docs/development-plan.md`, spec §48).
 
 **Load next** (do not load the whole spec):
 
-- spec §10.7 coverage, §47 Task 12
-- `crates/wvq-runtime` LCOV ranges
-- Weavatrix `coverage_map` / `select_tests`
+- spec §19 impact-based selection, §48 Task 13
+- `crates/wvq-intelligence` coverage + risk
+- Weavatrix `select_tests`
 
 ## Done
 
@@ -34,14 +34,15 @@ Session: sequential implementation (Task 11 done)
 - [x] Task 9 — API + history risk (`WVQ-API-*`, `WVQ-HIST-*`, `RiskEvidence[]`)
 - [x] Task 10 — runner result normalization (JUnit / LCOV / `go test -json`)
 - [x] Task 11 — bounded executor registry (no arbitrary shell)
+- [x] Task 12 — dynamic coverage ↔ Weavatrix (`WVQ-COV-*`, unmeasured ≠ uncovered)
 
 ## Not started
 
-Tasks 12–35. See `docs/development-plan.md`.
+Tasks 13–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(runtime): add registered bounded executors`
+`feat(coverage): map runtime evidence to impacted code`
 
 ## Open questions
 

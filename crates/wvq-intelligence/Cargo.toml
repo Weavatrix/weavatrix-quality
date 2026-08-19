@@ -18,6 +18,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 weavatrix-rust = { workspace = true }
 wvq-domain = { workspace = true }
+wvq-runtime = { workspace = true }
 
 [lints]
 workspace = true
