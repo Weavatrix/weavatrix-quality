@@ -1,8 +1,10 @@
 //! Quality gates derived from Weavatrix evidence. No second code graph.
 
+mod api;
 mod architecture;
 mod dead_code;
 mod duplicates;
+mod history;
 mod size;
 mod topology;
 
@@ -14,7 +16,9 @@ use crate::debt::{DebtBaseline, DebtDelta, classify_debt};
 use crate::weavatrix::IntelligenceError;
 use wvq_domain::{CheckId, FindingState, QualityFinding, Severity};
 
+pub use api::map_api_delta;
 pub use architecture::map_architecture_violation;
+pub use history::map_history_risk;
 pub use dead_code::{dead_ids, live_ids, map_dead_code_report};
 pub use duplicates::{family_sizes, map_duplicates_report};
 pub use size::size_growth_findings;
@@ -102,6 +106,35 @@ pub fn gate_clones(
         "WVQ-CLONE-005",
         Severity::Error,
     ))
+}
+
+/// Compare Weavatrix endpoints with `OpenSpec` + Proof coverage.
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when an endpoint has no id.
+pub fn gate_api(
+    base: &Value,
+    head: &Value,
+    spec: &Value,
+    proofs: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let findings = map_api_delta(base, head, spec, proofs)?;
+    Ok(classify_debt(&[], &findings, baseline))
+}
+
+/// Map git/history evidence into advisory findings.
+///
+/// # Errors
+///
+/// Returns [`IntelligenceError::InvalidEvidence`] when a path/repo id is missing.
+pub fn gate_history(
+    report: &Value,
+    baseline: &DebtBaseline,
+) -> Result<DebtDelta, IntelligenceError> {
+    let findings = map_history_risk(report)?;
+    Ok(classify_debt(&[], &findings, baseline))
 }
 
 /// Compare Weavatrix topology snapshots (hubs, degrees, community edges).

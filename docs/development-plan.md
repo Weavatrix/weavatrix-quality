@@ -12,7 +12,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | --- | --- | --- | --- |
 | M0 | Shadow-ready workspace, spec, agent context | bootstrap | **done** |
 | M1 | Domain + OpenSpec + OracleSeal | 1–3 | **done** |
-| M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | **in progress** (Tasks 4–8 done) |
+| M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | **done** |
 | M3 | Runner normalize + coverage map + minimal selection | 10–13 | not started |
 | M4 | Store + Proof + CLI/MCP | 14–16 | not started |
 | M0b | Shadow benchmark harness | 17 | after M4 (spec listed M0 early; implement when there is something to measure) |
@@ -49,7 +49,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 - [x] **Task 6** — architecture + size gates → `feat(checks): gate architecture and size regressions` — §41
 - [x] **Task 7** — dead-code + clone delta → `feat(checks): detect new dead code and clones` — §42
 - [x] **Task 8** — topology drift → `feat(checks): report graph topology drift` — §43
-- [ ] **Task 9** — API + history risk → `feat(checks): connect contracts and historical risk` — §44
+- [x] **Task 9** — API + history risk → `feat(checks): connect contracts and historical risk` — §44
 
 ### M3 — execute less, prove more
 

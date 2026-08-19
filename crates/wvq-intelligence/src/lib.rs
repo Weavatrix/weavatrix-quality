@@ -9,12 +9,14 @@
 
 mod checks;
 mod debt;
+mod risk;
 mod weavatrix;
 
 pub use checks::{
-    gate_architecture, gate_clones, gate_dead_code, gate_topology, map_architecture_report,
-    map_architecture_violation,
+    gate_api, gate_architecture, gate_clones, gate_dead_code, gate_history, gate_topology,
+    map_architecture_report, map_architecture_violation,
 };
+pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use weavatrix::{
     CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider,

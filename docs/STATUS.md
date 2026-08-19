@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 8 done)
+Session: sequential implementation (Task 9 / M2 done)
 
 ## Now
 
-**Milestone:** M2 in progress (through topology). Next: API + history risk.
+**Milestone:** M2 done. Next is M3 (runners + selection).
 
 **Current task:** none in progress.
 
-**Next task:** Task 9 — API + history risk (`docs/development-plan.md`, spec §44).
+**Next task:** Task 10 — runner result normalization (`docs/development-plan.md`, spec §45).
 
 **Load next** (do not load the whole spec):
 
-- spec §10.6 API, §10.8 history, §13 risk, §44 Task 9
-- `crates/wvq-intelligence/src/checks/`
-- Weavatrix `list_endpoints` / `git_history`
+- spec §15 runners, §45 Task 10
+- `crates/wvq-runtime/` (to be created)
+- JUnit / LCOV / `go test -json` fixtures
 
 ## Done
 
@@ -31,14 +31,15 @@ Session: sequential implementation (Task 8 done)
 - [x] Task 6 — architecture + size gates (`WVQ-ARCH-*`, `WVQ-SIZE-*`)
 - [x] Task 7 — dead-code + clone delta (`WVQ-DEAD-*`, `WVQ-CLONE-*`)
 - [x] Task 8 — topology drift (`WVQ-GRAPH-*`, base/head numbers)
+- [x] Task 9 — API + history risk (`WVQ-API-*`, `WVQ-HIST-*`, `RiskEvidence[]`)
 
 ## Not started
 
-Tasks 9–35. See `docs/development-plan.md`.
+Tasks 10–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(checks): report graph topology drift`
+`feat(checks): connect contracts and historical risk`
 
 ## Open questions
 
