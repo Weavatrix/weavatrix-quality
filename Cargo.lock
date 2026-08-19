@@ -534,6 +534,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wvq-proof"
+version = "0.0.1"
+dependencies = [
+ "wvq-domain",
+ "wvq-spec",
+]
+
+[[package]]
 name = "wvq-runtime"
 version = "0.0.1"
 dependencies = [

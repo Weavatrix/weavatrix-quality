@@ -1,0 +1,20 @@
+[package]
+name = "wvq-proof"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Revision-bound Proof assembly for Weavatrix Quality"
+publish = false
+keywords = ["weavatrix", "quality", "proof"]
+categories = ["development-tools"]
+
+[dependencies]
+wvq-domain = { workspace = true }
+wvq-spec = { workspace = true }
+
+[lints]
+workspace = true

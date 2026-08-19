@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 14 done)
+Session: sequential implementation (Task 15 done)
 
 ## Now
 
-**Milestone:** M4 in progress (ledger landed).
+**Milestone:** M4 in progress (ledger + Proof).
 
 **Current task:** none in progress.
 
-**Next task:** Task 15 — Proof engine (`docs/development-plan.md`, spec §50).
+**Next task:** Task 16 — command bus, CLI and MCP (`docs/development-plan.md`, spec §51).
 
 **Load next** (do not load the whole spec):
 
-- spec §27 Proof, §50 Task 15
-- `crates/wvq-store` proofs table
-- `crates/wvq-spec` OracleSeal
+- spec §29 MCP, §30 CLI/HTTP, §51 Task 16
+- `crates/wvq-proof` assemble
+- `mcport`
 
 ## Done
 
@@ -37,14 +37,15 @@ Session: sequential implementation (Task 14 done)
 - [x] Task 12 — dynamic coverage ↔ Weavatrix (`WVQ-COV-*`, unmeasured ≠ uncovered)
 - [x] Task 13 — minimal selection (greedy weighted set cover + explanation chain)
 - [x] Task 14 — SQLite + CAS evidence ledger (immutable proofs)
+- [x] Task 15 — Proof engine (`PROVEN`/`CONTRADICTED`/`PARTIAL`/`UNPROVEN`/`HUMAN_REQUIRED`)
 
 ## Not started
 
-Tasks 15–35. See `docs/development-plan.md`.
+Tasks 16–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(store): add evidence ledger`
+`feat(proof): assemble revision-bound verdicts`
 
 ## Open questions
 
