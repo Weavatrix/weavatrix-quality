@@ -3,7 +3,9 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
-use wvq_domain::{ArtifactId, ContentHash, ObligationId, OracleSealId, ProofId, RevisionId};
+use wvq_domain::{
+    ArtifactId, ContentHash, HumanDecision, ObligationId, OracleSealId, ProofId, RevisionId,
+};
 
 use crate::cas::Cas;
 use crate::sqlite::{self, StoreError};
@@ -26,6 +28,46 @@ pub struct ArtifactRecord {
     pub content_hash: ContentHash,
     /// Byte length.
     pub byte_len: u64,
+}
+
+/// AI budget consumption bound to one change and optional run. Spec §26.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StoredAiUsage {
+    /// Change the budget belongs to.
+    pub change_id: String,
+    /// Run, when the usage is run-scoped.
+    pub run_id: Option<String>,
+    /// Planning tokens consumed.
+    pub planning_tokens: u64,
+    /// Runtime tokens consumed. Zero on the ordinary green path.
+    pub runtime_tokens: u64,
+    /// Browser escapes taken.
+    pub browser_escape_calls: u64,
+    /// Vision calls taken.
+    pub vision_calls: u64,
+    /// Money consumed, in micros.
+    pub cost_micros: u64,
+}
+
+/// Recorded human verification row. Spec §66.5.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredHumanDecision {
+    /// Decision id.
+    pub id: String,
+    /// Reviewer identity.
+    pub reviewer: String,
+    /// Reviewer role token.
+    pub role: String,
+    /// The single subject reviewed.
+    pub subject: String,
+    /// Digest of what the reviewer saw.
+    pub artifact_digest: String,
+    /// Decision token.
+    pub decision: String,
+    /// Optional comment.
+    pub comment: Option<String>,
+    /// Host-supplied timestamp.
+    pub decided_at: String,
 }
 
 /// Immutable proof row.
@@ -512,6 +554,151 @@ impl Store {
             .optional()
             .map_err(|err| StoreError::Sqlite(err.to_string()))
     }
+
+    /// Persist AI budget consumption for one change or run.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_ai_usage(&self, id: &str, usage: &StoredAiUsage) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO ai_usage \
+                 (id, tokens, change_id, run_id, planning_tokens, runtime_tokens, \
+                  browser_escape_calls, vision_calls, cost_micros) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    id,
+                    to_i64(usage.planning_tokens.saturating_add(usage.runtime_tokens))?,
+                    usage.change_id,
+                    usage.run_id.clone().unwrap_or_default(),
+                    to_i64(usage.planning_tokens)?,
+                    to_i64(usage.runtime_tokens)?,
+                    to_i64(usage.browser_escape_calls)?,
+                    to_i64(usage.vision_calls)?,
+                    to_i64(usage.cost_micros)?,
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Total AI usage recorded for one change. Absent evidence is `None`.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn ai_usage_for_change(
+        &self,
+        change_id: &str,
+    ) -> Result<Option<StoredAiUsage>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(planning_tokens), 0), \
+                 COALESCE(SUM(runtime_tokens), 0), COALESCE(SUM(browser_escape_calls), 0), \
+                 COALESCE(SUM(vision_calls), 0), COALESCE(SUM(cost_micros), 0) \
+                 FROM ai_usage WHERE change_id = ?1",
+                [change_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                },
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        if row.0 == 0 {
+            return Ok(None);
+        }
+        Ok(Some(StoredAiUsage {
+            change_id: change_id.to_owned(),
+            run_id: None,
+            planning_tokens: to_u64(row.1),
+            runtime_tokens: to_u64(row.2),
+            browser_escape_calls: to_u64(row.3),
+            vision_calls: to_u64(row.4),
+            cost_micros: to_u64(row.5),
+        }))
+    }
+
+    /// Persist one provenance-bearing human decision.
+    ///
+    /// The domain type already refused bulk subjects, so a single row can never
+    /// stand for an implicit "accept all".
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_human_decision(&self, decision: &HumanDecision) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO human_decisions \
+                 (id, reviewer, role, subject, artifact_digest, decision, comment, decided_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    decision.id.as_str(),
+                    decision.reviewer,
+                    decision.role.as_str(),
+                    decision.subject,
+                    decision.artifact_digest.as_str(),
+                    decision.decision.as_str(),
+                    decision.comment,
+                    decision.decided_at,
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Every decision recorded for one subject, oldest row first.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn human_decisions_for_subject(
+        &self,
+        subject: &str,
+    ) -> Result<Vec<StoredHumanDecision>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT id, reviewer, role, subject, artifact_digest, decision, comment, decided_at \
+                 FROM human_decisions WHERE subject = ?1 ORDER BY id",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([subject], |row| {
+                Ok(StoredHumanDecision {
+                    id: row.get(0)?,
+                    reviewer: row.get(1)?,
+                    role: row.get(2)?,
+                    subject: row.get(3)?,
+                    artifact_digest: row.get(4)?,
+                    decision: row.get(5)?,
+                    comment: row.get(6)?,
+                    decided_at: row.get(7)?,
+                })
+            })
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|err| StoreError::Sqlite(err.to_string()))?);
+        }
+        Ok(out)
+    }
+}
+
+fn to_i64(value: u64) -> Result<i64, StoreError> {
+    i64::try_from(value).map_err(|err| StoreError::Invalid(err.to_string()))
+}
+
+fn to_u64(value: i64) -> u64 {
+    u64::try_from(value).unwrap_or_default()
 }
 
 /// Manual session identity stored for replay.

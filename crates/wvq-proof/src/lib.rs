@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod assemble;
+mod budget;
 mod differential;
 mod explorer;
 mod flake;
@@ -12,6 +13,10 @@ mod mutation;
 mod verdict;
 
 pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assemble};
+pub use budget::{
+    AI_BUDGET_EXHAUSTED, AiBudget, AiCall, AiCallKind, AiCostFirewall, AiUsage, BudgetExhausted,
+    BudgetLimit, TokenRatio,
+};
 pub use differential::{
     CodeDelta, DeltaTriangle, SpecDelta, TriangleAxes, TriangleReading, classify_triangle,
     join_triangle, spec_delta,

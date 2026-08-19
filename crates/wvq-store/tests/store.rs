@@ -2,8 +2,11 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use wvq_domain::{ArtifactId, ObligationId, OracleSealId, ProofId, RevisionId};
-use wvq_store::{Store, StoredProof};
+use wvq_domain::{
+    ArtifactId, HumanDecision, HumanDecisionId, HumanRole, NewDecision, ObligationId, OracleSealId,
+    ProofId, RevisionId, VerificationDecision,
+};
+use wvq_store::{Store, StoredAiUsage, StoredProof};
 
 fn open_temp() -> Store {
     let nanos = SystemTime::now()
@@ -18,7 +21,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 4);
+    assert_eq!(store.schema_version().unwrap(), 5);
 }
 
 #[test]
@@ -140,4 +143,77 @@ fn mutation_results_persist() {
         Some("survived")
     );
     assert_eq!(store.mutation_status("ts-0-absent").unwrap(), None);
+}
+
+#[test]
+fn ai_budget_persists_per_change_and_run() {
+    let store = open_temp();
+    assert_eq!(store.ai_usage_for_change("sankey-others").unwrap(), None);
+    store
+        .put_ai_usage(
+            "ai-plan",
+            &StoredAiUsage {
+                change_id: "sankey-others".into(),
+                run_id: None,
+                planning_tokens: 1_800,
+                cost_micros: 120,
+                ..StoredAiUsage::default()
+            },
+        )
+        .unwrap();
+    store
+        .put_ai_usage(
+            "ai-run-1",
+            &StoredAiUsage {
+                change_id: "sankey-others".into(),
+                run_id: Some("run-1".into()),
+                planning_tokens: 200,
+                runtime_tokens: 40,
+                browser_escape_calls: 1,
+                vision_calls: 1,
+                cost_micros: 80,
+            },
+        )
+        .unwrap();
+    let total = store
+        .ai_usage_for_change("sankey-others")
+        .unwrap()
+        .expect("usage was recorded");
+    assert_eq!(total.planning_tokens, 2_000);
+    assert_eq!(total.runtime_tokens, 40);
+    assert_eq!(total.browser_escape_calls, 1);
+    assert_eq!(total.vision_calls, 1);
+    assert_eq!(total.cost_micros, 200);
+    assert_eq!(store.ai_usage_for_change("untouched-change").unwrap(), None);
+}
+
+#[test]
+fn human_decisions_keep_their_provenance() {
+    let store = open_temp();
+    let digest = store.put_blob(b"candidate-requirement").unwrap();
+    let decision = HumanDecision::new(NewDecision {
+        id: HumanDecisionId::new("hd-1").unwrap(),
+        reviewer: "sergii".into(),
+        role: HumanRole::Qa,
+        subject: "others-visible".into(),
+        artifact_digest: digest.clone(),
+        decision: VerificationDecision::ObservedOnly,
+        comment: Some("behaviour seen, intent unconfirmed".into()),
+        decided_at: "2026-08-20T09:00:00Z".into(),
+    })
+    .unwrap();
+    store.put_human_decision(&decision).unwrap();
+    let rows = store.human_decisions_for_subject("others-visible").unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].reviewer, "sergii");
+    assert_eq!(rows[0].role, "qa");
+    assert_eq!(rows[0].decision, "observed_only");
+    assert_eq!(rows[0].artifact_digest, digest.as_str());
+    assert_eq!(rows[0].decided_at, "2026-08-20T09:00:00Z");
+    assert!(
+        store
+            .human_decisions_for_subject("never-reviewed")
+            .unwrap()
+            .is_empty()
+    );
 }

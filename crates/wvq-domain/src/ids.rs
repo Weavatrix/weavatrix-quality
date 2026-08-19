@@ -113,6 +113,10 @@ typed_id!(
     /// Weavatrix snapshot / Git revision identity. Opaque; not re-hashed by WVQ.
     RevisionId
 );
+typed_id!(
+    /// One recorded human verification decision.
+    HumanDecisionId
+);
 
 /// Digest of canonical bytes. Stored as lowercase even-length hex.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]

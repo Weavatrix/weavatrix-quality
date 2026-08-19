@@ -11,6 +11,7 @@ members = [
     "crates/wvq-bench",
     "apps/wvq-cli",
     "apps/wvq-mcp",
+    "apps/qualityd",
 ]
 default-members = [
     "crates/wvq-domain",
@@ -23,6 +24,7 @@ default-members = [
     "crates/wvq-bench",
     "apps/wvq-cli",
     "apps/wvq-mcp",
+    "apps/qualityd",
 ]
 
 [workspace.package]
@@ -45,6 +47,7 @@ wvq-store = { path = "crates/wvq-store", version = "0.0.1" }
 wvq-proof = { path = "crates/wvq-proof", version = "0.0.1" }
 wvq-command-bus = { path = "crates/wvq-command-bus", version = "0.0.1" }
 wvq-bench = { path = "crates/wvq-bench", version = "0.0.1" }
+qualityd = { path = "apps/qualityd", version = "0.0.1" }
 
 blazingly-json = "0.1"
 mcport = "0.5.0"

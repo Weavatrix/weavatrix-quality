@@ -1,0 +1,27 @@
+[package]
+name = "qualityd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Quality Studio HTTP surface for Weavatrix Quality"
+publish = false
+keywords = ["weavatrix", "quality", "studio"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "qualityd"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+wvq-command-bus = { workspace = true }
+wvq-domain = { workspace = true }
+wvq-store = { workspace = true }
+
+[lints]
+workspace = true

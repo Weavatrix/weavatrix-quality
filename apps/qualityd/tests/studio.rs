@@ -1,0 +1,287 @@
+//! Task 23: exception-first Studio API, provenance-bearing decisions, no accept-all.
+
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use qualityd::{HttpRequest, HttpResponse, Studio, serve};
+use serde_json::Value;
+use wvq_command_bus::{FakeService, ProofSummary, QualityService};
+use wvq_store::Store;
+
+static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+const DIGEST: &str = "abababababababababababababababababababababababababababababababab";
+
+fn temp_store() -> Store {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("wvq-studio-{nanos}-{seq}"));
+    std::fs::create_dir_all(&root).expect("temp dir");
+    Store::open(&root).expect("open store")
+}
+
+fn studio_with(fake: &Arc<FakeService>) -> Studio {
+    let service: Arc<dyn QualityService> = Arc::clone(fake) as Arc<dyn QualityService>;
+    Studio::new(service, temp_store())
+}
+
+fn default_studio() -> Studio {
+    studio_with(&Arc::new(FakeService::default()))
+}
+
+fn get(studio: &Studio, path: &str) -> HttpResponse {
+    studio.handle(&HttpRequest {
+        method: "GET".into(),
+        path: path.into(),
+        body: String::new(),
+    })
+}
+
+fn post(studio: &Studio, path: &str, body: &str) -> HttpResponse {
+    studio.handle(&HttpRequest {
+        method: "POST".into(),
+        path: path.into(),
+        body: body.into(),
+    })
+}
+
+fn json(response: &HttpResponse) -> Value {
+    serde_json::from_str(&response.body).expect("response body is json")
+}
+
+fn proof(id: &str, requirement: &str, obligation: &str, verdict: &str) -> ProofSummary {
+    ProofSummary {
+        id: id.into(),
+        requirement: requirement.into(),
+        obligation: obligation.into(),
+        verdict: verdict.into(),
+    }
+}
+
+fn decision_body(id: &str, subject: &str, decision: &str) -> String {
+    serde_json::json!({
+        "id": id,
+        "reviewer": "sergii",
+        "role": "qa",
+        "subject": subject,
+        "artifact_digest": DIGEST,
+        "decision": decision,
+        "decided_at": "2026-08-20T09:00:00Z"
+    })
+    .to_string()
+}
+
+#[test]
+fn changes_are_listed() {
+    let response = get(&default_studio(), "/api/v1/changes");
+    assert_eq!(response.status, 200);
+    assert_eq!(json(&response)["changes"][0], "sankey-others");
+}
+
+#[test]
+fn dashboard_shows_exceptions_and_hides_pass_noise() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("HUMAN_REQUIRED");
+    fake.set_proofs(vec![
+        proof(
+            "p-1",
+            "sankey.visual-limit-others",
+            "others-visible",
+            "PROVEN",
+        ),
+        proof(
+            "p-2",
+            "sankey.visual-limit-others",
+            "others-count",
+            "PROVEN",
+        ),
+        proof(
+            "p-3",
+            "sankey.refresh",
+            "dialog-on-refresh",
+            "HUMAN_REQUIRED",
+        ),
+    ]);
+    let studio = studio_with(&fake);
+
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["obligations"], 3);
+    assert_eq!(body["requirements"], 2);
+    assert_eq!(body["proven"], 2);
+    assert_eq!(body["suppressed_passing"], 2);
+    assert_eq!(body["verdict"], "HUMAN_REQUIRED");
+
+    let needs = body["needs_attention"]
+        .as_array()
+        .expect("needs_attention array");
+    assert_eq!(needs.len(), 1, "green proofs must not reach the dashboard");
+    assert_eq!(needs[0]["obligation"], "dialog-on-refresh");
+    assert_eq!(body["ai"], Value::Null, "unmeasured AI usage is not zero");
+}
+
+#[test]
+fn requirement_drill_down_still_shows_green_proofs() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_proofs(vec![
+        proof(
+            "p-1",
+            "sankey.visual-limit-others",
+            "others-visible",
+            "PROVEN",
+        ),
+        proof("p-2", "sankey.refresh", "dialog-on-refresh", "UNPROVEN"),
+    ]);
+    let studio = studio_with(&fake);
+
+    let body = json(&get(
+        &studio,
+        "/api/v1/requirements/sankey.visual-limit-others/proofs",
+    ));
+    let proofs = body["proofs"].as_array().expect("proofs array");
+    assert_eq!(proofs.len(), 1);
+    assert_eq!(proofs[0]["verdict"], "PROVEN");
+    assert_eq!(
+        get(&studio, "/api/v1/requirements/sankey.unknown/proofs").status,
+        404
+    );
+}
+
+#[test]
+fn unknown_route_is_404_and_wrong_method_is_405() {
+    let studio = default_studio();
+
+    let unknown = get(&studio, "/api/v1/nope");
+    assert_eq!(unknown.status, 404);
+    assert_eq!(json(&unknown)["error"], "unknown route");
+
+    let wrong_method = post(&studio, "/api/v1/changes", "{}");
+    assert_eq!(wrong_method.status, 405);
+    assert_eq!(
+        json(&wrong_method)["error"],
+        "method not allowed for this route"
+    );
+
+    assert_eq!(get(&studio, "/").status, 404);
+    assert_eq!(get(&studio, "/api/v1/human-decisions").status, 405);
+}
+
+#[test]
+fn human_decision_is_recorded_with_provenance() {
+    let studio = default_studio();
+    let response = post(
+        &studio,
+        "/api/v1/human-decisions",
+        &decision_body("hd-1", "others-visible", "observed_only"),
+    );
+    assert_eq!(response.status, 201);
+
+    let body = json(&response);
+    assert_eq!(body["reviewer"], "sergii");
+    assert_eq!(body["role"], "qa");
+    assert_eq!(body["subject"], "others-visible");
+    assert_eq!(body["artifact_digest"], DIGEST);
+    assert_eq!(body["decided_at"], "2026-08-20T09:00:00Z");
+    assert_eq!(
+        body["seal_eligible"], false,
+        "observed_only never becomes normative"
+    );
+    assert_eq!(body["escalates"], false);
+}
+
+#[test]
+fn escalation_is_visible_on_the_decision() {
+    let studio = default_studio();
+    let body = json(&post(
+        &studio,
+        "/api/v1/human-decisions",
+        &decision_body("hd-2", "others-visible", "request_product_decision"),
+    ));
+    assert_eq!(body["escalates"], true);
+    assert_eq!(body["seal_eligible"], false);
+}
+
+#[test]
+fn implicit_accept_all_is_refused() {
+    let studio = default_studio();
+
+    let bulk_field = serde_json::json!({
+        "id": "hd-3",
+        "reviewer": "sergii",
+        "role": "qa",
+        "subject": "others-visible",
+        "artifact_digest": DIGEST,
+        "decision": "accept_as_intended",
+        "decided_at": "2026-08-20T09:00:00Z",
+        "accept_all": true
+    })
+    .to_string();
+    assert_eq!(
+        post(&studio, "/api/v1/human-decisions", &bulk_field).status,
+        400,
+        "an accept-all flag must not even parse"
+    );
+
+    for subject in ["*", "all", "a,b"] {
+        assert_eq!(
+            post(
+                &studio,
+                "/api/v1/human-decisions",
+                &decision_body("hd-4", subject, "accept_as_intended")
+            )
+            .status,
+            422,
+            "subject {subject:?} approves more than one thing"
+        );
+    }
+}
+
+#[test]
+fn malformed_decision_payloads_are_rejected() {
+    let studio = default_studio();
+    assert_eq!(post(&studio, "/api/v1/human-decisions", "{").status, 400);
+    let bad_digest = serde_json::json!({
+        "id": "hd-5",
+        "reviewer": "sergii",
+        "role": "qa",
+        "subject": "others-visible",
+        "artifact_digest": "NOT-HEX",
+        "decision": "accept_as_intended",
+        "decided_at": "2026-08-20T09:00:00Z"
+    })
+    .to_string();
+    assert_eq!(
+        post(&studio, "/api/v1/human-decisions", &bad_digest).status,
+        400
+    );
+}
+
+#[test]
+fn studio_answers_over_a_real_socket() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let addr = listener.local_addr().expect("local addr");
+    let server = std::thread::spawn(move || {
+        let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
+        let studio = Studio::new(service, temp_store());
+        serve(&listener, Some(1), |request| studio.handle(request)).expect("serve one request");
+    });
+
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .write_all(b"GET /api/v1/changes HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
+        .expect("write request");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("read response");
+    server.join().expect("server thread");
+
+    assert!(raw.starts_with("HTTP/1.1 200 OK"), "got: {raw}");
+    assert!(raw.contains("Content-Type: application/json"));
+    let body = raw.split("\r\n\r\n").nth(1).expect("response body");
+    let value: Value = serde_json::from_str(body).expect("json body");
+    assert_eq!(value["changes"][0], "sankey-others");
+}

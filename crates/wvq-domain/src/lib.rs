@@ -5,13 +5,13 @@
 
 #![forbid(unsafe_code)]
 
+mod decision;
 mod finding;
 mod ids;
 
-pub use finding::{
-    DebtFingerprint, DebtState, FindingState, QualityFinding, Severity, SubjectRef,
-};
+pub use decision::{DecisionError, HumanDecision, HumanRole, NewDecision, VerificationDecision};
+pub use finding::{DebtFingerprint, DebtState, FindingState, QualityFinding, Severity, SubjectRef};
 pub use ids::{
-    ArtifactId, ChangeId, CheckId, ContentHash, IdError, ObligationId, OracleSealId, ProgramId,
-    ProofId, RequirementId, RevisionId, RunId, ScenarioId,
+    ArtifactId, ChangeId, CheckId, ContentHash, HumanDecisionId, IdError, ObligationId,
+    OracleSealId, ProgramId, ProofId, RequirementId, RevisionId, RunId, ScenarioId,
 };

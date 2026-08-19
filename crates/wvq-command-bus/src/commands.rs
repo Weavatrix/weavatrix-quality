@@ -115,6 +115,10 @@ pub struct SelectCommand {
     pub change: String,
 }
 
+/// List known `OpenSpec` changes. Studio uses this for its Changes screen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangesCommand {}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -142,6 +146,8 @@ pub enum Command {
     Debt(DebtCommand),
     /// `wvq select`.
     Select(SelectCommand),
+    /// [`ChangesCommand`].
+    Changes(ChangesCommand),
 }
 
 impl Command {
@@ -161,6 +167,7 @@ impl Command {
             Self::Analyze(_) => "analyze",
             Self::Debt(_) => "debt",
             Self::Select(_) => "select",
+            Self::Changes(_) => "changes",
         }
     }
 }

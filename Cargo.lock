@@ -273,6 +273,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "qualityd"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "wvq-command-bus",
+ "wvq-domain",
+ "wvq-store",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.37.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

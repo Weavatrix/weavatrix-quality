@@ -153,10 +153,27 @@ impl VerifyReply {
 pub struct ProofSummary {
     /// Proof id.
     pub id: String,
+    /// Requirement the obligation belongs to. Drives Studio drill-down.
+    pub requirement: String,
     /// Obligation.
     pub obligation: String,
     /// Verdict token.
     pub verdict: String,
+}
+
+impl ProofSummary {
+    /// Whether this proof is ordinary pass-noise the dashboard should hide.
+    #[must_use]
+    pub fn is_passing(&self) -> bool {
+        self.verdict == "PROVEN"
+    }
+}
+
+/// Known `OpenSpec` changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChangesReply {
+    /// Change identities, sorted.
+    pub changes: Vec<String>,
 }
 
 /// Provenance-bearing explanation.
@@ -288,6 +305,9 @@ pub enum Reply {
     /// [`SelectReply`].
     #[serde(rename = "select")]
     Select(SelectReply),
+    /// [`ChangesReply`].
+    #[serde(rename = "changes")]
+    Changes(ChangesReply),
 }
 
 impl Reply {

@@ -18,13 +18,13 @@ use wvq_spec::{
 };
 
 use crate::commands::{
-    Command, ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand, PlanCommand, RunCommand,
-    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand,
+    PlanCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
-    ContextReply, DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, PlanReply, ProofSummary,
-    Reply, RunReply, SelectReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
-    bound_items,
+    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, PlanReply,
+    ProofSummary, Reply, RunReply, SelectReply, SpecSealReply, SpecValidateReply, StatusReply,
+    VerifyReply, bound_items,
 };
 
 /// Command-bus failure. Unknown values fail closed.
@@ -120,6 +120,12 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError`] when the change cannot be compiled.
     fn select(&self, cmd: &SelectCommand) -> Result<SelectReply, BusError>;
+    /// Known `OpenSpec` changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError::NotFound`] when `openspec/changes` cannot be read.
+    fn changes(&self, cmd: &ChangesCommand) -> Result<ChangesReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -141,6 +147,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::SpecSeal(cmd) => service.spec_seal(&cmd).map(Reply::SpecSeal),
         Command::Debt(cmd) => service.debt(&cmd).map(Reply::Debt),
         Command::Select(cmd) => service.select(&cmd).map(Reply::Select),
+        Command::Changes(cmd) => service.changes(&cmd).map(Reply::Changes),
     }
 }
 
@@ -158,6 +165,7 @@ struct FakeInner {
     run_executed: bool,
     last_run: Option<RunState>,
     explanations: BTreeMap<String, ExplainReply>,
+    proofs: Vec<ProofSummary>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +190,7 @@ impl Default for FakeService {
                 run_executed: false,
                 last_run: None,
                 explanations: BTreeMap::new(),
+                proofs: Vec::new(),
             }),
         }
     }
@@ -206,6 +215,13 @@ impl FakeService {
     /// Register an explanation.
     pub fn put_explain(&self, reply: ExplainReply) {
         self.lock().explanations.insert(reply.id.clone(), reply);
+    }
+
+    /// Per-obligation proofs [`QualityService::verify`] should return.
+    ///
+    /// Empty (the default) keeps the single placeholder proof.
+    pub fn set_proofs(&self, proofs: Vec<ProofSummary>) {
+        self.lock().proofs = proofs;
     }
 
     /// Whether [`QualityService::run`] was invoked.
@@ -288,8 +304,15 @@ impl QualityService for FakeService {
     }
 
     fn verify(&self, cmd: &VerifyCommand) -> Result<VerifyReply, BusError> {
-        let verdict = self.lock().verdict.clone();
-        Ok(verify_from_token(&cmd.change, &verdict))
+        let inner = self.lock();
+        let verdict = inner.verdict.clone();
+        let proofs = inner.proofs.clone();
+        drop(inner);
+        let mut reply = verify_from_token(&cmd.change, &verdict);
+        if !proofs.is_empty() {
+            reply.proofs = proofs;
+        }
+        Ok(reply)
     }
 
     fn explain(&self, cmd: &ExplainCommand) -> Result<ExplainReply, BusError> {
@@ -341,6 +364,13 @@ impl QualityService for FakeService {
             uncovered_mandatory: vec!["others-visible".into()],
             explanations: Vec::new(),
             executed: false,
+        })
+    }
+
+    fn changes(&self, cmd: &ChangesCommand) -> Result<ChangesReply, BusError> {
+        let _ = cmd;
+        Ok(ChangesReply {
+            changes: vec!["sankey-others".into()],
         })
     }
 }
@@ -499,6 +529,7 @@ impl QualityService for LiveService {
             verdicts.push(assembled.proof.verdict);
             proofs.push(ProofSummary {
                 id: assembled.proof.id.to_string(),
+                requirement: obligation.requirement.to_string(),
                 obligation: obligation.id.to_string(),
                 verdict: assembled.proof.verdict.as_str().to_owned(),
             });
@@ -595,6 +626,13 @@ impl QualityService for LiveService {
                 .map(|item| item.explanation.clone())
                 .collect(),
             executed: false,
+        })
+    }
+
+    fn changes(&self, cmd: &ChangesCommand) -> Result<ChangesReply, BusError> {
+        let _ = cmd;
+        Ok(ChangesReply {
+            changes: list_changes(&self.repo)?,
         })
     }
 }
@@ -802,6 +840,7 @@ fn verify_from_token(change: &str, verdict: &str) -> VerifyReply {
         blocking,
         proofs: vec![ProofSummary {
             id: "proof-fake".into(),
+            requirement: "sankey.visual-limit-others".into(),
             obligation: "others-visible".into(),
             verdict: verdict.to_owned(),
         }],
