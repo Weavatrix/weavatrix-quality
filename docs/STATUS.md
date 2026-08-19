@@ -1,20 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 13 / M3 done)
+Session: sequential implementation (Task 14 done)
 
 ## Now
 
-**Milestone:** M3 done. Next is M4 (store + Proof + CLI/MCP).
+**Milestone:** M4 in progress (ledger landed).
 
 **Current task:** none in progress.
 
-**Next task:** Task 14 — SQLite + CAS (`docs/development-plan.md`, spec §49).
+**Next task:** Task 15 — Proof engine (`docs/development-plan.md`, spec §50).
 
 **Load next** (do not load the whole spec):
 
-- spec §28 storage, §49 Task 14
-- `crates/wvq-store/` (to be created)
+- spec §27 Proof, §50 Task 15
+- `crates/wvq-store` proofs table
+- `crates/wvq-spec` OracleSeal
 
 ## Done
 
@@ -35,14 +36,15 @@ Session: sequential implementation (Task 13 / M3 done)
 - [x] Task 11 — bounded executor registry (no arbitrary shell)
 - [x] Task 12 — dynamic coverage ↔ Weavatrix (`WVQ-COV-*`, unmeasured ≠ uncovered)
 - [x] Task 13 — minimal selection (greedy weighted set cover + explanation chain)
+- [x] Task 14 — SQLite + CAS evidence ledger (immutable proofs)
 
 ## Not started
 
-Tasks 14–35. See `docs/development-plan.md`.
+Tasks 15–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(selection): choose minimal impacted regression`
+`feat(store): add evidence ledger`
 
 ## Open questions
 
