@@ -30,6 +30,9 @@ pub enum IntelligenceError {
     /// JSON conversion between WVQ (`serde_json`) and the engine failed.
     #[error("evidence JSON: {0}")]
     Json(String),
+    /// Structured Weavatrix evidence could not be mapped into a finding.
+    #[error("invalid weavatrix evidence: {0}")]
+    InvalidEvidence(String),
 }
 
 /// Revision-bound handle to a Weavatrix analysis. Not a graph copy.

@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 5 done)
+Session: sequential implementation (Task 6 done)
 
 ## Now
 
-**Milestone:** M2 in progress (embed + ratchet).
+**Milestone:** M2 in progress (embed + ratchet + architecture/size).
 
 **Current task:** none in progress.
 
-**Next task:** Task 6 — Architecture + size gates (`docs/development-plan.md`, spec §41).
+**Next task:** Task 7 — dead-code + clone delta (`docs/development-plan.md`, spec §42).
 
 **Load next** (do not load the whole spec):
 
-- spec §10.3 architecture, §10.4 size, §41 Task 6
-- `crates/wvq-intelligence/src/debt.rs`
-- Weavatrix `verify_architecture` / LOC budgets
+- spec §10.1 dead-code, §10.2 duplicates, §42 Task 7
+- `crates/wvq-intelligence/src/checks/`
+- Weavatrix `find_dead_code` / `find_duplicates`
 
 ## Done
 
@@ -28,14 +28,15 @@ Session: sequential implementation (Task 5 done)
 - [x] Task 3 — `quality.yaml` compile + `OracleSeal` (AI metadata does not move the seal)
 - [x] Task 4 — embed `weavatrix-rust` as the only `CodeEvidenceProvider` (no second graph)
 - [x] Task 5 — Quality Debt Ratchet (`existing/new/fixed/returned/excepted`)
+- [x] Task 6 — architecture + size gates (`WVQ-ARCH-*`, `WVQ-SIZE-*`)
 
 ## Not started
 
-Tasks 6–35. See `docs/development-plan.md`.
+Tasks 7–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(quality): add no-new-debt ratchet`
+`feat(checks): gate architecture and size regressions`
 
 ## Open questions
 

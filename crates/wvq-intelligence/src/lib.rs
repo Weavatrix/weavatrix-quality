@@ -7,9 +7,11 @@
 
 #![forbid(unsafe_code)]
 
+mod checks;
 mod debt;
 mod weavatrix;
 
+pub use checks::{gate_architecture, map_architecture_report, map_architecture_violation};
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use weavatrix::{
     CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider,

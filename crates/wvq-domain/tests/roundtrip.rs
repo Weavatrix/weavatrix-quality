@@ -56,6 +56,7 @@ fn quality_finding_round_trips() {
         state: FindingState::New,
         subject: SubjectRef::File("ui/sankey.tsx".into()),
         summary: "new blocking architecture fingerprint".into(),
+        weavatrix_fingerprint: Some("aabbccddeeff0011".into()),
     };
     let json = serde_json::to_string(&finding).unwrap();
     let back: QualityFinding = serde_json::from_str(&json).unwrap();

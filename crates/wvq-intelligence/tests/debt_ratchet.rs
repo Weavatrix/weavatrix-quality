@@ -4,13 +4,12 @@ use wvq_domain::{CheckId, FindingState, QualityFinding, Severity, SubjectRef};
 use wvq_intelligence::{DebtBaseline, DebtException, classify_debt};
 
 fn finding(check: &str, file: &str, summary: &str) -> QualityFinding {
-    QualityFinding {
-        check: CheckId::new(check).unwrap(),
-        severity: Severity::Warn,
-        state: FindingState::New,
-        subject: SubjectRef::File(file.into()),
-        summary: summary.into(),
-    }
+    QualityFinding::new(
+        CheckId::new(check).unwrap(),
+        Severity::Warn,
+        SubjectRef::File(file.into()),
+        summary,
+    )
 }
 
 #[test]

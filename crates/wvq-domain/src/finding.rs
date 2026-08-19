@@ -73,13 +73,17 @@ pub struct QualityFinding {
     pub subject: SubjectRef,
     /// Short human-readable explanation. Not a verdict percentage.
     pub summary: String,
+    /// Original Weavatrix Architecture Firewall fingerprint, when the finding
+    /// was mapped from engine evidence. Included in the ratchet identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weavatrix_fingerprint: Option<String>,
 }
 
 /// Order-independent identity of one debt item.
 ///
-/// Built from [`QualityFinding::check`] + canonical [`SubjectRef`]. Summary,
-/// severity, and current [`FindingState`] are not part of the fingerprint, so
-/// wording changes cannot mint a new debt identity.
+/// Built from [`QualityFinding::check`] plus the Weavatrix fingerprint when
+/// present, otherwise canonical [`SubjectRef`]. Summary, severity, and current
+/// [`FindingState`] are not part of the identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DebtFingerprint {
     /// Check catalogue id.
@@ -91,9 +95,34 @@ pub struct DebtFingerprint {
 }
 
 impl QualityFinding {
+    /// Construct a finding with ratchet state `New` and no Weavatrix fingerprint.
+    #[must_use]
+    pub fn new(
+        check: CheckId,
+        severity: Severity,
+        subject: SubjectRef,
+        summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            check,
+            severity,
+            state: FindingState::New,
+            subject,
+            summary: summary.into(),
+            weavatrix_fingerprint: None,
+        }
+    }
+
     /// Stable ratchet fingerprint. Independent of input order and summary text.
     #[must_use]
     pub fn fingerprint(&self) -> DebtFingerprint {
+        if let Some(fingerprint) = &self.weavatrix_fingerprint {
+            return DebtFingerprint {
+                check: self.check.clone(),
+                subject_kind: "weavatrix".into(),
+                subject_value: fingerprint.clone(),
+            };
+        }
         let (subject_kind, subject_value) = subject_canonical(&self.subject);
         DebtFingerprint {
             check: self.check.clone(),
