@@ -1,0 +1,26 @@
+[package]
+name = "wvq-command-bus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Shared CLI/HTTP/MCP command bus for Weavatrix Quality"
+publish = false
+keywords = ["weavatrix", "quality", "wvq"]
+categories = ["development-tools"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+wvq-domain = { workspace = true }
+wvq-intelligence = { workspace = true }
+wvq-proof = { workspace = true }
+wvq-spec = { workspace = true }
+
+[lints]
+workspace = true

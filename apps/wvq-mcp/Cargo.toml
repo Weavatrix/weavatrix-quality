@@ -1,0 +1,28 @@
+[package]
+name = "wvq-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "Bounded MCP host for Weavatrix Quality (mcport)"
+publish = false
+keywords = ["weavatrix", "quality", "mcp"]
+categories = ["development-tools"]
+
+[[bin]]
+name = "wvq-mcp"
+path = "src/main.rs"
+
+[dependencies]
+mcport = { workspace = true }
+serde = { workspace = true }
+wvq-command-bus = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

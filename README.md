@@ -19,7 +19,7 @@ Humans review only unresolved product intent.
 
 ## Status
 
-**Scaffold.** Domain contracts have not started. Read [`docs/STATUS.md`](docs/STATUS.md) before writing code.
+**M4.** Domain, OpenSpec, Weavatrix embed, debt ratchet, selection, ledger, Proof, CLI, and bounded MCP are in tree. Read [`docs/STATUS.md`](docs/STATUS.md) before writing code.
 
 Normative specification: [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md) (2026-08-18).
 

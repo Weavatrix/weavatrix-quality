@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 15 done)
+Session: sequential implementation (Task 16 done)
 
 ## Now
 
-**Milestone:** M4 in progress (ledger + Proof).
+**Milestone:** M4 done (ledger + Proof + CLI/MCP).
 
 **Current task:** none in progress.
 
-**Next task:** Task 16 — command bus, CLI and MCP (`docs/development-plan.md`, spec §51).
+**Next task:** Task 17 — shadow benchmark harness (`docs/development-plan.md`, spec §52).
 
 **Load next** (do not load the whole spec):
 
-- spec §29 MCP, §30 CLI/HTTP, §51 Task 16
-- `crates/wvq-proof` assemble
-- `mcport`
+- spec §52 Task 17
+- `docs/development-plan.md` Task 17
+- existing crates for selected-vs-full metrics
 
 ## Done
 
@@ -38,14 +38,15 @@ Session: sequential implementation (Task 15 done)
 - [x] Task 13 — minimal selection (greedy weighted set cover + explanation chain)
 - [x] Task 14 — SQLite + CAS evidence ledger (immutable proofs)
 - [x] Task 15 — Proof engine (`PROVEN`/`CONTRADICTED`/`PARTIAL`/`UNPROVEN`/`HUMAN_REQUIRED`)
+- [x] Task 16 — command bus, CLI `wvq`, MCP via `mcport` (seven default tools)
 
 ## Not started
 
-Tasks 16–35. See `docs/development-plan.md`.
+Tasks 17–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(proof): assemble revision-bound verdicts`
+`feat(product): add CLI and bounded MCP`
 
 ## Open questions
 

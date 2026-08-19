@@ -1,0 +1,24 @@
+[package]
+name = "wvq-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description = "wvq command-line surface for Weavatrix Quality"
+publish = false
+keywords = ["weavatrix", "quality", "wvq"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "wvq"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+wvq-command-bus = { workspace = true }
+
+[lints]
+workspace = true

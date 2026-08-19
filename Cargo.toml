@@ -7,6 +7,9 @@ members = [
     "crates/wvq-runtime",
     "crates/wvq-store",
     "crates/wvq-proof",
+    "crates/wvq-command-bus",
+    "apps/wvq-cli",
+    "apps/wvq-mcp",
 ]
 default-members = [
     "crates/wvq-domain",
@@ -15,6 +18,9 @@ default-members = [
     "crates/wvq-runtime",
     "crates/wvq-store",
     "crates/wvq-proof",
+    "crates/wvq-command-bus",
+    "apps/wvq-cli",
+    "apps/wvq-mcp",
 ]
 
 [workspace.package]
@@ -35,8 +41,10 @@ wvq-intelligence = { path = "crates/wvq-intelligence", version = "0.0.1" }
 wvq-runtime = { path = "crates/wvq-runtime", version = "0.0.1" }
 wvq-store = { path = "crates/wvq-store", version = "0.0.1" }
 wvq-proof = { path = "crates/wvq-proof", version = "0.0.1" }
+wvq-command-bus = { path = "crates/wvq-command-bus", version = "0.0.1" }
 
 blazingly-json = "0.1"
+mcport = "0.5.0"
 weavatrix-rust = { version = "2.6.0", default-features = false }
 
 serde = { version = "1.0", features = ["derive"] }

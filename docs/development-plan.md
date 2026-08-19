@@ -14,7 +14,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M1 | Domain + OpenSpec + OracleSeal | 1–3 | **done** |
 | M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | **done** |
 | M3 | Runner normalize + coverage map + minimal selection | 10–13 | **done** |
-| M4 | Store + Proof + CLI/MCP | 14–16 | **in progress** (Tasks 14–15 done) |
+| M4 | Store + Proof + CLI/MCP | 14–16 | **done** |
 | M0b | Shadow benchmark harness | 17 | after M4 (spec listed M0 early; implement when there is something to measure) |
 | M5 | Browser TestProgram bridge | 18 | not started |
 | M6 | Recorder + BehaviorGraph + base/head diff | 19–20 | not started |
@@ -62,7 +62,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 
 - [x] **Task 14** — SQLite + CAS → `feat(store): add evidence ledger` — §49
 - [x] **Task 15** — Proof engine → `feat(proof): assemble revision-bound verdicts` — §50
-- [ ] **Task 16** — command bus, CLI, MCP → `feat(product): add CLI and bounded MCP` — §51
+- [x] **Task 16** — command bus, CLI, MCP → `feat(product): add CLI and bounded MCP` — §51
 
 ### Measurement
 

@@ -236,6 +236,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcport"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "894dc9aabf47e2b7119d4eb22fc2d77df9664e264d96ad1c179d05889b6bf074"
+dependencies = [
+ "blazingly-json",
+ "serde",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -513,6 +523,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "wvq-cli"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+ "wvq-command-bus",
+]
+
+[[package]]
+name = "wvq-command-bus"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "wvq-domain",
+ "wvq-intelligence",
+ "wvq-proof",
+ "wvq-spec",
+]
+
+[[package]]
 name = "wvq-domain"
 version = "0.0.1"
 dependencies = [
@@ -531,6 +563,16 @@ dependencies = [
  "weavatrix-rust",
  "wvq-domain",
  "wvq-runtime",
+]
+
+[[package]]
+name = "wvq-mcp"
+version = "0.0.1"
+dependencies = [
+ "mcport",
+ "serde",
+ "serde_json",
+ "wvq-command-bus",
 ]
 
 [[package]]
