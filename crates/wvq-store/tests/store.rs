@@ -18,7 +18,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 1);
+    assert_eq!(store.schema_version().unwrap(), 2);
 }
 
 #[test]
@@ -74,4 +74,35 @@ fn proofs_are_immutable() {
     assert!(matches!(err, wvq_store::StoreError::ProofImmutable));
     let loaded = store.get_proof(&proof.id).unwrap().expect("proof");
     assert_eq!(loaded.verdict, "PROVEN");
+}
+
+#[test]
+fn behavior_states_and_edges_persist() {
+    let store = open_temp();
+    let body = br#"{"route":"/analytics/dashboard/42"}"#;
+    let digest = store.put_blob(body).unwrap();
+    store.put_behavior_state(&digest, body).unwrap();
+    store.put_behavior_state(&digest, body).unwrap();
+    assert_eq!(store.behavior_state_count().unwrap(), 1);
+
+    let after = store
+        .put_blob(br#"{"route":"/analytics/dashboard/42","modal":"others"}"#)
+        .unwrap();
+    store
+        .put_behavior_edge(&digest, &after, "activate")
+        .unwrap();
+    store
+        .put_behavior_edge(&digest, &after, "activate")
+        .unwrap();
+    assert_eq!(store.behavior_edge_count().unwrap(), 1);
+
+    store
+        .put_manual_session("sess-1", Some(7), Some("admin-above-limit"))
+        .unwrap();
+    let session = store
+        .get_manual_session("sess-1")
+        .unwrap()
+        .expect("session");
+    assert_eq!(session.seed, Some(7));
+    assert_eq!(session.fixture.as_deref(), Some("admin-above-limit"));
 }

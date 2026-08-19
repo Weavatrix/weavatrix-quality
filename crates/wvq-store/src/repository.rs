@@ -170,7 +170,8 @@ impl Store {
         let Some((id_raw, kind, hash_raw, len)) = row else {
             return Ok(None);
         };
-        let hash = ContentHash::new(&hash_raw).map_err(|err| StoreError::Invalid(err.to_string()))?;
+        let hash =
+            ContentHash::new(&hash_raw).map_err(|err| StoreError::Invalid(err.to_string()))?;
         if self.cas.object_path(&hash).is_file() {
             Ok(Some(ArtifactRecord {
                 id: ArtifactId::new(id_raw).map_err(|err| StoreError::Invalid(err.to_string()))?,
@@ -262,4 +263,144 @@ impl Store {
             })
             .transpose()
     }
+
+    /// Persist a hashed behavior state. Body lives in CAS; the row is the digest.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Invalid`] when `digest` does not match the content hash.
+    pub fn put_behavior_state(&self, digest: &ContentHash, body: &[u8]) -> Result<(), StoreError> {
+        let hash = self.cas.put(body)?;
+        if hash.as_str() != digest.as_str() {
+            return Err(StoreError::Invalid(
+                "behavior state digest does not match CAS hash".into(),
+            ));
+        }
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO behavior_states (id, digest) VALUES (?1, ?2)",
+                params![digest.as_str(), digest.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Persist `src --action--> dst`. Duplicate edges are ignored.
+    ///
+    /// # Errors
+    ///
+    /// SQL or hash failure.
+    pub fn put_behavior_edge(
+        &self,
+        src: &ContentHash,
+        dst: &ContentHash,
+        action: &str,
+    ) -> Result<(), StoreError> {
+        let id = edge_id(src, dst, action)?;
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO behavior_edges (id, src, dst, action) VALUES (?1, ?2, ?3, ?4)",
+                params![id, src.as_str(), dst.as_str(), action],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Record a manual QA session so it can be replayed.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_manual_session(
+        &self,
+        id: &str,
+        seed: Option<u64>,
+        fixture: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let seed = seed.map(|value| i64::try_from(value).unwrap_or(i64::MAX));
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO manual_sessions (id, seed, fixture) VALUES (?1, ?2, ?3)",
+                params![id, seed, fixture],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Number of persisted behavior states.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn behavior_state_count(&self) -> Result<u64, StoreError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM behavior_states", [], |row| row.get(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        u64::try_from(count).map_err(|err| StoreError::Invalid(err.to_string()))
+    }
+
+    /// Number of persisted behavior edges.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn behavior_edge_count(&self) -> Result<u64, StoreError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM behavior_edges", [], |row| row.get(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        u64::try_from(count).map_err(|err| StoreError::Invalid(err.to_string()))
+    }
+
+    /// Load a session's seed and fixture.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn get_manual_session(&self, id: &str) -> Result<Option<StoredSession>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT seed, fixture FROM manual_sessions WHERE id = ?1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<i64>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?
+            .map(|(seed, fixture)| {
+                Ok(StoredSession {
+                    seed: seed.map(|value| u64::try_from(value).unwrap_or(0)),
+                    fixture,
+                })
+            })
+            .transpose()
+    }
+}
+
+/// Manual session identity stored for replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSession {
+    /// Recording seed.
+    pub seed: Option<u64>,
+    /// Fixture name.
+    pub fixture: Option<String>,
+}
+
+fn edge_id(src: &ContentHash, dst: &ContentHash, action: &str) -> Result<String, StoreError> {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+    let mut input = String::new();
+    write!(&mut input, "{}|{action}|{}", src.as_str(), dst.as_str())
+        .map_err(|err| StoreError::Invalid(err.to_string()))?;
+    Ok(Sha256::digest(input.as_bytes())
+        .iter()
+        .fold(String::new(), |mut out, byte| {
+            let _ = write!(out, "{byte:02x}");
+            out
+        }))
 }

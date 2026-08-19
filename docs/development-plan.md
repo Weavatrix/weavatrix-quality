@@ -17,7 +17,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M4 | Store + Proof + CLI/MCP | 14–16 | **done** |
 | M0b | Shadow benchmark harness | 17 | **done** |
 | M5 | Browser TestProgram bridge | 18 | **done** |
-| M6 | Recorder + BehaviorGraph + base/head diff | 19–20 | not started |
+| M6 | Recorder + BehaviorGraph + base/head diff | 19–20 | **in progress** (Task 19 done) |
 | M7 | Flake + safe healing | 21 | not started |
 | M8 | Mutation + metamorphic + cheap explorer | 22 | not started |
 | M9 | AI Cost Firewall | 23 (firewall half) | not started |
@@ -71,7 +71,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 ### M5–M10 — behavior and humans
 
 - [x] **Task 18** — Browser TestProgram vertical slice → `feat(browser): add deterministic TestProgram execution` — §53
-- [ ] **Task 19** — record/replay + BehaviorGraph → `feat(behavior): turn manual QA into replayable knowledge` — §54
+- [x] **Task 19** — record/replay + BehaviorGraph → `feat(behavior): turn manual QA into replayable knowledge` — §54
 - [ ] **Task 20** — Delta Triangle → `feat(diff): add Delta Triangle verification` — §55
 - [ ] **Task 21** — flake + safe healing → `feat(triage): diagnose and safely heal tests` — §56
 - [ ] **Task 22** — mutation, metamorphic, explorer → `feat(advanced): add proof strength and cheap exploration` — §57

@@ -600,6 +600,7 @@ dependencies = [
  "quick-xml",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "wvq-domain",
 ]

@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 18 done)
+Session: sequential implementation (Task 19 done)
 
 ## Now
 
-**Milestone:** M5 done (TestProgram + thin Playwright bridge). M6 next.
+**Milestone:** M6 in progress (recorder + BehaviorGraph done; Delta Triangle next).
 
 **Current task:** none in progress.
 
-**Next task:** Task 19 — record/replay + BehaviorGraph (`docs/development-plan.md`, spec §54).
+**Next task:** Task 20 — Delta Triangle (`docs/development-plan.md`, spec §55).
 
 **Load next** (do not load the whole spec):
 
-- spec §54 Task 19, §14 TestProgram, BehaviorGraph
-- `crates/wvq-runtime` program + browser_protocol
-- `js/playwright-runner` record.ts stub
+- spec §55 Task 20, §18 differential replay, Delta Triangle matrix
+- `crates/wvq-runtime` behavior + program
+- `crates/wvq-proof` assemble
 
 ## Done
 
@@ -41,14 +41,15 @@ Session: sequential implementation (Task 18 done)
 - [x] Task 16 — command bus, CLI `wvq`, MCP via `mcport` (seven default tools)
 - [x] Task 17 — shadow benchmark harness (selected vs full; no published 10×)
 - [x] Task 18 — Browser `TestProgram` IR + thin Playwright bridge (no AI)
+- [x] Task 19 — record/replay + `BehaviorGraph` (promote to `TestProgram`)
 
 ## Not started
 
-Tasks 19–35. See `docs/development-plan.md`.
+Tasks 20–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(browser): add deterministic TestProgram execution`
+`feat(behavior): turn manual QA into replayable knowledge`
 
 ## Open questions
 

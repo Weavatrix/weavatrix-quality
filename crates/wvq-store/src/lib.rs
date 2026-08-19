@@ -8,5 +8,5 @@ mod repository;
 mod sqlite;
 
 pub use cas::Cas;
-pub use repository::{ArtifactRecord, Store, StoredProof};
+pub use repository::{ArtifactRecord, Store, StoredProof, StoredSession};
 pub use sqlite::StoreError;

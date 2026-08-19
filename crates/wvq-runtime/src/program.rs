@@ -93,7 +93,7 @@ impl EvidencePolicy {
 pub enum ProgramSource {
     /// Hand-authored against sealed obligations.
     Authored,
-    /// Promoted from a recorded session (later task).
+    /// Promoted from a recorded session.
     Recorded,
     /// Recovered candidate. Cannot seal by itself.
     Recovered,
@@ -225,7 +225,7 @@ pub enum TestAction {
 }
 
 impl TestAction {
-    fn validate(&self) -> Result<(), ProgramError> {
+    pub(crate) fn validate(&self) -> Result<(), ProgramError> {
         match self {
             Self::Navigate { route } if route.is_empty() => Err(ProgramError::Invalid(
                 "navigate route must be non-empty".into(),

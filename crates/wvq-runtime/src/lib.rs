@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod behavior;
 mod browser_protocol;
 mod executor;
 mod gojson;
@@ -11,6 +12,11 @@ mod normalize;
 mod process;
 mod program;
 
+pub use behavior::{
+    BehaviorEdge, BehaviorState, BehaviorTrace, CoverageContribution, GraphMemory, RecordedEvent,
+    Recorder, ReplayHost, coverage_contribution, promote, replay_program, replay_trace,
+    semantic_target,
+};
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,
 };
