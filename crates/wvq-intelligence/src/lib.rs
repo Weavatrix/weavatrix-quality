@@ -7,8 +7,10 @@
 
 #![forbid(unsafe_code)]
 
+mod debt;
 mod weavatrix;
 
+pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use weavatrix::{
     CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider,
 };

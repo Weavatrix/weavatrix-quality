@@ -8,7 +8,9 @@
 mod finding;
 mod ids;
 
-pub use finding::{DebtState, FindingState, QualityFinding, Severity, SubjectRef};
+pub use finding::{
+    DebtFingerprint, DebtState, FindingState, QualityFinding, Severity, SubjectRef,
+};
 pub use ids::{
     ArtifactId, ChangeId, CheckId, ContentHash, IdError, ObligationId, OracleSealId, ProgramId,
     ProofId, RequirementId, RevisionId, RunId, ScenarioId,

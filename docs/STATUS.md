@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 4 done)
+Session: sequential implementation (Task 5 done)
 
 ## Now
 
-**Milestone:** M2 in progress (Weavatrix embed landed).
+**Milestone:** M2 in progress (embed + ratchet).
 
 **Current task:** none in progress.
 
-**Next task:** Task 5 — Quality Debt Ratchet (`docs/development-plan.md`, spec §40).
+**Next task:** Task 6 — Architecture + size gates (`docs/development-plan.md`, spec §41).
 
 **Load next** (do not load the whole spec):
 
-- spec §9 Quality Debt Ratchet, §40 Task 5
-- `crates/wvq-domain/src/finding.rs` (`FindingState`)
-- `crates/wvq-intelligence/src/weavatrix.rs`
+- spec §10.3 architecture, §10.4 size, §41 Task 6
+- `crates/wvq-intelligence/src/debt.rs`
+- Weavatrix `verify_architecture` / LOC budgets
 
 ## Done
 
@@ -27,14 +27,15 @@ Session: sequential implementation (Task 4 done)
 - [x] Task 2 — `OpenSpec` change-delta reader with file/line provenance
 - [x] Task 3 — `quality.yaml` compile + `OracleSeal` (AI metadata does not move the seal)
 - [x] Task 4 — embed `weavatrix-rust` as the only `CodeEvidenceProvider` (no second graph)
+- [x] Task 5 — Quality Debt Ratchet (`existing/new/fixed/returned/excepted`)
 
 ## Not started
 
-Tasks 5–35. See `docs/development-plan.md`.
+Tasks 6–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(intelligence): embed weavatrix engine`
+`feat(quality): add no-new-debt ratchet`
 
 ## Open questions
 

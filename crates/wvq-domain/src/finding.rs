@@ -74,3 +74,61 @@ pub struct QualityFinding {
     /// Short human-readable explanation. Not a verdict percentage.
     pub summary: String,
 }
+
+/// Order-independent identity of one debt item.
+///
+/// Built from [`QualityFinding::check`] + canonical [`SubjectRef`]. Summary,
+/// severity, and current [`FindingState`] are not part of the fingerprint, so
+/// wording changes cannot mint a new debt identity.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DebtFingerprint {
+    /// Check catalogue id.
+    pub check: CheckId,
+    /// Subject kind (`file`, `symbol`, …).
+    pub subject_kind: String,
+    /// Canonical subject value (`/` path separators).
+    pub subject_value: String,
+}
+
+impl QualityFinding {
+    /// Stable ratchet fingerprint. Independent of input order and summary text.
+    #[must_use]
+    pub fn fingerprint(&self) -> DebtFingerprint {
+        let (subject_kind, subject_value) = subject_canonical(&self.subject);
+        DebtFingerprint {
+            check: self.check.clone(),
+            subject_kind,
+            subject_value,
+        }
+    }
+
+    /// Copy with a classified ratchet state.
+    #[must_use]
+    pub fn with_state(mut self, state: FindingState) -> Self {
+        self.state = state;
+        self
+    }
+}
+
+impl std::fmt::Display for DebtFingerprint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}:{}",
+            self.check, self.subject_kind, self.subject_value
+        )
+    }
+}
+
+fn subject_canonical(subject: &SubjectRef) -> (String, String) {
+    match subject {
+        SubjectRef::File(path) => ("file".into(), path.replace('\\', "/")),
+        SubjectRef::Symbol(name) => ("symbol".into(), name.clone()),
+        SubjectRef::Endpoint(name) => ("endpoint".into(), name.clone()),
+        SubjectRef::Test(name) => ("test".into(), name.clone()),
+        SubjectRef::GraphNode(name) => ("graph_node".into(), name.clone()),
+        SubjectRef::Obligation(id) => ("obligation".into(), id.to_string()),
+        SubjectRef::Requirement(id) => ("requirement".into(), id.to_string()),
+        SubjectRef::Change(id) => ("change".into(), id.to_string()),
+    }
+}
