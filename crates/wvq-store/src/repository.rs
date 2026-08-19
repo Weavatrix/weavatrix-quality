@@ -380,6 +380,95 @@ impl Store {
             })
             .transpose()
     }
+
+    /// Persist a failure fingerprint. Repeats share the same digest.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_failure_fingerprint(
+        &self,
+        digest: &ContentHash,
+        class: &str,
+    ) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO failure_fingerprints (id, digest, class) VALUES (?1, ?2, ?3)",
+                params![digest.as_str(), digest.as_str(), class],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Record one occurrence of a fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_failure_occurrence(&self, id: &str, digest: &ContentHash) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO failure_occurrences (id, fingerprint, seen_at) VALUES (?1, ?2, datetime('now'))",
+                params![id, digest.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// How many occurrences share this fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn failure_cluster_size(&self, digest: &ContentHash) -> Result<u64, StoreError> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM failure_occurrences WHERE fingerprint = ?1",
+                [digest.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        u64::try_from(count).map_err(|err| StoreError::Invalid(err.to_string()))
+    }
+
+    /// Store a healed program revision bound to its `OracleSeal`.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn put_program_revision(
+        &self,
+        program: &str,
+        revision: u32,
+        seal: &str,
+    ) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO program_revisions (program, revision, seal) VALUES (?1, ?2, ?3)",
+                params![program, i64::from(revision), seal],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Latest stored revision for a program.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn latest_program_revision(&self, program: &str) -> Result<Option<u32>, StoreError> {
+        let row: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT MAX(revision) FROM program_revisions WHERE program = ?1",
+                [program],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(row.and_then(|value| u32::try_from(value).ok()))
+    }
 }
 
 /// Manual session identity stored for replay.

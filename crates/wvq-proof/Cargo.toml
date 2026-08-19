@@ -13,6 +13,8 @@ keywords = ["weavatrix", "quality", "proof"]
 categories = ["development-tools"]
 
 [dependencies]
+sha2 = { workspace = true }
+thiserror = { workspace = true }
 wvq-domain = { workspace = true }
 wvq-runtime = { workspace = true }
 wvq-spec = { workspace = true }

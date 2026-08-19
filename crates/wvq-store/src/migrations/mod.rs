@@ -4,4 +4,5 @@
 pub const MIGRATIONS: &[&str] = &[
     include_str!("001_ledger.sql"),
     include_str!("002_behavior.sql"),
+    include_str!("003_flake.sql"),
 ];

@@ -18,7 +18,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 2);
+    assert_eq!(store.schema_version().unwrap(), 3);
 }
 
 #[test]
@@ -105,4 +105,23 @@ fn behavior_states_and_edges_persist() {
         .expect("session");
     assert_eq!(session.seed, Some(7));
     assert_eq!(session.fixture.as_deref(), Some("admin-above-limit"));
+}
+
+#[test]
+fn failure_fingerprints_cluster_occurrences() {
+    let store = open_temp();
+    let digest = store.put_blob(b"flake-identity").unwrap();
+    store.put_failure_fingerprint(&digest, "timing").unwrap();
+    store.put_failure_occurrence("occ-1", &digest).unwrap();
+    store.put_failure_occurrence("occ-2", &digest).unwrap();
+    assert_eq!(store.failure_cluster_size(&digest).unwrap(), 2);
+    store
+        .put_program_revision("sankey-others-replay", 2, "oseal-abc")
+        .unwrap();
+    assert_eq!(
+        store
+            .latest_program_revision("sankey-others-replay")
+            .unwrap(),
+        Some(2)
+    );
 }

@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 20 done)
+Session: sequential implementation (Task 21 done)
 
 ## Now
 
-**Milestone:** M6 done (recorder + BehaviorGraph + Delta Triangle).
+**Milestone:** M7 done (flake triage + safe healing).
 
 **Current task:** none in progress.
 
-**Next task:** Task 21 — flake + safe healing (`docs/development-plan.md`, spec §56).
+**Next task:** Task 22 — mutation, metamorphic, cheap explorer (`docs/development-plan.md`, spec §57).
 
 **Load next** (do not load the whole spec):
 
-- spec §56 Task 21, flake fingerprints, safe healing rules
-- `crates/wvq-proof` verdict + differential
-- `crates/wvq-store` failure_fingerprints tables
+- spec §57 Task 22, §21 mutation, §22 metamorphic, §25 explorer
+- `crates/wvq-proof` flake + heal
+- `crates/wvq-runtime` TestProgram
 
 ## Done
 
@@ -43,14 +43,15 @@ Session: sequential implementation (Task 20 done)
 - [x] Task 18 — Browser `TestProgram` IR + thin Playwright bridge (no AI)
 - [x] Task 19 — record/replay + `BehaviorGraph` (promote to `TestProgram`)
 - [x] Task 20 — Delta Triangle (structured-before-pixel `BehaviorDelta`, unexpected findings)
+- [x] Task 21 — flake fingerprints + safe healing (seal/assertions immutable)
 
 ## Not started
 
-Tasks 21–35. See `docs/development-plan.md`.
+Tasks 22–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(diff): add Delta Triangle verification`
+`feat(triage): diagnose and safely heal tests`
 
 ## Open questions
 

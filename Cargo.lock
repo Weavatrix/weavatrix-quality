@@ -589,6 +589,8 @@ dependencies = [
 name = "wvq-proof"
 version = "0.0.1"
 dependencies = [
+ "sha2",
+ "thiserror",
  "wvq-domain",
  "wvq-runtime",
  "wvq-spec",
