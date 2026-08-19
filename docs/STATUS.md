@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 19 done)
+Session: sequential implementation (Task 20 done)
 
 ## Now
 
-**Milestone:** M6 in progress (recorder + BehaviorGraph done; Delta Triangle next).
+**Milestone:** M6 done (recorder + BehaviorGraph + Delta Triangle).
 
 **Current task:** none in progress.
 
-**Next task:** Task 20 — Delta Triangle (`docs/development-plan.md`, spec §55).
+**Next task:** Task 21 — flake + safe healing (`docs/development-plan.md`, spec §56).
 
 **Load next** (do not load the whole spec):
 
-- spec §55 Task 20, §18 differential replay, Delta Triangle matrix
-- `crates/wvq-runtime` behavior + program
-- `crates/wvq-proof` assemble
+- spec §56 Task 21, flake fingerprints, safe healing rules
+- `crates/wvq-proof` verdict + differential
+- `crates/wvq-store` failure_fingerprints tables
 
 ## Done
 
@@ -42,14 +42,15 @@ Session: sequential implementation (Task 19 done)
 - [x] Task 17 — shadow benchmark harness (selected vs full; no published 10×)
 - [x] Task 18 — Browser `TestProgram` IR + thin Playwright bridge (no AI)
 - [x] Task 19 — record/replay + `BehaviorGraph` (promote to `TestProgram`)
+- [x] Task 20 — Delta Triangle (structured-before-pixel `BehaviorDelta`, unexpected findings)
 
 ## Not started
 
-Tasks 20–35. See `docs/development-plan.md`.
+Tasks 21–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(behavior): turn manual QA into replayable knowledge`
+`feat(diff): add Delta Triangle verification`
 
 ## Open questions
 

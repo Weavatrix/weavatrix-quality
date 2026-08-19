@@ -590,6 +590,7 @@ name = "wvq-proof"
 version = "0.0.1"
 dependencies = [
  "wvq-domain",
+ "wvq-runtime",
  "wvq-spec",
 ]
 

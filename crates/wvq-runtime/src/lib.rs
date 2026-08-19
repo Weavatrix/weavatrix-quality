@@ -4,6 +4,7 @@
 
 mod behavior;
 mod browser_protocol;
+mod diff;
 mod executor;
 mod gojson;
 mod junit;
@@ -19,6 +20,9 @@ pub use behavior::{
 };
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,
+};
+pub use diff::{
+    AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta, replay_base_head,
 };
 pub use executor::{
     ExecutionResult, Executor, ExecutorCapabilities, ExecutorId, ExecutorRegistry, ExecutorSpec,
