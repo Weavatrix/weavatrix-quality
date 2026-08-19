@@ -1,0 +1,12 @@
+{
+  "schema_v": 1,
+  "id": "bad-xpath",
+  "source": "authored",
+  "obligations": ["others-visible"],
+  "steps": [
+    {
+      "action": "activate",
+      "target": { "xpath": "//button" }
+    }
+  ]
+}

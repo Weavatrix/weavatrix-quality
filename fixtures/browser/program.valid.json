@@ -1,0 +1,22 @@
+{
+  "schema_v": 1,
+  "id": "sankey-others-visible",
+  "source": "authored",
+  "obligations": ["others-visible"],
+  "deterministic_seed": 7,
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "never",
+    "network": "always",
+    "console": "always",
+    "storage": "on_failure"
+  },
+  "steps": [
+    { "action": "navigate", "route": "/sankey" },
+    {
+      "action": "activate",
+      "target": { "role": "button", "accessible_name": "Others" }
+    },
+    { "action": "assert", "obligation": "others-visible" }
+  ]
+}

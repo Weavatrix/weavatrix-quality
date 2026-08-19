@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 17 done)
+Session: sequential implementation (Task 18 done)
 
 ## Now
 
-**Milestone:** M0b done (shadow harness). M5 next.
+**Milestone:** M5 done (TestProgram + thin Playwright bridge). M6 next.
 
 **Current task:** none in progress.
 
-**Next task:** Task 18 — Browser TestProgram vertical slice (`docs/development-plan.md`, spec §53).
+**Next task:** Task 19 — record/replay + BehaviorGraph (`docs/development-plan.md`, spec §54).
 
 **Load next** (do not load the whole spec):
 
-- spec §53 Task 18, §15 runners, §16 browser token economy
-- `js/playwright-runner`
-- `crates/wvq-runtime` executor registry
+- spec §54 Task 19, §14 TestProgram, BehaviorGraph
+- `crates/wvq-runtime` program + browser_protocol
+- `js/playwright-runner` record.ts stub
 
 ## Done
 
@@ -40,14 +40,15 @@ Session: sequential implementation (Task 17 done)
 - [x] Task 15 — Proof engine (`PROVEN`/`CONTRADICTED`/`PARTIAL`/`UNPROVEN`/`HUMAN_REQUIRED`)
 - [x] Task 16 — command bus, CLI `wvq`, MCP via `mcport` (seven default tools)
 - [x] Task 17 — shadow benchmark harness (selected vs full; no published 10×)
+- [x] Task 18 — Browser `TestProgram` IR + thin Playwright bridge (no AI)
 
 ## Not started
 
-Tasks 18–35. See `docs/development-plan.md`.
+Tasks 19–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`bench: add shadow quality evaluation`
+`feat(browser): add deterministic TestProgram execution`
 
 ## Open questions
 

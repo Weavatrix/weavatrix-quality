@@ -1,0 +1,9 @@
+{
+  "name": "@weavatrix/playwright-runner",
+  "private": true,
+  "type": "module",
+  "description": "Thin Playwright bridge for Weavatrix Quality. No AI.",
+  "scripts": {
+    "test": "node --test --experimental-strip-types tests/protocol.test.ts"
+  }
+}

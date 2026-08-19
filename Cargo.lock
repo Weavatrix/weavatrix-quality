@@ -601,6 +601,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "wvq-domain",
 ]
 
 [[package]]

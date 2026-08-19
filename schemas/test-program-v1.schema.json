@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://weavatrix.com/schemas/test-program-v1.schema.json",
+  "title": "Weavatrix Quality TestProgram v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_v", "id", "source", "obligations", "steps"],
+  "properties": {
+    "schema_v": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "source": { "enum": ["authored", "recorded", "recovered"] },
+    "obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "evidence_policy": { "$ref": "#/$defs/evidence_policy" },
+    "deterministic_seed": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "accessible_name": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "test_id": { "type": "string", "minLength": 1 },
+        "component_hint": { "type": "string", "minLength": 1 },
+        "fallback_css": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evidence_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "screenshot": { "enum": ["never", "on_failure", "always"] },
+        "trace": { "enum": ["never", "on_failure", "always"] },
+        "network": { "enum": ["never", "on_failure", "always"] },
+        "console": { "enum": ["never", "on_failure", "always"] },
+        "storage": { "enum": ["never", "on_failure", "always"] }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "enum": [
+            "navigate",
+            "activate",
+            "fill",
+            "select",
+            "press",
+            "wait",
+            "set_feature_flag",
+            "inject_fault",
+            "api_call",
+            "assert"
+          ]
+        }
+      }
+    }
+  }
+}
