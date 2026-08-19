@@ -1,21 +1,21 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-19
-Session: sequential implementation (Task 1 done)
+Session: sequential implementation (Task 2 done)
 
 ## Now
 
-**Milestone:** M1 in progress (domain landed).
+**Milestone:** M1 in progress (domain + OpenSpec reader).
 
 **Current task:** none in progress.
 
-**Next task:** Task 2 — OpenSpec compatibility reader (`docs/development-plan.md`, spec §37).
+**Next task:** Task 3 — quality contract and OracleSeal (`docs/development-plan.md`, spec §38).
 
 **Load next** (do not load the whole spec):
 
-- spec §6 OpenSpec integration, §37 Task 2
-- `crates/wvq-domain/src/ids.rs` (`ChangeId`, `RequirementId`, `ScenarioId`)
-- `crates/wvq-spec/` (to be created)
+- spec §6 `quality.yaml`, §7 TestObligation, §8 OracleSeal, §38 Task 3
+- `crates/wvq-spec/src/openspec.rs`
+- `crates/wvq-spec/src/{quality_yaml,obligations,seal}.rs` (to be created)
 
 ## Done
 
@@ -24,14 +24,15 @@ Session: sequential implementation (Task 1 done)
 - [x] Cargo workspace + empty `wvq-domain`
 - [x] Agent context files so later sessions do not re-derive the product
 - [x] Task 1 — typed IDs, `Severity`, `FindingState`, `SubjectRef`, `QualityFinding`
+- [x] Task 2 — `OpenSpec` change-delta reader with file/line provenance
 
 ## Not started
 
-Tasks 2–35. See `docs/development-plan.md`.
+Tasks 3–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`feat(domain): add stable quality contracts`
+`feat(spec): read OpenSpec change deltas`
 
 ## Open questions
 

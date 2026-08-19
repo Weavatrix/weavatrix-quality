@@ -11,7 +11,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | Milestone | Deliverable | Tasks | Status |
 | --- | --- | --- | --- |
 | M0 | Shadow-ready workspace, spec, agent context | bootstrap | **done** |
-| M1 | Domain + OpenSpec + OracleSeal | 1–3 | **in progress** (Task 1 done) |
+| M1 | Domain + OpenSpec + OracleSeal | 1–3 | **in progress** (Tasks 1–2 done) |
 | M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | not started |
 | M3 | Runner normalize + coverage map + minimal selection | 10–13 | not started |
 | M4 | Store + Proof + CLI/MCP | 14–16 | not started |
@@ -39,7 +39,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 ### M1 — contracts and intent
 
 - [x] **Task 1** — domain contracts → `feat(domain): add stable quality contracts` — spec §36
-- [ ] **Task 2** — OpenSpec reader → `feat(spec): read OpenSpec change deltas` — §37
+- [x] **Task 2** — OpenSpec reader → `feat(spec): read OpenSpec change deltas` — §37
 - [ ] **Task 3** — quality.yaml + OracleSeal → `feat(spec): compile and seal quality obligations` — §38
 
 ### M2 — Weavatrix intelligence
