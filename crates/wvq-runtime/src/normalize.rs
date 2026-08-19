@@ -94,6 +94,27 @@ pub enum RuntimeError {
         /// Artifact kind.
         kind: String,
     },
+    /// Executor id is not in the registry.
+    #[error("unknown executor `{0}`")]
+    UnknownExecutor(String),
+    /// Typed args contained a forbidden key or unsafe value.
+    #[error("invalid executor argument: {0}")]
+    InvalidArg(String),
+    /// Process exceeded its deadline.
+    #[error("executor deadline exceeded")]
+    DeadlineExceeded,
+    /// Combined stdout+stderr exceeded the byte cap.
+    #[error("executor output exceeded {max} bytes")]
+    OutputLimit {
+        /// Configured cap.
+        max: usize,
+    },
+    /// Caller cancelled the run.
+    #[error("executor cancelled")]
+    Cancelled,
+    /// OS could not start the registered program.
+    #[error("executor spawn failed: {0}")]
+    Spawn(String),
 }
 
 impl NormalizedTestRun {

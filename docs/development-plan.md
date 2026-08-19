@@ -13,7 +13,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M0 | Shadow-ready workspace, spec, agent context | bootstrap | **done** |
 | M1 | Domain + OpenSpec + OracleSeal | 1–3 | **done** |
 | M2 | Weavatrix embed + Quality Debt Ratchet + first gates | 4–9 | **done** |
-| M3 | Runner normalize + coverage map + minimal selection | 10–13 | **in progress** (Task 10 done) |
+| M3 | Runner normalize + coverage map + minimal selection | 10–13 | **in progress** (Tasks 10–11 done) |
 | M4 | Store + Proof + CLI/MCP | 14–16 | not started |
 | M0b | Shadow benchmark harness | 17 | after M4 (spec listed M0 early; implement when there is something to measure) |
 | M5 | Browser TestProgram bridge | 18 | not started |
@@ -54,7 +54,7 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 ### M3 — execute less, prove more
 
 - [x] **Task 10** — runner result normalize → `feat(runtime): normalize test evidence` — §45
-- [ ] **Task 11** — bounded executor registry → `feat(runtime): add registered bounded executors` — §46
+- [x] **Task 11** — bounded executor registry → `feat(runtime): add registered bounded executors` — §46
 - [ ] **Task 12** — dynamic coverage ↔ Weavatrix → `feat(coverage): map runtime evidence to impacted code` — §47
 - [ ] **Task 13** — minimal selection → `feat(selection): choose minimal impacted regression` — §48
 
