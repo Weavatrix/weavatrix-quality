@@ -1,22 +1,21 @@
 # STATUS — Weavatrix Quality
 
-Last updated: 2026-08-18
-Session: repo bootstrap
+Last updated: 2026-08-19
+Session: sequential implementation (Task 1 done)
 
 ## Now
 
-**Milestone:** M0 scaffold (workspace + spec + agent context). Not yet M1.
+**Milestone:** M1 in progress (domain landed).
 
 **Current task:** none in progress.
 
-**Next task:** Task 1 — workspace and domain contracts (`docs/development-plan.md`, spec §36).
+**Next task:** Task 2 — OpenSpec compatibility reader (`docs/development-plan.md`, spec §37).
 
 **Load next** (do not load the whole spec):
 
-- `AGENTS.md`
-- `docs/invariants.md`
-- spec §7 TestObligation, §8 OracleSeal, §27 Proof, §36 Task 1
-- `crates/wvq-domain/src/lib.rs`
+- spec §6 OpenSpec integration, §37 Task 2
+- `crates/wvq-domain/src/ids.rs` (`ChangeId`, `RequirementId`, `ScenarioId`)
+- `crates/wvq-spec/` (to be created)
 
 ## Done
 
@@ -24,14 +23,15 @@ Session: repo bootstrap
 - [x] Name locked: **Weavatrix Quality** / `weavatrix-quality` / WVQ / `wvq`
 - [x] Cargo workspace + empty `wvq-domain`
 - [x] Agent context files so later sessions do not re-derive the product
+- [x] Task 1 — typed IDs, `Severity`, `FindingState`, `SubjectRef`, `QualityFinding`
 
 ## Not started
 
-M1–M11 and Tasks 1–35. See `docs/development-plan.md`.
+Tasks 2–35. See `docs/development-plan.md`.
 
 ## Last commit
 
-`chore: bootstrap weavatrix-quality from canonical master spec`
+`feat(domain): add stable quality contracts`
 
 ## Open questions
 
