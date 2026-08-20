@@ -280,6 +280,7 @@ dependencies = [
  "serde_json",
  "wvq-command-bus",
  "wvq-domain",
+ "wvq-spec-recovery",
  "wvq-store",
 ]
 
@@ -594,6 +595,8 @@ dependencies = [
  "serde",
  "serde_json",
  "wvq-command-bus",
+ "wvq-domain",
+ "wvq-spec-recovery",
 ]
 
 [[package]]

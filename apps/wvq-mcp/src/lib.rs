@@ -2,6 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+mod recovery;
+
+pub use recovery::{SharedDesk, recovery_server};
+
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -14,6 +14,7 @@ use wvq_command_bus::{
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
 };
+use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::{Store, StoredAiUsage};
 
 use crate::http::{HttpRequest, HttpResponse};
@@ -28,12 +29,16 @@ enum Route<'a> {
     Run(&'a str),
     Artifact(&'a str),
     HumanDecisions,
+    RecoveryReview,
+    RecoveryQuestions,
+    RecoveryPatch,
+    RecoveryDecisions,
 }
 
 impl Route<'_> {
     fn method(self) -> &'static str {
         match self {
-            Self::HumanDecisions => "POST",
+            Self::HumanDecisions | Self::RecoveryDecisions => "POST",
             _ => "GET",
         }
     }
@@ -103,6 +108,19 @@ struct DecisionRequest {
     decided_at: String,
 }
 
+/// Proposed `OpenSpec` patch text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct RecoveryPatchBody {
+    patch: String,
+}
+
+/// Where one candidate now stands on the mandatory verification path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct RecoveryStateBody {
+    candidate: String,
+    state: &'static str,
+}
+
 /// Stored decision plus what it permits.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct DecisionBody {
@@ -118,6 +136,7 @@ struct DecisionBody {
 pub struct Studio {
     service: Arc<dyn QualityService>,
     store: Mutex<Store>,
+    recovery: Option<Arc<Mutex<RecoveryDesk>>>,
 }
 
 impl Studio {
@@ -127,7 +146,17 @@ impl Studio {
         Self {
             service,
             store: Mutex::new(store),
+            recovery: None,
         }
+    }
+
+    /// Enable the spec-recovery screens over a desk the host has populated.
+    ///
+    /// Recovery is opt-in: a repository with complete `OpenSpec` never needs it.
+    #[must_use]
+    pub fn with_recovery(mut self, desk: Arc<Mutex<RecoveryDesk>>) -> Self {
+        self.recovery = Some(desk);
+        self
     }
 
     /// Route and answer one request.
@@ -148,6 +177,48 @@ impl Studio {
             Route::Run(id) => self.run(id),
             Route::Artifact(id) => self.artifact(id),
             Route::HumanDecisions => self.record_decision(&request.body),
+            Route::RecoveryReview => self.with_desk(|desk| ok(&desk.review())),
+            Route::RecoveryQuestions => self.with_desk(|desk| ok(&desk.questions())),
+            Route::RecoveryPatch => self.with_desk(|desk| {
+                ok(&RecoveryPatchBody {
+                    patch: desk.preview_patch(),
+                })
+            }),
+            Route::RecoveryDecisions => self.record_recovery_decision(&request.body),
+        }
+    }
+
+    /// Run `body` against the recovery desk, or answer 404 when it is off.
+    fn with_desk<F>(&self, body: F) -> HttpResponse
+    where
+        F: FnOnce(&RecoveryDesk) -> HttpResponse,
+    {
+        let Some(desk) = &self.recovery else {
+            return HttpResponse::error(404, "spec recovery is not enabled for this repository");
+        };
+        let guard = desk
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        body(&guard)
+    }
+
+    fn record_recovery_decision(&self, body: &str) -> HttpResponse {
+        let Some(desk) = &self.recovery else {
+            return HttpResponse::error(404, "spec recovery is not enabled for this repository");
+        };
+        let decision = match parse_decision(body) {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        let mut guard = desk
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match guard.decide(&decision) {
+            Ok(state) => ok(&RecoveryStateBody {
+                candidate: decision.subject,
+                state: state.as_str(),
+            }),
+            Err(err) => HttpResponse::error(422, &err.to_string()),
         }
     }
 
@@ -255,28 +326,9 @@ impl Studio {
     }
 
     fn record_decision(&self, body: &str) -> HttpResponse {
-        let request: DecisionRequest = match serde_json::from_str(body) {
+        let decision = match parse_decision(body) {
             Ok(value) => value,
-            Err(err) => return HttpResponse::error(400, &err.to_string()),
-        };
-        let Ok(id) = HumanDecisionId::new(&request.id) else {
-            return HttpResponse::error(400, "decision id must be a non-empty token");
-        };
-        let Ok(digest) = ContentHash::new(&request.artifact_digest) else {
-            return HttpResponse::error(400, "artifact_digest must be lowercase hex");
-        };
-        let decision = match HumanDecision::new(NewDecision {
-            id,
-            reviewer: request.reviewer,
-            role: request.role,
-            subject: request.subject,
-            artifact_digest: digest,
-            decision: request.decision,
-            comment: request.comment,
-            decided_at: request.decided_at,
-        }) {
-            Ok(value) => value,
-            Err(err) => return HttpResponse::error(422, &err.to_string()),
+            Err(response) => return response,
         };
         if let Err(err) = self.lock_store().put_human_decision(&decision) {
             return HttpResponse::error(500, &err.to_string());
@@ -299,9 +351,34 @@ impl Studio {
     }
 }
 
+/// Parse one decision body, refusing bulk fields and malformed identities.
+fn parse_decision(body: &str) -> Result<HumanDecision, HttpResponse> {
+    let request: DecisionRequest =
+        serde_json::from_str(body).map_err(|err| HttpResponse::error(400, &err.to_string()))?;
+    let id = HumanDecisionId::new(&request.id)
+        .map_err(|_| HttpResponse::error(400, "decision id must be a non-empty token"))?;
+    let digest = ContentHash::new(&request.artifact_digest)
+        .map_err(|_| HttpResponse::error(400, "artifact_digest must be lowercase hex"))?;
+    HumanDecision::new(NewDecision {
+        id,
+        reviewer: request.reviewer,
+        role: request.role,
+        subject: request.subject,
+        artifact_digest: digest,
+        decision: request.decision,
+        comment: request.comment,
+        decided_at: request.decided_at,
+    })
+    .map_err(|err| HttpResponse::error(422, &err.to_string()))
+}
+
 fn parse_route(path: &str) -> Option<Route<'_>> {
     let segments: Vec<&str> = path.split('/').collect();
     match segments.as_slice() {
+        ["api", "v1", "recovery", "review"] => Some(Route::RecoveryReview),
+        ["api", "v1", "recovery", "questions"] => Some(Route::RecoveryQuestions),
+        ["api", "v1", "recovery", "patch"] => Some(Route::RecoveryPatch),
+        ["api", "v1", "recovery", "decisions"] => Some(Route::RecoveryDecisions),
         ["api", "v1", "changes"] => Some(Route::Changes),
         ["api", "v1", "changes", change, "summary"] => Some(Route::Summary(change)),
         ["api", "v1", "requirements", requirement, "proofs"] => {

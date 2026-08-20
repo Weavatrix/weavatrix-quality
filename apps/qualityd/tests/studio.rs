@@ -2,13 +2,14 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use qualityd::{HttpRequest, HttpResponse, Studio, serve};
 use serde_json::Value;
 use wvq_command_bus::{FakeService, ProofSummary, QualityService};
+use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::Store;
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -259,6 +260,57 @@ fn malformed_decision_payloads_are_rejected() {
         post(&studio, "/api/v1/human-decisions", &bad_digest).status,
         400
     );
+}
+
+#[test]
+fn recovery_screens_are_absent_until_a_desk_is_attached() {
+    let studio = default_studio();
+    for path in [
+        "/api/v1/recovery/review",
+        "/api/v1/recovery/questions",
+        "/api/v1/recovery/patch",
+    ] {
+        let response = get(&studio, path);
+        assert_eq!(response.status, 404, "{path}");
+        assert_eq!(
+            json(&response)["error"],
+            "spec recovery is not enabled for this repository"
+        );
+    }
+    assert_eq!(
+        post(&studio, "/api/v1/recovery/decisions", "{}").status,
+        404
+    );
+}
+
+#[test]
+fn an_attached_desk_serves_the_recovery_screens() {
+    let studio = studio_with(&Arc::new(FakeService::default()))
+        .with_recovery(Arc::new(Mutex::new(RecoveryDesk::new("sankey-others"))));
+
+    let review = json(&get(&studio, "/api/v1/recovery/review"));
+    assert_eq!(review["change"], "sankey-others");
+    assert_eq!(review["blocked"], false);
+
+    let questions = json(&get(&studio, "/api/v1/recovery/questions"));
+    assert!(questions["for_qa"].as_array().is_some());
+
+    let patch = json(&get(&studio, "/api/v1/recovery/patch"));
+    assert!(
+        patch["patch"]
+            .as_str()
+            .expect("patch text")
+            .starts_with("# PROPOSED"),
+        "the Studio patch preview is never presented as approved"
+    );
+
+    // A decision about a candidate the desk does not know is refused, not stored.
+    let unknown = post(
+        &studio,
+        "/api/v1/recovery/decisions",
+        &decision_body("hd-r1", "cand-unknown", "accept_as_intended"),
+    );
+    assert_eq!(unknown.status, 422);
 }
 
 #[test]
