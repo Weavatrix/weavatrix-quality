@@ -7,11 +7,11 @@ Session: live BehaviorGraph production from Playwright observations
 
 All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are part of `LiveService`. This session adds an opt-in agent authoring path on top of that live vertical.
 
-Release state: the live-producer implementation (`ce2a9d5`) and Linux portability fix (`73edbed`) are published on `main`. GitHub Actions run [32378815119](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32378815119) passed the clean-checkout workspace tests and Clippy job.
+Release state: the complete live vertical through BehaviorGraph production (`7ed6db4`) is published on `main`. GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) passed clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
-Unreleased state: the authoring vertical, actual selected-vs-full benchmark runner, and typed JS/npm distribution are implemented locally. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
+The authoring vertical, actual selected-vs-full benchmark runner, typed JS/npm distribution, safe healing, live analytics/selection feedback, and Playwright-backed BehaviorGraph producer are all published on `main`. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
 
 Live test analytics are now wired rather than model-only. Every normalized JUnit/Go case and typed browser program is persisted with exact run/revision identity, outcome, and duration. Failure occurrences use stable fingerprints and the deterministic flake triage; mixed pass plus fail/error history is the only condition that marks an identity flaky. Each run emits a bounded CAS-backed `test-analytics` artifact with current outcomes, failure clusters, flaky histories, and the twenty slowest reported durations with historical means. `RunReply` exposes recorded/failed/flaky/unknown counts. This path uses zero runtime LLM tokens.
 
