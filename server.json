@@ -1,0 +1,39 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sergii-ziborov/weavatrix-quality",
+  "title": "Weavatrix Quality",
+  "description": "Revision-bound quality planning, execution, evidence, proof, and Playwright authoring.",
+  "repository": {
+    "url": "https://github.com/sergii-ziborov/weavatrix-quality",
+    "source": "github"
+  },
+  "version": "0.0.1",
+  "websiteUrl": "https://github.com/sergii-ziborov/weavatrix-quality",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "wvq",
+      "version": "0.0.1",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        },
+        {
+          "type": "named",
+          "name": "--repo",
+          "valueHint": "repoRoot",
+          "description": "Absolute path to the local repository; defaults to the current directory",
+          "format": "filepath",
+          "default": ".",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

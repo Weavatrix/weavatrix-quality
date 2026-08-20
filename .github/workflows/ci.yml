@@ -33,5 +33,19 @@ jobs:
           npm test
       - name: Test workspace
         run: cargo test --workspace --locked
+      - name: Test typed JavaScript boundary
+        run: |
+          npm --prefix npm/wvq test
+          node js/playwright-runner/node_modules/typescript/bin/tsc --project npm/wvq/test/tsconfig.json
+      - name: Assemble and smoke-test the installable package
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          node scripts/build-npm-packages.mjs current linux-x64 target/debug "$VERSION"
+          npm --prefix npm/dist/wvq test
+          npm pack ./npm/dist/wvq --dry-run --json
+          node npm/dist/wvq/bin/wvq.mjs --help
+          node npm/dist/wvq/bin/wvq.mjs mcp --help
+          node npm/dist/wvq/bin/wvq.mjs bench --help
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

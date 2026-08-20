@@ -1,0 +1,238 @@
+name: Release native npm and MCP packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            suffix: .exe
+          - platform: win32-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            suffix: .exe
+          - platform: darwin-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            suffix: ""
+          - platform: darwin-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            suffix: ""
+          - platform: linux-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            suffix: ""
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            suffix: ""
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Install the declared Rust toolchain and target
+        shell: bash
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup target add --toolchain 1.89.0 "${{ matrix.target }}"
+      - name: Build the three release programs
+        shell: bash
+        run: >-
+          cargo +1.89.0 build --release --locked --target "${{ matrix.target }}"
+          -p wvq-cli -p wvq-mcp -p wvq-bench
+      - name: Smoke-test binary identity
+        shell: bash
+        run: |
+          ROOT="target/${{ matrix.target }}/release"
+          "$ROOT/wvq${{ matrix.suffix }}" --help | grep -q 'Weavatrix Quality'
+          "$ROOT/wvq-mcp${{ matrix.suffix }}" --help | grep -q 'Weavatrix Quality MCP'
+          "$ROOT/wvq-bench${{ matrix.suffix }}" --help | grep -q 'live impacted-vs-full'
+      - name: Normalize the binary artifact layout
+        shell: bash
+        run: |
+          ROOT="target/${{ matrix.target }}/release"
+          mkdir -p "artifacts/${{ matrix.platform }}"
+          cp "$ROOT/wvq${{ matrix.suffix }}" "artifacts/${{ matrix.platform }}/"
+          cp "$ROOT/wvq-mcp${{ matrix.suffix }}" "artifacts/${{ matrix.platform }}/"
+          cp "$ROOT/wvq-bench${{ matrix.suffix }}" "artifacts/${{ matrix.platform }}/"
+      - name: Preserve verified native programs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binary-${{ matrix.platform }}
+          path: artifacts
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Download all verified platform programs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: binary-*
+          path: binaries
+          merge-multiple: true
+      - name: Assemble and verify the universal package
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          CARGO_VERSION="$(cargo metadata --locked --format-version 1 | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).packages.find(p=>p.name==='wvq-cli').version))")"
+          SERVER_NAME="$(node -p "require('./server.json').name")"
+          SERVER_VERSION="$(node -p "require('./server.json').version")"
+          SERVER_PACKAGE="$(node -p "require('./server.json').packages[0].identifier")"
+          SERVER_PACKAGE_VERSION="$(node -p "require('./server.json').packages[0].version")"
+          SERVER_COMMAND="$(node -p "require('./server.json').packages[0].packageArguments[0].value")"
+          MCP_NAME="$(node -p "require('./npm/wvq/package.json').mcpName")"
+          [[ "$GITHUB_REF_NAME" == "v$VERSION" ]]
+          [[ "$VERSION" == "$CARGO_VERSION" ]]
+          [[ "$SERVER_NAME" == "io.github.sergii-ziborov/weavatrix-quality" ]]
+          [[ "$MCP_NAME" == "$SERVER_NAME" ]]
+          [[ "$SERVER_VERSION" == "$VERSION" ]]
+          [[ "$SERVER_PACKAGE" == "wvq" ]]
+          [[ "$SERVER_PACKAGE_VERSION" == "$VERSION" ]]
+          [[ "$SERVER_COMMAND" == "mcp" ]]
+          node scripts/build-npm-packages.mjs universal binaries "$VERSION"
+          cmp server.json npm/dist/wvq/server.json
+          npm --prefix npm/dist/wvq test
+          npm pack ./npm/dist/wvq --dry-run --json
+          ! find npm/dist/wvq -type f -path '*node_modules*' -print -quit | grep .
+      - name: Smoke-test the installed npm and MCP boundary
+        shell: bash
+        run: |
+          PACKAGE="$(npm pack ./npm/dist/wvq --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")"
+          ROOT="$(mktemp -d)"
+          trap 'rm -rf "$ROOT" "$PACKAGE"' EXIT
+          npm install --prefix "$ROOT" --ignore-scripts --no-audit --no-fund "./$PACKAGE"
+          "$ROOT/node_modules/.bin/wvq" --help | grep -q 'Weavatrix Quality'
+          "$ROOT/node_modules/.bin/wvq" mcp --help | grep -q 'Weavatrix Quality MCP'
+          "$ROOT/node_modules/.bin/wvq" bench --help | grep -q 'live impacted-vs-full'
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"quality_status","arguments":{}}}' |
+            "$ROOT/node_modules/.bin/wvq" mcp --repo "$GITHUB_WORKSPACE" |
+            jq --exit-status '.result.content[0].type == "text"'
+      - name: Publish the canonical npm package with provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          if npm view "wvq@$VERSION" version >/dev/null 2>&1; then
+            echo "wvq@$VERSION already exists; verifying registry metadata"
+          else
+            npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public
+          fi
+          for attempt in $(seq 1 24); do
+            PUBLISHED_HEAD="$(npm view "wvq@$VERSION" gitHead --json 2>/dev/null | tr -d '\"\r\n' || true)"
+            PREDICATE="$(npm view "wvq@$VERSION" dist.attestations.provenance.predicateType --json 2>/dev/null | tr -d '\"\r\n' || true)"
+            if [[ "$PUBLISHED_HEAD" == "$GITHUB_SHA" && "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          [[ "$PUBLISHED_HEAD" == "$GITHUB_SHA" ]]
+          [[ "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]
+      - name: Install verified MCP Registry publisher
+        shell: bash
+        run: |
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output mcp-publisher.tar.gz \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.0/mcp-publisher_linux_amd64.tar.gz
+          echo "1370446bbe74d562608e8005a6ccce02d146a661fbd78674e11cc70b9618d6cf  mcp-publisher.tar.gz" | sha256sum --check
+          tar --extract --gzip --file mcp-publisher.tar.gz mcp-publisher
+          chmod +x mcp-publisher
+      - name: Publish server metadata to the official MCP Registry
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          ./mcp-publisher validate server.json
+          REGISTRY_RESPONSE="$(curl --fail --silent --show-error 'https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.sergii-ziborov%2Fweavatrix-quality')"
+          if jq --exit-status --arg version "$VERSION" \
+            '.servers[]?.server | select(.name == "io.github.sergii-ziborov/weavatrix-quality" and .version == $version)' \
+            <<<"$REGISTRY_RESPONSE" >/dev/null; then
+            echo "MCP Registry already contains Weavatrix Quality $VERSION; skipping publish"
+          else
+            ./mcp-publisher login github-oidc
+            ./mcp-publisher publish
+          fi
+      - name: Verify the official MCP Registry artifact
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.sergii-ziborov%2Fweavatrix-quality/versions/$VERSION"
+          for attempt in $(seq 1 24); do
+            if curl --fail --silent --show-error "$REGISTRY_URL" |
+              jq --exit-status --arg version "$VERSION" \
+                '.server.name == "io.github.sergii-ziborov/weavatrix-quality" and
+                 .server.version == $version and
+                 .server.packages[0].identifier == "wvq" and
+                 .server.packages[0].version == $version' >/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          curl --fail --silent --show-error "$REGISTRY_URL" |
+            jq --exit-status --arg version "$VERSION" \
+              '.server.name == "io.github.sergii-ziborov/weavatrix-quality" and
+               .server.version == $version and
+               .server.packages[0].identifier == "wvq" and
+               .server.packages[0].version == $version' >/dev/null
+
+  release:
+    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the verified tag
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create and verify the immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          [[ "$GITHUB_REF_NAME" == "v$VERSION" ]]
+          [[ "$(git rev-list -n 1 "$GITHUB_REF_NAME")" == "$GITHUB_SHA" ]]
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Weavatrix Quality $GITHUB_REF_NAME"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" |
+            jq --exit-status --arg tag "$GITHUB_REF_NAME" \
+              '.tag_name == $tag and (.draft | not) and (.prerelease | not) and .immutable == true'

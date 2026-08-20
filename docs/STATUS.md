@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: live shadow benchmark and Playwright TestProgram authoring tools
+Session: live shadow benchmark, Playwright authoring, and JS/npm distribution
 
 ## Now
 
@@ -11,7 +11,7 @@ Release state: the live-producer implementation (`ce2a9d5`) and Linux portabilit
 
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
-Unreleased state: the authoring vertical plus an actual selected-vs-full benchmark runner are implemented locally. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
+Unreleased state: the authoring vertical, actual selected-vs-full benchmark runner, and typed JS/npm distribution are implemented locally. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
 
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
 
@@ -30,6 +30,17 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
 Final local validation: 346 Rust tests and 7 Playwright-runner tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
+
+## JS/npm distribution
+
+- Package name: `wvq`; the JS API is a typed, no-shell boundary over Rust rather than a second policy implementation.
+- `npx wvq`, `npx wvq mcp`, and `npx wvq bench` select only the three fixed native programs. Direct `wvq-mcp` and `wvq-bench` bins are also present after installation.
+- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, and `preview` helpers.
+- The package resolves bundled Windows/macOS/Linux x64/arm64 programs, verified platform packages, explicit binary overrides, or the local workspace binaries. It never falls back through a shell or recursively launches itself from `PATH`.
+- The tag workflow builds and smoke-tests all three programs on six platform runners, assembles the universal package, installs it into a clean prefix, exercises a real MCP call, publishes npm with provenance, validates/publishes official MCP metadata, verifies both registries, and then creates an immutable GitHub release.
+- `server.json` and npm `mcpName` are version-locked. The official MCP Registry publisher accepted the current metadata locally.
+
+Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScript declarations compiled under strict `NodeNext`, the current Windows package contained all three native programs plus `server.json`, all launchers returned success, npm dry-run passed, and `actionlint` accepted both workflows.
 
 ## Live production path
 
@@ -68,4 +79,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Next, design the JS distribution package as a typed client plus platform binary wrapper; do not duplicate Rust policy/proof semantics in TypeScript. Then run the competitor matrix against current official product documentation.
+Run the competitor matrix against current official product documentation, reproduce the most important remaining gaps, and turn each confirmed gap into an independently reviewable implementation slice. Do not duplicate Rust policy/proof semantics in TypeScript.

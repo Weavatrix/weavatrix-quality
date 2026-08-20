@@ -1,0 +1,62 @@
+{
+  "name": "wvq",
+  "version": "0.0.1",
+  "description": "Native Weavatrix Quality CLI, MCP server, live benchmark, and typed JavaScript client.",
+  "author": "Sergii Ziborov <sergii.ziborov@gmail.com>",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/sergii-ziborov/weavatrix-quality",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sergii-ziborov/weavatrix-quality.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sergii-ziborov/weavatrix-quality/issues"
+  },
+  "mcpName": "io.github.sergii-ziborov/weavatrix-quality",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "wvq": "bin/wvq.mjs",
+    "wvq-mcp": "bin/wvq-mcp.mjs",
+    "wvq-bench": "bin/wvq-bench.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/client.mjs"
+    },
+    "./mcp": {
+      "types": "./src/index.d.ts",
+      "import": "./src/mcp-client.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./src/index.d.ts",
+  "preferUnplugged": true,
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    "server.json"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "quality",
+    "testing",
+    "playwright",
+    "mcp",
+    "model-context-protocol",
+    "test-selection",
+    "code-graph",
+    "rust"
+  ]
+}

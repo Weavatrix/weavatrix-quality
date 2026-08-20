@@ -89,6 +89,38 @@ cargo run -p wvq-bench -- \
 
 The older labelled ecosystem cases remain available as deterministic selection-quality fixtures; their declared costs are not presented as measured wall-clock time.
 
+## JavaScript and npm
+
+The `wvq` npm package is a typed JavaScript boundary around the same Rust implementation. It does not fork policy, graph, evidence, proof, or budget behavior into TypeScript. Release artifacts carry `wvq`, `wvq-mcp`, and `wvq-bench` for Windows, macOS, and Linux on x64 and arm64.
+
+```sh
+npm install --save-dev wvq
+npx wvq --repo . plan --change current
+npx wvq mcp --repo .
+npx wvq bench --repo . --change current --base origin/main --head WORKTREE
+```
+
+Applications can use the typed API or the bounded one-call MCP transport:
+
+```js
+import { WvqClient } from 'wvq'
+import { WvqMcpClient } from 'wvq/mcp'
+
+const quality = new WvqClient({ repo: process.cwd() })
+const plan = await quality.plan({ change: 'current' })
+
+const authoring = new WvqMcpClient({
+  repo: process.cwd(),
+  profile: 'authoring',
+  change: 'current',
+  base: 'origin/main',
+  head: 'WORKTREE',
+})
+const draft = await authoring.draft()
+```
+
+All launchers use direct argv without a shell. The package includes MCP Registry metadata, and tag releases build and smoke-test all six platform variants before npm and MCP publication. Browser preview resolves Playwright from `browser.module_root`; install Playwright and the required browser engines in the repository that WVQ verifies.
+
 ## Repository policy
 
 `.weavatrix-quality/config.yaml` binds concrete tests to compiled obligation IDs. A green runner without this mapping remains `UNPROVEN`.
@@ -147,6 +179,8 @@ The authoring profile is fixed at startup to one change and Git range:
 
 ```sh
 wvq-mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
+# npm distribution:
+npx wvq mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
 ```
 
 It exposes three high-level operations:
