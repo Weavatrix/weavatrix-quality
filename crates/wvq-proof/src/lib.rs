@@ -10,6 +10,7 @@ mod flake;
 mod heal;
 mod metamorphic;
 mod mutation;
+mod protection;
 mod verdict;
 
 pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assemble};
@@ -34,5 +35,9 @@ pub use metamorphic::{
 pub use mutation::{
     Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationSummary, go_mutants,
     run_selected_mutants, ts_js_mutants,
+};
+pub use protection::{
+    FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,
+    snapshot,
 };
 pub use verdict::{ProofVerdict, VerdictInput, decide_verdict};
