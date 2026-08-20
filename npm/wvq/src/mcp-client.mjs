@@ -65,6 +65,13 @@ export class WvqMcpClient {
             trace,
         }, { signal, timeoutMs })
     }
+
+    promote(previewId, program, { signal } = {}) {
+        return this.call('quality_test_promote', {
+            preview_id: requireText('previewId', previewId),
+            program: requireObject('program', program),
+        }, { signal })
+    }
 }
 
 function requireText(name, value) {

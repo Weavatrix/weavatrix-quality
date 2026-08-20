@@ -432,6 +432,8 @@ pub struct AuthorValidateReply {
 /// Evidence handles from one explicit Playwright preview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuthorPreviewReply {
+    /// Stable admission identity required for explicit promotion.
+    pub preview_id: String,
     /// Resolved change.
     pub change: String,
     /// Exact Weavatrix revision checked before and after execution.
@@ -454,6 +456,25 @@ pub struct AuthorPreviewReply {
     pub trace_handle: Option<String>,
     /// Always false; the candidate itself is not saved or registered.
     pub program_persisted: bool,
+}
+
+/// Result of explicitly promoting one passing preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorPromoteReply {
+    /// Resolved change.
+    pub change: String,
+    /// Exact repository revision exercised by the preview.
+    pub revision: String,
+    /// Existing `OracleSeal`; promotion never creates or changes one.
+    pub seal_id: String,
+    /// Canonical program identity.
+    pub program_id: String,
+    /// Persisted program revision (1 for first promotion).
+    pub program_revision: u32,
+    /// Always true on success.
+    pub persisted: bool,
+    /// False when the exact preview had already been promoted.
+    pub created: bool,
 }
 
 /// Tagged reply for CLI JSON.
@@ -508,6 +529,9 @@ pub enum Reply {
     /// [`AuthorPreviewReply`].
     #[serde(rename = "author_preview")]
     AuthorPreview(AuthorPreviewReply),
+    /// [`AuthorPromoteReply`].
+    #[serde(rename = "author_promote")]
+    AuthorPromote(AuthorPromoteReply),
     /// [`ChangesReply`].
     #[serde(rename = "changes")]
     Changes(ChangesReply),

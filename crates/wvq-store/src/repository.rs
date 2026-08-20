@@ -196,6 +196,27 @@ pub struct StoredSelectionAudit {
     pub learned_tests: u64,
 }
 
+/// One promoted, versioned canonical `TestProgram`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredProgramRevision {
+    /// Stable program identity.
+    pub program: String,
+    /// Monotonic version within the program identity.
+    pub revision: u32,
+    /// Existing `OracleSeal` that the program asserts.
+    pub seal: String,
+    /// `OpenSpec` change used for validation.
+    pub change_id: String,
+    /// Exact repository revision validated by Playwright.
+    pub repository_revision: String,
+    /// CAS digest of canonical `TestProgram` JSON.
+    pub body_hash: ContentHash,
+    /// `promoted` or `healed`.
+    pub source: String,
+    /// Passing authoring preview that admitted this revision, when applicable.
+    pub preview_id: Option<String>,
+}
+
 /// One normalized test identity read from a stored run.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StoredTestCaseIdentity {
@@ -1317,9 +1338,265 @@ impl Store {
                 [program],
                 |row| row.get(0),
             )
-            .optional()
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         Ok(row.and_then(|value| u32::try_from(value).ok()))
+    }
+
+    /// Persist one Playwright preview and the exact canonical program it exercised.
+    ///
+    /// The program bytes live in CAS; the SQL row is the admission record used by
+    /// explicit promotion.
+    ///
+    /// # Errors
+    ///
+    /// CAS or SQL failure.
+    #[allow(clippy::too_many_arguments)]
+    pub fn put_authoring_preview(
+        &self,
+        id: &str,
+        program: &str,
+        change_id: &str,
+        repository_revision: &str,
+        seal: &str,
+        passed: bool,
+        program_body: &[u8],
+    ) -> Result<ContentHash, StoreError> {
+        let hash = self.put_blob(program_body)?;
+        self.conn
+            .execute(
+                "INSERT INTO authoring_previews (
+                    id, program, change_id, repository_revision, seal,
+                    program_hash, passed, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+                params![
+                    id,
+                    program,
+                    change_id,
+                    repository_revision,
+                    seal,
+                    hash.as_str(),
+                    i64::from(passed)
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(hash)
+    }
+
+    /// Atomically promote one passing preview into revision 1 of a canonical program.
+    ///
+    /// Repeating the same promotion is idempotent. A different preview may not
+    /// overwrite an existing program identity; subsequent changes use healing.
+    ///
+    /// # Errors
+    ///
+    /// Missing/mismatched preview, reused program identity, CAS, or SQL failure.
+    #[allow(clippy::too_many_arguments)]
+    pub fn promote_authoring_preview(
+        &mut self,
+        preview_id: &str,
+        program: &str,
+        change_id: &str,
+        repository_revision: &str,
+        seal: &str,
+        program_body: &[u8],
+    ) -> Result<(u32, bool), StoreError> {
+        let body_hash = self.put_blob(program_body)?;
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let preview = tx
+            .query_row(
+                "SELECT program, change_id, repository_revision, seal,
+                        program_hash, passed, promoted_revision
+                 FROM authoring_previews WHERE id = ?1",
+                [preview_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?
+            .ok_or_else(|| StoreError::Invalid("authoring preview does not exist".into()))?;
+        if preview.0 != program
+            || preview.1 != change_id
+            || preview.2 != repository_revision
+            || preview.3 != seal
+            || preview.4 != body_hash.as_str()
+        {
+            return Err(StoreError::Invalid(
+                "authoring preview does not match this program, change, revision, and seal".into(),
+            ));
+        }
+        if preview.5 != 1 {
+            return Err(StoreError::Invalid(
+                "only a passing authoring preview can be promoted".into(),
+            ));
+        }
+        if let Some(existing) = preview.6 {
+            let revision = u32::try_from(existing)
+                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            tx.commit()
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            return Ok((revision, false));
+        }
+        let existing: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM program_revisions WHERE program = ?1",
+                [program],
+                |row| row.get(0),
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        if existing != 0 {
+            return Err(StoreError::Invalid(
+                "program identity is already registered; use a versioned heal".into(),
+            ));
+        }
+        tx.execute(
+            "INSERT INTO program_revisions (
+                program, revision, seal, change_id, repository_revision,
+                body_hash, source, preview_id, created_at
+             ) VALUES (?1, 1, ?2, ?3, ?4, ?5, 'promoted', ?6, datetime('now'))",
+            params![
+                program,
+                seal,
+                change_id,
+                repository_revision,
+                body_hash.as_str(),
+                preview_id
+            ],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute(
+            "UPDATE authoring_previews SET promoted_revision = 1
+             WHERE id = ?1 AND promoted_revision IS NULL",
+            [preview_id],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.commit()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok((1, true))
+    }
+
+    /// Read one canonical program revision and its CAS-backed JSON bytes.
+    ///
+    /// # Errors
+    ///
+    /// SQL, identity, or CAS failure.
+    pub fn read_program_revision(
+        &self,
+        program: &str,
+        revision: u32,
+    ) -> Result<Option<(StoredProgramRevision, Vec<u8>)>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT seal, change_id, repository_revision, body_hash, source, preview_id
+                 FROM program_revisions WHERE program = ?1 AND revision = ?2",
+                params![program, i64::from(revision)],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let Some((seal, change_id, repository_revision, raw_hash, source, preview_id)) = row else {
+            return Ok(None);
+        };
+        let body_hash = ContentHash::new(raw_hash)
+            .map_err(|err| StoreError::Invalid(err.to_string()))?;
+        let body = self.cas.get(&body_hash)?;
+        Ok(Some((
+            StoredProgramRevision {
+                program: program.to_owned(),
+                revision,
+                seal,
+                change_id,
+                repository_revision,
+                body_hash,
+                source,
+                preview_id,
+            },
+            body,
+        )))
+    }
+
+    /// Latest canonical revision of every promoted program for one change.
+    ///
+    /// # Errors
+    ///
+    /// SQL, identity, or CAS failure.
+    pub fn latest_program_revisions_for_change(
+        &self,
+        change_id: &str,
+    ) -> Result<Vec<(StoredProgramRevision, Vec<u8>)>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT p.program, p.revision, p.seal, p.repository_revision,
+                        p.body_hash, p.source, p.preview_id
+                 FROM program_revisions p
+                 WHERE p.change_id = ?1
+                   AND p.revision = (
+                       SELECT MAX(latest.revision)
+                       FROM program_revisions latest
+                       WHERE latest.program = p.program
+                   )
+                 ORDER BY p.program",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([change_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (program, raw_revision, seal, repository_revision, raw_hash, source, preview_id) =
+                row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            let revision = u32::try_from(raw_revision)
+                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let body_hash = ContentHash::new(raw_hash)
+                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let body = self.cas.get(&body_hash)?;
+            out.push((
+                StoredProgramRevision {
+                    program,
+                    revision,
+                    seal,
+                    change_id: change_id.to_owned(),
+                    repository_revision,
+                    body_hash,
+                    source,
+                    preview_id,
+                },
+                body,
+            ));
+        }
+        Ok(out)
     }
 
     /// Persist a mutant and its killed/survived status.

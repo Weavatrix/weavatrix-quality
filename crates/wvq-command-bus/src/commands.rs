@@ -216,6 +216,19 @@ pub struct AuthorPreviewCommand {
     pub trace: bool,
 }
 
+/// Promote one passing, same-revision preview into a persisted `TestProgram`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorPromoteCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Preview identity returned by [`AuthorPreviewCommand`].
+    pub preview_id: String,
+    /// Exact canonical program exercised by that preview.
+    pub program: serde_json::Value,
+}
+
 /// List known `OpenSpec` changes. Studio uses this for its Changes screen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesCommand {}
@@ -255,6 +268,8 @@ pub enum Command {
     AuthorValidate(AuthorValidateCommand),
     /// [`AuthorPreviewCommand`].
     AuthorPreview(AuthorPreviewCommand),
+    /// [`AuthorPromoteCommand`].
+    AuthorPromote(AuthorPromoteCommand),
     /// [`ChangesCommand`].
     Changes(ChangesCommand),
 }
@@ -280,6 +295,7 @@ impl Command {
             Self::AuthorDraft(_) => "author_draft",
             Self::AuthorValidate(_) => "author_validate",
             Self::AuthorPreview(_) => "author_preview",
+            Self::AuthorPromote(_) => "author_promote",
             Self::Changes(_) => "changes",
         }
     }

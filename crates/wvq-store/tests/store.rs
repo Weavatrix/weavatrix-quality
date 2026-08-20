@@ -24,7 +24,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 10);
+    assert_eq!(store.schema_version().unwrap(), 11);
 }
 
 #[test]
@@ -337,6 +337,87 @@ fn failure_fingerprints_cluster_occurrences() {
             .latest_program_revision("sankey-others-replay")
             .unwrap(),
         Some(2)
+    );
+}
+
+#[test]
+fn passing_authoring_preview_promotes_once_with_canonical_body() {
+    let mut store = open_temp();
+    let body = br#"{"schema_v":1,"id":"generated-browser"}"#;
+    store
+        .put_authoring_preview(
+            "preview-generated-browser",
+            "generated-browser",
+            "live-change",
+            "rev-head",
+            "oseal-abc",
+            true,
+            body,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store
+            .promote_authoring_preview(
+                "preview-generated-browser",
+                "generated-browser",
+                "live-change",
+                "rev-head",
+                "oseal-abc",
+                body,
+            )
+            .unwrap(),
+        (1, true)
+    );
+    assert_eq!(
+        store
+            .promote_authoring_preview(
+                "preview-generated-browser",
+                "generated-browser",
+                "live-change",
+                "rev-head",
+                "oseal-abc",
+                body,
+            )
+            .unwrap(),
+        (1, false)
+    );
+    let (record, stored_body) = store
+        .read_program_revision("generated-browser", 1)
+        .unwrap()
+        .expect("promoted program");
+    assert_eq!(record.source, "promoted");
+    assert_eq!(record.preview_id.as_deref(), Some("preview-generated-browser"));
+    assert_eq!(stored_body, body);
+    let latest = store
+        .latest_program_revisions_for_change("live-change")
+        .unwrap();
+    assert_eq!(latest.len(), 1);
+    assert_eq!(latest[0].0.program, "generated-browser");
+    assert_eq!(latest[0].1, body);
+
+    store
+        .put_authoring_preview(
+            "preview-failed-browser",
+            "failed-browser",
+            "live-change",
+            "rev-head",
+            "oseal-abc",
+            false,
+            body,
+        )
+        .unwrap();
+    assert!(
+        store
+            .promote_authoring_preview(
+                "preview-failed-browser",
+                "failed-browser",
+                "live-change",
+                "rev-head",
+                "oseal-abc",
+                body,
+            )
+            .is_err()
     );
 }
 

@@ -41,20 +41,19 @@ use wvq_spec_recovery::{
 };
 use wvq_store::{
     HistoricalTestCandidate, Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem,
-    StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult,
+    StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult, StoreError,
 };
 
 use crate::commands::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, ChangesCommand, Command,
-    ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand,
-    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand,
+    ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand,
+    ModelCommand, PlanCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
-    AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorValidateReply,
+    AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
     AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply,
-    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
-    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, bound_items,
-    estimate_tokens,
+    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply, SelectionAuditReply,
+    SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, bound_items, estimate_tokens,
 };
 
 /// Command-bus failure. Unknown values fail closed.
@@ -237,6 +236,12 @@ pub trait QualityService: Send + Sync {
         let _ = cancel;
         self.author_preview(cmd)
     }
+    /// Persist a passing preview as revision 1 of a canonical program.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when the preview, program, seal, or repository revision differs.
+    fn author_promote(&self, cmd: &AuthorPromoteCommand) -> Result<AuthorPromoteReply, BusError>;
     /// Known `OpenSpec` changes.
     ///
     /// # Errors
@@ -268,6 +273,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::AuthorDraft(cmd) => service.author_draft(&cmd).map(Reply::AuthorDraft),
         Command::AuthorValidate(cmd) => service.author_validate(&cmd).map(Reply::AuthorValidate),
         Command::AuthorPreview(cmd) => service.author_preview(&cmd).map(Reply::AuthorPreview),
+        Command::AuthorPromote(cmd) => service.author_promote(&cmd).map(Reply::AuthorPromote),
         Command::Changes(cmd) => service.changes(&cmd).map(Reply::Changes),
     }
 }
@@ -616,6 +622,7 @@ impl QualityService for FakeService {
             program: cmd.program.clone(),
         })?;
         Ok(AuthorPreviewReply {
+            preview_id: format!("preview-{}", validated.program_id),
             change: validated.change,
             revision: "fake-revision".into(),
             program_id: validated.program_id,
@@ -631,6 +638,22 @@ impl QualityService for FakeService {
             },
             trace_handle: cmd.trace.then(|| "artifact-fake-author-trace".into()),
             program_persisted: false,
+        })
+    }
+
+    fn author_promote(&self, cmd: &AuthorPromoteCommand) -> Result<AuthorPromoteReply, BusError> {
+        let validated = self.author_validate(&AuthorValidateCommand {
+            change: cmd.change.clone(),
+            program: cmd.program.clone(),
+        })?;
+        Ok(AuthorPromoteReply {
+            change: validated.change,
+            revision: "fake-revision".into(),
+            seal_id: validated.seal_id,
+            program_id: validated.program_id,
+            program_revision: 1,
+            persisted: true,
+            created: true,
         })
     }
 
@@ -1371,7 +1394,26 @@ impl QualityService for LiveService {
         }
         let targets = discover_executor_targets(&self.repo)
             .map_err(|err| BusError::Runtime(err.to_string()))?;
-        let browser = load_browser_policy(&self.repo, &compiled.obligations)?;
+        let configured_browser = load_browser_policy(&self.repo, &compiled.obligations)?;
+        if targets.is_empty()
+            && configured_browser
+                .as_ref()
+                .is_none_or(|policy| policy.programs.is_empty())
+        {
+            let store = self.store()?;
+            let promoted = store
+                .latest_program_revisions_for_change(&compiled.change)
+                .map_err(|err| BusError::Store(err.to_string()))?;
+            if configured_browser.is_none() || promoted.is_empty() {
+                return Err(BusError::Runtime(
+                    "no supported registered executor or browser TestProgram was discovered".into(),
+                ));
+            }
+        }
+        let range = self.revision_range(&cmd.base, &cmd.head)?;
+        let changed = changed_files(&self.repo, &range)?;
+        let store = self.store()?;
+        let browser = load_live_browser_policy(&self.repo, &compiled, &store)?;
         if targets.is_empty()
             && browser
                 .as_ref()
@@ -1381,9 +1423,6 @@ impl QualityService for LiveService {
                 "no supported registered executor or browser TestProgram was discovered".into(),
             ));
         }
-        let range = self.revision_range(&cmd.base, &cmd.head)?;
-        let changed = changed_files(&self.repo, &range)?;
-        let store = self.store()?;
         for target in &targets {
             clear_generated_runner_artifacts(&target.cwd)?;
         }
@@ -2244,11 +2283,11 @@ impl QualityService for LiveService {
                 high_risk: matches!(item.risk, RiskLevel::High | RiskLevel::Critical),
             })
             .collect();
-        let browser_bindings = load_browser_policy(&self.repo, &compiled.obligations)?
+        let store = self.store()?;
+        let browser_bindings = load_live_browser_policy(&self.repo, &compiled, &store)?
             .as_ref()
             .map_or_else(Vec::new, browser_test_bindings);
         let impact = live_impacted_surface(&diff, &change_impact)?;
-        let store = self.store()?;
         let historical_selection = historical_selection_candidates(&store, &impact)?;
         let selection = build_live_selection(
             &self.repo,
@@ -2469,6 +2508,10 @@ impl QualityService for LiveService {
         let _range = self.revision_range(&cmd.base, &cmd.head)?;
         let before = self.revision()?;
         let validated = validate_author_candidate(&self.repo, &compiled, &cmd.program)?;
+        let canonical_program = validated.program.clone();
+        let canonical_program_body = serde_json::to_vec(&canonical_program)
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let seal_id = validated.seal_id.clone();
         let policy = load_browser_policy(&self.repo, &compiled.obligations)?.ok_or_else(|| {
             BusError::Runtime(
                 "authoring preview requires a browser runtime in .weavatrix-quality/config.yaml"
@@ -2517,8 +2560,20 @@ impl QualityService for LiveService {
         }
         let store = self.store()?;
         let persisted = persist_author_preview(&store, &preview_token, &result)?;
+        store
+            .put_authoring_preview(
+                &preview_token,
+                canonical_program.id.as_str(),
+                &compiled.change,
+                before.as_str(),
+                &seal_id,
+                result.passed,
+                &canonical_program_body,
+            )
+            .map_err(|err| BusError::Store(err.to_string()))?;
         let _ = std::fs::remove_dir(&evidence_dir);
         Ok(AuthorPreviewReply {
+            preview_id: preview_token,
             change: compiled.change,
             revision: before.to_string(),
             program_id: program.id.to_string(),
@@ -2530,6 +2585,37 @@ impl QualityService for LiveService {
             screenshot_handles: persisted.screenshot_handles,
             trace_handle: persisted.trace_handle,
             program_persisted: false,
+        })
+    }
+
+    fn author_promote(&self, cmd: &AuthorPromoteCommand) -> Result<AuthorPromoteReply, BusError> {
+        if cmd.preview_id.trim().is_empty() {
+            return Err(BusError::InvalidInput("preview_id must not be empty".into()));
+        }
+        let compiled = self.compiled(&cmd.change)?;
+        let repository_revision = self.revision()?;
+        let validated = validate_author_candidate(&self.repo, &compiled, &cmd.program)?;
+        let program_body = serde_json::to_vec(&validated.program)
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let mut store = self.store()?;
+        let (program_revision, created) = store
+            .promote_authoring_preview(
+                &cmd.preview_id,
+                validated.program.id.as_str(),
+                &compiled.change,
+                repository_revision.as_str(),
+                &validated.seal_id,
+                &program_body,
+            )
+            .map_err(map_authoring_store_error)?;
+        Ok(AuthorPromoteReply {
+            change: compiled.change,
+            revision: repository_revision.to_string(),
+            seal_id: validated.seal_id,
+            program_id: validated.program.id.to_string(),
+            program_revision,
+            persisted: true,
+            created,
         })
     }
 
@@ -2545,6 +2631,13 @@ struct ValidatedAuthorProgram {
     program: TestProgram,
     oracles: Vec<ProgramOracle>,
     seal_id: String,
+}
+
+fn map_authoring_store_error(err: StoreError) -> BusError {
+    match err {
+        StoreError::Invalid(message) => BusError::InvalidInput(message),
+        other => BusError::Store(other.to_string()),
+    }
 }
 
 fn validate_authoring_budget(budget: u64) -> Result<(), BusError> {
@@ -3884,6 +3977,59 @@ fn load_browser_policy(
     })?;
     let mut policy = parse_browser_runtime(repo, &path, browser)?;
     policy.programs = parse_browser_programs(repo, &path, browser, obligations)?;
+    Ok(Some(policy))
+}
+
+fn load_live_browser_policy(
+    repo: &Path,
+    compiled: &Compiled,
+    store: &Store,
+) -> Result<Option<BrowserPolicy>, BusError> {
+    let Some(mut policy) = load_browser_policy(repo, &compiled.obligations)? else {
+        return Ok(None);
+    };
+    let stored = store
+        .latest_program_revisions_for_change(&compiled.change)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    if stored.len() > 500 {
+        return Err(BusError::Store(
+            "more than 500 promoted browser programs require explicit repository curation".into(),
+        ));
+    }
+    let mut ids = policy
+        .programs
+        .iter()
+        .map(|configured| configured.program.id.to_string())
+        .collect::<BTreeSet<_>>();
+    for (record, body) in stored {
+        let candidate: Value = serde_json::from_slice(&body).map_err(|err| {
+            BusError::Store(format!(
+                "stored TestProgram {} revision {} is malformed: {err}",
+                record.program, record.revision
+            ))
+        })?;
+        let validated = validate_author_candidate(repo, compiled, &candidate)?;
+        if validated.program.id.as_str() != record.program {
+            return Err(BusError::Store(format!(
+                "stored TestProgram {} revision {} has a different body id {}",
+                record.program, record.revision, validated.program.id
+            )));
+        }
+        if validated.seal_id != record.seal {
+            continue;
+        }
+        if !ids.insert(record.program.clone()) {
+            return Err(BusError::Store(format!(
+                "browser TestProgram {} is configured both as a repository file and a promoted revision",
+                record.program
+            )));
+        }
+        policy.programs.push(ConfiguredBrowserProgram {
+            path: format!("wvq-program:{}@{}", record.program, record.revision),
+            program: validated.program,
+            oracles: validated.oracles,
+        });
+    }
     Ok(Some(policy))
 }
 

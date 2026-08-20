@@ -158,7 +158,7 @@ fn protocol_call_server(
 }
 
 #[test]
-fn authoring_profile_exposes_only_three_high_level_playwright_tools() {
+fn authoring_profile_exposes_only_four_high_level_playwright_tools() {
     let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
     let built = authoring_server(&service, "live", "HEAD", "WORKTREE");
     let catalog = built.catalog();
@@ -173,7 +173,8 @@ fn authoring_profile_exposes_only_three_high_level_playwright_tools() {
         [
             "quality_test_draft",
             "quality_test_validate",
-            "quality_test_preview"
+            "quality_test_preview",
+            "quality_test_promote"
         ]
     );
     assert!(built.schema_defects().is_empty());
@@ -225,6 +226,17 @@ fn authoring_profile_runs_the_shared_command_bus_with_fixed_scope() {
     );
     assert!(validated.contains("\"valid\":true"), "{validated}");
     assert!(validated.contains("\"persisted\":false"), "{validated}");
+
+    let promoted = protocol_call_server(
+        authoring_server(&service, "live", "BASE", "HEAD"),
+        "quality_test_promote",
+        &serde_json::json!({
+            "preview_id": "preview-generated-program",
+            "program": {"id": "generated-program"}
+        }),
+    );
+    assert!(promoted.contains("\"program_revision\":1"), "{promoted}");
+    assert!(promoted.contains("\"persisted\":true"), "{promoted}");
 }
 
 #[test]

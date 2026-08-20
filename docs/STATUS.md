@@ -21,7 +21,7 @@ The live shadow benchmark now closes the defensive-learning loop. It requires an
 
 Direct Vitest package scripts now produce measured cases without repository configuration. Discovery promotes only exact `vitest` or `vitest run` scripts with a declared Vitest dependency to the frozen runner. The executor resolves the local package binary through `npm exec --offline --yes=false`, enables Vitest's built-in JUnit reporter, uses the existing private evidence directory for root or nested packages, imports the fresh report, and removes the generated file before revision validation. Repository-owned JUnit paths are untouched; stale private output is removed before every invocation.
 
-The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
+The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation binds a generated program to the existing `OracleSeal`; persistence is now a separate passing-preview admission step.
 
 The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the current repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 46.36 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.69 s. The defensive audit is now `corroborated` with zero missed failures. This is a measured one-file reduction and a 1.33 s observation, not a general speedup claim. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
 
@@ -32,18 +32,20 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 | draft | Resolves an explicit base/head range, requires changed code, queries same-revision `graph_diff` and change impact, returns bounded intent/graph context, and never truncates the sealed obligation authority |
 | optional model | `use_model: true` performs one planning call through the existing loopback-only persistent AI Cost Firewall; normal draft and verification use zero model tokens |
 | validate | Strictly decodes canonical `TestProgram` JSON, rejects candidate-owned oracle fields, unknown/duplicate obligations, XPath, unknown actions, and obligations without an executable sealed expected predicate |
-| preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and never saves or registers the candidate |
-| transports | MCP: `quality_test_draft`, `quality_test_validate`, `quality_test_preview`; HTTP: `POST /api/v1/authoring/{draft,validate,preview}` |
+| preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and records a passed/failed admission identity without registering the candidate |
+| promote | Revalidates the exact previewed program, current repository revision, change, and existing `OracleSeal`; only a passing preview atomically becomes CAS-backed program revision 1, and repeated promotion is idempotent |
+| reuse | `select` and `run` automatically load the latest promoted revision whose seal still matches; stale-seal programs are not executed, and a repository-configured program cannot silently shadow the same id |
+| transports | MCP: `quality_test_{draft,validate,preview,promote}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote}` |
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 356 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 357 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 
 - Package name: `wvq`; the JS API is a typed, no-shell boundary over Rust rather than a second policy implementation.
 - `npx wvq`, `npx wvq mcp`, and `npx wvq bench` select only the three fixed native programs. Direct `wvq-mcp` and `wvq-bench` bins are also present after installation.
-- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, and `preview` helpers.
+- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, `preview`, and `promote` helpers.
 - The package resolves bundled Windows/macOS/Linux x64/arm64 programs, verified platform packages, explicit binary overrides, or the local workspace binaries. It never falls back through a shell or recursively launches itself from `PATH`.
 - The tag workflow builds and smoke-tests all three programs on six platform runners, assembles the universal package, installs it into a clean prefix, exercises a real MCP call, publishes npm with provenance, validates/publishes official MCP metadata, verifies both registries, and then creates an immutable GitHub release.
 - `server.json` and npm `mcpName` are version-locked. The official MCP Registry publisher accepted the current metadata locally.
@@ -90,4 +92,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Finish the remaining reproduced competitor gaps: persisted generated-test promotion and healing, live mutation/behavior producers, and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.
+Finish the remaining reproduced competitor gaps: live safe-healing transport, live mutation/behavior producers, and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.

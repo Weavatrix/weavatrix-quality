@@ -10,10 +10,10 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, BusError, Command,
-    ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService,
-    ModelCommand, PlanCommand, QualityService, Reply, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch, estimate_tokens,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand, BusError,
+    Command, ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT,
+    LiveService, ModelCommand, PlanCommand, QualityService, Reply, RunCommand, SelectCommand,
+    SpecCommand, VerifyCommand, dispatch, estimate_tokens,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -972,7 +972,9 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
 
 #[test]
 fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
-    let _browser_guard = BROWSER_TEST_LOCK.lock().unwrap();
+    let _browser_guard = BROWSER_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     let service = LiveService::new(&repo.0);
@@ -1037,8 +1039,11 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
 }
 
 #[test]
-fn authoring_validates_and_previews_generated_playwright_program_without_persisting_it() {
-    let _browser_guard = BROWSER_TEST_LOCK.lock().unwrap();
+#[allow(clippy::too_many_lines)]
+fn authoring_promotes_only_the_exact_passing_playwright_preview() {
+    let _browser_guard = BROWSER_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     std::fs::write(
@@ -1095,12 +1100,13 @@ fn authoring_validates_and_previews_generated_playwright_program_without_persist
             change: "live-browser".into(),
             base: "HEAD".into(),
             head: "WORKTREE".into(),
-            program,
+            program: program.clone(),
             screenshot: true,
             trace: true,
         })
         .unwrap();
     assert!(preview.passed, "{:?}", preview.failure);
+    assert!(!preview.preview_id.is_empty());
     assert_eq!(preview.asserted, ["heading-visible"]);
     assert!(!preview.program_persisted);
     assert_eq!(preview.screenshot_handles.len(), 2);
@@ -1123,6 +1129,59 @@ fn authoring_validates_and_previews_generated_playwright_program_without_persist
             .join(".weavatrix-quality/programs/generated-home-heading.json")
             .exists()
     );
+
+    let mut other_program = program.clone();
+    other_program["id"] = serde_json::json!("different-generated-program");
+    let mismatch = service
+        .author_promote(&AuthorPromoteCommand {
+            change: "live-browser".into(),
+            preview_id: preview.preview_id.clone(),
+            program: other_program,
+        })
+        .unwrap_err();
+    assert!(mismatch.to_string().contains("does not match"), "{mismatch}");
+
+    let promoted = service
+        .author_promote(&AuthorPromoteCommand {
+            change: "live-browser".into(),
+            preview_id: preview.preview_id.clone(),
+            program: program.clone(),
+        })
+        .unwrap();
+    assert!(promoted.persisted);
+    assert!(promoted.created);
+    assert_eq!(promoted.program_revision, 1);
+    assert_eq!(promoted.seal_id, validated.seal_id);
+
+    let repeated = service
+        .author_promote(&AuthorPromoteCommand {
+            change: "live-browser".into(),
+            preview_id: preview.preview_id,
+            program,
+        })
+        .unwrap();
+    assert!(!repeated.created);
+    let store = wvq_store::Store::open(&repo.0).unwrap();
+    let (record, body) = store
+        .read_program_revision("generated-home-heading", 1)
+        .unwrap()
+        .expect("promoted program revision");
+    assert_eq!(record.source, "promoted");
+    let stored: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(stored["id"], "generated-home-heading");
+
+    let replay = service
+        .run(&RunCommand {
+            change: "live-browser".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "all".into(),
+            evidence_policy: "minimal".into(),
+        })
+        .unwrap();
+    assert_eq!(replay.outcome, "passed");
+    assert_eq!(replay.browser_programs, 1);
+    assert_eq!(replay.recorded_test_count, 1);
 }
 
 #[test]

@@ -12,7 +12,8 @@ use mcport::{ConcurrentMcpServer, ToolReply, Value, json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, BusError, QualityService,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand, BusError,
+    QualityService,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,6 +41,13 @@ struct PreviewInput {
     trace: bool,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PromoteInput {
+    preview_id: String,
+    program: JsonValue,
+}
+
 fn default_token_budget() -> u64 {
     8_000
 }
@@ -48,7 +56,7 @@ fn default_true() -> bool {
     true
 }
 
-/// Three high-level tools, fixed to one startup-selected change and Git range.
+/// Four high-level tools, fixed to one startup-selected change and Git range.
 #[must_use]
 pub fn authoring_server(
     service: &Arc<dyn QualityService>,
@@ -59,9 +67,11 @@ pub fn authoring_server(
     let draft_service = Arc::clone(service);
     let validate_service = Arc::clone(service);
     let preview_service = Arc::clone(service);
+    let promote_service = Arc::clone(service);
     let draft_change = change.to_owned();
     let validate_change = change.to_owned();
     let preview_change = change.to_owned();
+    let promote_change = change.to_owned();
     let draft_base = base.to_owned();
     let preview_base = base.to_owned();
     let draft_head = head.to_owned();
@@ -131,6 +141,18 @@ pub fn authoring_server(
                 tool_result(reply)
             },
         )
+        .typed_tool(
+            "quality_test_promote",
+            "Persist the exact canonical TestProgram from one passing same-revision preview. Never creates or changes an OracleSeal.",
+            schema_promote(),
+            move |_ctx, input: PromoteInput| {
+                tool_result(promote_service.author_promote(&AuthorPromoteCommand {
+                    change: promote_change.clone(),
+                    preview_id: input.preview_id,
+                    program: input.program,
+                }))
+            },
+        )
 }
 
 fn tool_result<T: Serialize>(result: Result<T, BusError>) -> ToolReply {
@@ -193,6 +215,26 @@ fn schema_preview() -> Value {
             }
         },
         "required": ["program"],
+        "additionalProperties": false
+    })
+}
+
+fn schema_promote() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "preview_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Passing preview identity returned by quality_test_preview."
+            },
+            "program": {
+                "type": "object",
+                "description": "The exact canonical TestProgram exercised by the preview.",
+                "additionalProperties": true
+            }
+        },
+        "required": ["preview_id", "program"],
         "additionalProperties": false
     })
 }

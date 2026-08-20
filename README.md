@@ -27,7 +27,7 @@ All 35 tasks in the canonical development plan are implemented. The live vertica
 - SQLite + CAS preserve runs, evidence, debt history, AI usage, and immutable proofs across processes;
 - a passing suite proves only obligations explicitly bound to tests in policy;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
-- agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, and preview it through the real browser with screenshot/trace handles.
+- agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 
 Read [`docs/STATUS.md`](docs/STATUS.md) before changing the repository. The normative design is [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md).
 
@@ -125,6 +125,9 @@ const authoring = new WvqMcpClient({
   head: 'WORKTREE',
 })
 const draft = await authoring.draft()
+const validated = await authoring.validate(candidateProgram)
+const preview = await authoring.preview(validated.program, { screenshot: true, trace: true })
+const promoted = await authoring.promote(preview.preview_id, validated.program)
 ```
 
 All launchers use direct argv without a shell. The package includes MCP Registry metadata, and tag releases build and smoke-test all six platform variants before npm and MCP publication. Browser preview resolves Playwright from `browser.module_root`; install Playwright and the required browser engines in the repository that WVQ verifies.
@@ -191,17 +194,18 @@ wvq-mcp --repo . --profile authoring --change current --base HEAD --head WORKTRE
 npx wvq mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
 ```
 
-It exposes three high-level operations:
+It exposes four high-level operations:
 
 ```text
 quality_test_draft     complete sealed obligations + bounded changed-code/Weavatrix context
 quality_test_validate  strict TestProgram validation against the existing OracleSeal; no writes
 quality_test_preview   real Playwright run with observation/screenshot/trace handles; no test save
+quality_test_promote   persist only the exact passing same-revision preview under the existing seal
 ```
 
-`quality_test_draft` normally uses zero model tokens and lets the calling agent produce the candidate. `use_model: true` explicitly requests one configured loopback planning call through the same persistent AI Cost Firewall. Candidate JSON cannot contain or replace oracle predicates, cannot use XPath, shell, JavaScript evaluation, filesystem writes, or unregistered cross-origin API operations. Screenshot capture defaults on for preview; trace capture is opt-in.
+`quality_test_draft` normally uses zero model tokens and lets the calling agent produce the candidate. `use_model: true` explicitly requests one configured loopback planning call through the same persistent AI Cost Firewall. Candidate JSON cannot contain or replace oracle predicates, cannot use XPath, shell, JavaScript evaluation, filesystem writes, or unregistered cross-origin API operations. Screenshot capture defaults on for preview; trace capture is opt-in. Promotion revalidates the current program, change, repository revision, and `OracleSeal`, is idempotent for the same preview, and stores canonical JSON in CAS as program revision 1. Later `select` and `run` load the latest matching sealed revision automatically; a stale seal is never executed.
 
-`qualityd` serves the exception-first Studio API over the same command bus. The corresponding authoring endpoints are `POST /api/v1/authoring/draft`, `/validate`, and `/preview`. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
+`qualityd` serves the exception-first Studio API over the same command bus. The corresponding authoring endpoints are `POST /api/v1/authoring/draft`, `/validate`, `/preview`, and `/promote`. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
 
 ## Defect hypotheses
 

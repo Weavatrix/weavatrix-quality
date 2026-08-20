@@ -173,6 +173,7 @@ export interface AuthorValidateReply {
 }
 
 export interface AuthorPreviewReply {
+    preview_id: string
     change: string
     revision: string
     program_id: string
@@ -184,6 +185,16 @@ export interface AuthorPreviewReply {
     screenshot_handles: string[]
     trace_handle: string | null
     program_persisted: false
+}
+
+export interface AuthorPromoteReply {
+    change: string
+    revision: string
+    seal_id: string
+    program_id: string
+    program_revision: number
+    persisted: true
+    created: boolean
 }
 
 export interface WvqClientOptions {
@@ -234,6 +245,11 @@ export class WvqMcpClient {
         program: Record<string, JsonValue>,
         options?: { screenshot?: boolean; trace?: boolean; signal?: AbortSignal; timeoutMs?: number },
     ): Promise<AuthorPreviewReply>
+    promote(
+        previewId: string,
+        program: Record<string, JsonValue>,
+        options?: CallOptions,
+    ): Promise<AuthorPromoteReply>
 }
 
 export function resolveBinary(kind?: 'wvq' | 'mcp' | 'bench'): string

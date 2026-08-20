@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, BusError, ChangesCommand,
-    DebtCommand, DebtReply, EvidenceCommand, ExplainCommand, ProofSummary, QualityService,
-    StatusCommand, VerifyCommand,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand, BusError,
+    ChangesCommand, DebtCommand, DebtReply, EvidenceCommand, ExplainCommand, ProofSummary,
+    QualityService, StatusCommand, VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -41,6 +41,7 @@ enum Route<'a> {
     AuthorDraft,
     AuthorValidate,
     AuthorPreview,
+    AuthorPromote,
 }
 
 impl Route<'_> {
@@ -50,7 +51,8 @@ impl Route<'_> {
             | Self::RecoveryDecisions
             | Self::AuthorDraft
             | Self::AuthorValidate
-            | Self::AuthorPreview => "POST",
+            | Self::AuthorPreview
+            | Self::AuthorPromote => "POST",
             _ => "GET",
         }
     }
@@ -220,6 +222,7 @@ impl Studio {
             Route::AuthorDraft => self.author_draft(&request.body),
             Route::AuthorValidate => self.author_validate(&request.body),
             Route::AuthorPreview => self.author_preview(&request.body),
+            Route::AuthorPromote => self.author_promote(&request.body),
         }
     }
 
@@ -409,6 +412,17 @@ impl Studio {
         }
     }
 
+    fn author_promote(&self, body: &str) -> HttpResponse {
+        let command: AuthorPromoteCommand = match parse_json_body(body) {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
+        match self.service.author_promote(&command) {
+            Ok(reply) => ok(&reply),
+            Err(err) => bus_error(&err),
+        }
+    }
+
     fn record_decision(&self, body: &str) -> HttpResponse {
         let decision = match parse_decision(body) {
             Ok(value) => value,
@@ -482,6 +496,7 @@ fn parse_route(path: &str) -> Option<Route<'_>> {
         ["api", "v1", "authoring", "draft"] => Some(Route::AuthorDraft),
         ["api", "v1", "authoring", "validate"] => Some(Route::AuthorValidate),
         ["api", "v1", "authoring", "preview"] => Some(Route::AuthorPreview),
+        ["api", "v1", "authoring", "promote"] => Some(Route::AuthorPromote),
         _ => None,
     }
 }

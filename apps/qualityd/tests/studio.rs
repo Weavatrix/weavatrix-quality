@@ -87,7 +87,7 @@ fn changes_are_listed() {
 }
 
 #[test]
-fn authoring_http_projects_draft_validate_and_preview_from_the_shared_bus() {
+fn authoring_http_projects_draft_validate_preview_and_promote_from_the_shared_bus() {
     let studio = default_studio();
     let draft = post(
         &studio,
@@ -126,6 +126,19 @@ fn authoring_http_projects_draft_validate_and_preview_from_the_shared_bus() {
     assert_eq!(preview["program_persisted"], false);
     assert_eq!(preview["screenshot_handles"].as_array().unwrap().len(), 1);
     assert!(preview["trace_handle"].as_str().is_some());
+
+    let promoted = post(
+        &studio,
+        "/api/v1/authoring/promote",
+        &serde_json::json!({
+            "change": "live",
+            "preview_id": preview["preview_id"],
+            "program": {"id": "generated-http-program"}
+        })
+        .to_string(),
+    );
+    assert_eq!(promoted.status, 200, "{}", promoted.body);
+    assert_eq!(json(&promoted)["persisted"], true);
 
     assert_eq!(get(&studio, "/api/v1/authoring/draft").status, 405);
     assert_eq!(

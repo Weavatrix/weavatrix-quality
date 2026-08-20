@@ -9,16 +9,15 @@ mod replies;
 mod service;
 
 pub use commands::{
-    AnalyzeCommand, AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand,
-    ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand,
-    ModelCommand, PlanCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand,
-    VerifyCommand,
+    AnalyzeCommand, AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand,
+    AuthorValidateCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
+    ExplainCommand, ModelCommand, PlanCommand, RunCommand, SelectCommand, SpecCommand,
+    StatusCommand, VerifyCommand,
 };
 pub use replies::{
-    AnalyzeReply, AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorValidateReply,
-    AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply,
-    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
-    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
-    estimate_tokens,
+    AnalyzeReply, AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
+    AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
+    ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
+    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, estimate_tokens,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};
