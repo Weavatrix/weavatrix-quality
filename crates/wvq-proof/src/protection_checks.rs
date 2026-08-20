@@ -24,7 +24,11 @@ pub struct ProtectionFinding {
 }
 
 /// How a test changed between revisions, as the checks need it.
+///
+/// The flags are independent facts about one test, not a state machine, so they
+/// stay as separate fields rather than being folded into an enum.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct TestChange {
     /// Test identity.
     pub test: String,
@@ -137,56 +141,7 @@ fn check_flow(
     let severity = policy.severity_for(flow);
 
     match delta.state {
-        ProtectionDeltaState::Lost => {
-            // 001 — a previously protected flow has no valid proof path.
-            out.push(finding(
-                "WVQ-PROTECT-001",
-                severity,
-                flow,
-                format!(
-                    "base had measured protection, head has none: {}",
-                    delta.reasons.join("; ")
-                ),
-            ));
-            // 006 — coverage moved away from a critical branch.
-            if delta.lost_critical_protection() {
-                out.push(finding(
-                    "WVQ-PROTECT-006",
-                    Severity::Error,
-                    flow,
-                    format!(
-                        "critical branch(es) {} lost dynamic execution; \
-                         a global coverage gain does not offset this",
-                        delta.lost_critical_branches.join(", ")
-                    ),
-                ));
-                // 010 — many new low-risk lines while a small high-risk path went.
-                if delta.head_tests.len() > delta.base_tests.len() {
-                    out.push(finding(
-                        "WVQ-PROTECT-010",
-                        Severity::Error,
-                        flow,
-                        format!(
-                            "head added {} test(s) but dropped critical branch(es) {}",
-                            delta.head_tests.len() - delta.base_tests.len(),
-                            delta.lost_critical_branches.join(", ")
-                        ),
-                    ));
-                }
-            }
-            // 007 — a previously proven requirement is no longer proven.
-            if !delta.lost_obligations.is_empty() {
-                out.push(finding(
-                    "WVQ-PROTECT-007",
-                    severity,
-                    flow,
-                    format!(
-                        "obligation(s) {} were proven on base and are not now",
-                        delta.lost_obligations.join(", ")
-                    ),
-                ));
-            }
-        }
+        ProtectionDeltaState::Lost => check_lost(delta, severity, out),
         ProtectionDeltaState::Degraded => {
             // 007 — proven became partial.
             if delta.lost_obligations.is_empty() {
@@ -243,6 +198,56 @@ fn check_flow(
         | ProtectionDeltaState::Improved
         | ProtectionDeltaState::Relocated
         | ProtectionDeltaState::Unknown => {}
+    }
+}
+
+/// A flow that lost its safety net: 001, plus 006/010/007 where they apply.
+fn check_lost(delta: &ProtectionDelta, severity: Severity, out: &mut Vec<ProtectionFinding>) {
+    let flow = delta.flow.as_str();
+    out.push(finding(
+        "WVQ-PROTECT-001",
+        severity,
+        flow,
+        format!(
+            "base had measured protection, head has none: {}",
+            delta.reasons.join("; ")
+        ),
+    ));
+    if delta.lost_critical_protection() {
+        out.push(finding(
+            "WVQ-PROTECT-006",
+            Severity::Error,
+            flow,
+            format!(
+                "critical branch(es) {} lost dynamic execution; \
+                 a global coverage gain does not offset this",
+                delta.lost_critical_branches.join(", ")
+            ),
+        ));
+        // 010 — many new low-risk tests while a small high-risk path went.
+        if delta.head_tests.len() > delta.base_tests.len() {
+            out.push(finding(
+                "WVQ-PROTECT-010",
+                Severity::Error,
+                flow,
+                format!(
+                    "head added {} test(s) but dropped critical branch(es) {}",
+                    delta.head_tests.len() - delta.base_tests.len(),
+                    delta.lost_critical_branches.join(", ")
+                ),
+            ));
+        }
+    }
+    if !delta.lost_obligations.is_empty() {
+        out.push(finding(
+            "WVQ-PROTECT-007",
+            severity,
+            flow,
+            format!(
+                "obligation(s) {} were proven on base and are not now",
+                delta.lost_obligations.join(", ")
+            ),
+        ));
     }
 }
 
