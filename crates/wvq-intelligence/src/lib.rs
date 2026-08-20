@@ -13,6 +13,7 @@ mod flow;
 mod impact_union;
 mod risk;
 mod selection;
+mod test_lineage;
 mod weavatrix;
 
 pub use checks::{
@@ -24,6 +25,7 @@ pub use flow::{
     FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,
 };
 pub use impact_union::{GraphDelta, ImpactedSurface, SurfaceDelta, impacted_surface};
+pub use test_lineage::{TestFacts, TestLineage, TestLineageState, track_lineage};
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
 pub use selection::{
     ObligationNeed, SelectedTest, SelectionInput, SelectionPlan, TestCandidate, select_minimal_plan,
