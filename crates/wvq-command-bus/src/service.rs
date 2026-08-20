@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use wvq_domain::{ArtifactId, OracleSealId, ProgramId, ProofId, RevisionId, RunId};
+use wvq_domain::{ArtifactId, ContentHash, OracleSealId, ProgramId, ProofId, RevisionId, RunId};
 use wvq_intelligence::{
     CodeEvidenceProvider, CoverageMeasurement, GraphDelta, ObligationNeed, SelectionInput,
     SurfaceDelta, TestCandidate, WeavatrixProvider, impacted_surface, map_coverage_to_nodes,
@@ -25,10 +25,10 @@ use wvq_proof::{
     call_local_model, fingerprint_id, gate_protection, protection_delta, snapshot, triage,
 };
 use wvq_runtime::{
-    BrowserProgramRun, BrowserRunConfig, CaptureWhen, CoverageArtifact, ExecutionResult,
-    ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest, ProgramOracle,
-    TestProgram, TestStatus, default_limits, discover_executor_targets, parse_go_coverprofile,
-    parse_go_json, parse_junit, parse_lcov, run_browser_program,
+    BehaviorState, BrowserProgramRun, BrowserRunConfig, CaptureWhen, CoverageArtifact,
+    ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest,
+    ProgramOracle, TestAction, TestProgram, TestStatus, default_limits, discover_executor_targets,
+    parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, run_browser_program,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -450,6 +450,10 @@ impl QualityService for FakeService {
             available_test_count: 2,
             executor_invocations: 0,
             browser_programs: 0,
+            behavior_state_count: 0,
+            new_behavior_state_count: 0,
+            behavior_edge_count: 0,
+            new_behavior_edge_count: 0,
             recorded_test_count: 0,
             failed_test_count: 0,
             flaky_test_count: 0,
@@ -1347,6 +1351,23 @@ struct BrowserProofEvidence {
     contradicted: bool,
 }
 
+#[derive(Default)]
+struct BehaviorContributionSummary {
+    states: u64,
+    new_states: u64,
+    edges: u64,
+    new_edges: u64,
+}
+
+struct ProgramBehaviorContribution {
+    states: BTreeSet<String>,
+    new_states: BTreeSet<String>,
+    edges: BTreeSet<String>,
+    new_edges: BTreeSet<String>,
+    api_operations: BTreeSet<String>,
+    artifact: Value,
+}
+
 struct ModelPolicy {
     model: LocalModelConfig,
     budget: AiBudget,
@@ -1800,6 +1821,8 @@ impl QualityService for LiveService {
             &cmd.evidence_policy,
             &mut handles,
         )?;
+        let behavior =
+            persist_browser_behavior(&store, &run_id, &before, &browser_runs, &mut handles)?;
         let test_analytics =
             persist_test_analytics(&store, &run_id, &before, &records, &browser_runs)?;
         put_run_artifact(
@@ -1870,6 +1893,10 @@ impl QualityService for LiveService {
             available_test_count: u64::try_from(available_test_count).unwrap_or(u64::MAX),
             executor_invocations: u64::try_from(records.len()).unwrap_or(u64::MAX),
             browser_programs: u64::try_from(browser_runs.len()).unwrap_or(u64::MAX),
+            behavior_state_count: behavior.states,
+            new_behavior_state_count: behavior.new_states,
+            behavior_edge_count: behavior.edges,
+            new_behavior_edge_count: behavior.new_edges,
             recorded_test_count: test_analytics.recorded_test_count,
             failed_test_count: test_analytics.failed_test_count,
             flaky_test_count: test_analytics.flaky_test_count,
@@ -5813,6 +5840,259 @@ fn persist_browser_runs(
         )?;
     }
     Ok(())
+}
+
+const BEHAVIOR_SAMPLE_LIMIT: usize = 500;
+const BEHAVIOR_PROGRAM_SAMPLE_LIMIT: usize = 100;
+
+fn persist_browser_behavior(
+    store: &Store,
+    run_id: &RunId,
+    revision: &RevisionId,
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+    handles: &mut Vec<String>,
+) -> Result<BehaviorContributionSummary, BusError> {
+    if browser_runs.is_empty() {
+        return Ok(BehaviorContributionSummary::default());
+    }
+
+    let mut all_states = BTreeSet::new();
+    let mut all_new_states = BTreeSet::new();
+    let mut all_edges = BTreeSet::new();
+    let mut all_new_edges = BTreeSet::new();
+    let mut all_api_operations = BTreeSet::new();
+    let mut programs = Vec::new();
+
+    for (configured, result) in browser_runs {
+        let contribution = persist_program_behavior(store, configured, result)?;
+        all_states.extend(contribution.states.iter().cloned());
+        all_new_states.extend(contribution.new_states.iter().cloned());
+        all_edges.extend(contribution.edges.iter().cloned());
+        all_new_edges.extend(contribution.new_edges.iter().cloned());
+        all_api_operations.extend(contribution.api_operations.iter().cloned());
+        programs.push(contribution.artifact);
+    }
+
+    let summary = BehaviorContributionSummary {
+        states: u64::try_from(all_states.len()).unwrap_or(u64::MAX),
+        new_states: u64::try_from(all_new_states.len()).unwrap_or(u64::MAX),
+        edges: u64::try_from(all_edges.len()).unwrap_or(u64::MAX),
+        new_edges: u64::try_from(all_new_edges.len()).unwrap_or(u64::MAX),
+    };
+    let (state_digests, state_digests_truncated) = bounded_set(&all_states, BEHAVIOR_SAMPLE_LIMIT);
+    let (new_state_digests, new_state_digests_truncated) =
+        bounded_set(&all_new_states, BEHAVIOR_SAMPLE_LIMIT);
+    let (api_operations, api_operations_truncated) =
+        bounded_set(&all_api_operations, BEHAVIOR_SAMPLE_LIMIT);
+    let artifact = json!({
+        "schema_v": 1,
+        "run_id": run_id,
+        "revision": revision,
+        "state_count": summary.states,
+        "new_state_count": summary.new_states,
+        "edge_count": summary.edges,
+        "new_edge_count": summary.new_edges,
+        "state_digests": state_digests,
+        "new_state_digests": new_state_digests,
+        "api_operations": api_operations,
+        "programs": programs,
+        "coverage_status": "unmeasured",
+        "coverage_nodes": [],
+        "truncated": state_digests_truncated
+            || new_state_digests_truncated
+            || api_operations_truncated,
+        "runtime_llm_tokens": 0,
+    });
+    put_json_run_artifact(
+        store,
+        run_id,
+        &format!("artifact-{}-behavior-contribution", run_id.as_str()),
+        "behavior-contribution",
+        &artifact,
+        handles,
+    )?;
+    Ok(summary)
+}
+
+fn persist_program_behavior(
+    store: &Store,
+    configured: &ConfiguredBrowserProgram,
+    result: &BrowserProgramRun,
+) -> Result<ProgramBehaviorContribution, BusError> {
+    let mut states = BTreeSet::new();
+    let mut new_states = BTreeSet::new();
+    let mut edges = BTreeSet::new();
+    let mut new_edges = BTreeSet::new();
+    let mut api_operations = BTreeSet::new();
+    let mut previous: Option<(usize, ContentHash)> = None;
+
+    for (index, observation) in result.observations.iter().enumerate() {
+        api_operations.extend(
+            observation
+                .network
+                .iter()
+                .map(|operation| bounded_network_operation(operation))
+                .filter(|operation| !operation.is_empty()),
+        );
+        let Some((digest, body)) = normalized_behavior_state(observation)? else {
+            previous = None;
+            continue;
+        };
+        let digest_text = digest.to_string();
+        states.insert(digest_text.clone());
+        if store
+            .put_behavior_state(&digest, &body)
+            .map_err(|err| BusError::Store(err.to_string()))?
+        {
+            new_states.insert(digest_text);
+        }
+        if let Some((previous_index, previous_digest)) = previous.take()
+            && previous_index.saturating_add(1) == index
+            && let Some(action) = configured.program.steps.get(index)
+        {
+            let (key, inserted) = persist_behavior_edge(store, &previous_digest, &digest, action)?;
+            edges.insert(key.clone());
+            if inserted {
+                new_edges.insert(key);
+            }
+        }
+        previous = Some((index, digest));
+    }
+    for action in configured
+        .program
+        .steps
+        .iter()
+        .take(result.observations.len())
+    {
+        if let TestAction::ApiCall { operation, .. } = action {
+            api_operations.insert(operation.clone());
+        }
+    }
+
+    let artifact = program_behavior_artifact(
+        configured,
+        result,
+        &states,
+        &new_states,
+        &edges,
+        &new_edges,
+        &api_operations,
+    );
+    Ok(ProgramBehaviorContribution {
+        states,
+        new_states,
+        edges,
+        new_edges,
+        api_operations,
+        artifact,
+    })
+}
+
+fn normalized_behavior_state(
+    observation: &wvq_runtime::Observation,
+) -> Result<Option<(ContentHash, Vec<u8>)>, BusError> {
+    let Some(route) = observation
+        .route
+        .as_deref()
+        .map(str::trim)
+        .filter(|route| !route.is_empty())
+    else {
+        return Ok(None);
+    };
+    let state = BehaviorState {
+        route: route.to_owned(),
+        a11y_digest: observation.a11y_digest.clone(),
+        viewport: observation.viewport.clone(),
+        ..BehaviorState::default()
+    };
+    let body = state
+        .canonical_json()
+        .map_err(|err| BusError::Runtime(err.to_string()))?;
+    let digest = state
+        .digest()
+        .map_err(|err| BusError::Runtime(err.to_string()))?;
+    Ok(Some((digest, body)))
+}
+
+fn persist_behavior_edge(
+    store: &Store,
+    previous: &ContentHash,
+    current: &ContentHash,
+    action: &TestAction,
+) -> Result<(String, bool), BusError> {
+    let action = serde_json::to_string(action).map_err(|err| BusError::Runtime(err.to_string()))?;
+    let key = format!("{previous}\0{action}\0{current}");
+    let inserted = store
+        .put_behavior_edge(previous, current, &action)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    Ok((key, inserted))
+}
+
+fn program_behavior_artifact(
+    configured: &ConfiguredBrowserProgram,
+    result: &BrowserProgramRun,
+    states: &BTreeSet<String>,
+    new_states: &BTreeSet<String>,
+    edges: &BTreeSet<String>,
+    new_edges: &BTreeSet<String>,
+    api_operations: &BTreeSet<String>,
+) -> Value {
+    let (state_digests, state_digests_truncated) =
+        bounded_set(states, BEHAVIOR_PROGRAM_SAMPLE_LIMIT);
+    let (new_state_digests, new_state_digests_truncated) =
+        bounded_set(new_states, BEHAVIOR_PROGRAM_SAMPLE_LIMIT);
+    let (api_operations, api_operations_truncated) =
+        bounded_set(api_operations, BEHAVIOR_PROGRAM_SAMPLE_LIMIT);
+    json!({
+        "program": configured.program.id,
+        "passed": result.passed,
+        "obligations": configured.program.obligations,
+        "state_count": states.len(),
+        "new_state_count": new_states.len(),
+        "edge_count": edges.len(),
+        "new_edge_count": new_edges.len(),
+        "state_digests": state_digests,
+        "new_state_digests": new_state_digests,
+        "api_operations": api_operations,
+        "coverage_status": "unmeasured",
+        "coverage_nodes": [],
+        "truncated": state_digests_truncated
+            || new_state_digests_truncated
+            || api_operations_truncated,
+    })
+}
+
+fn bounded_set(values: &BTreeSet<String>, limit: usize) -> (Vec<String>, bool) {
+    (
+        values.iter().take(limit).cloned().collect(),
+        values.len() > limit,
+    )
+}
+
+fn bounded_network_operation(operation: &str) -> String {
+    let mut parts = operation.split_whitespace();
+    let Some(method) = parts.next() else {
+        return String::new();
+    };
+    let Some(raw_url) = parts.next() else {
+        return operation.chars().take(512).collect();
+    };
+    let url = raw_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(raw_url)
+        .chars()
+        .take(400)
+        .collect::<String>();
+    let status = parts.next().unwrap_or_default();
+    format!(
+        "{} {} {}",
+        method.chars().take(16).collect::<String>(),
+        url,
+        status
+    )
+    .trim_end()
+    .to_owned()
 }
 
 fn browser_evidence_kinds(

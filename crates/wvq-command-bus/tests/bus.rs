@@ -972,6 +972,7 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
     let _browser_guard = BROWSER_TEST_LOCK
         .lock()
@@ -989,6 +990,10 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         })
         .unwrap();
     assert_eq!(run.outcome, "passed");
+    assert!(run.behavior_state_count > 0);
+    assert_eq!(run.new_behavior_state_count, run.behavior_state_count);
+    assert!(run.behavior_edge_count > 0);
+    assert_eq!(run.new_behavior_edge_count, run.behavior_edge_count);
     assert!(
         run.artifact_handles
             .iter()
@@ -996,12 +1001,48 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         "{:?}",
         run.artifact_handles
     );
+    let behavior_handle = run
+        .artifact_handles
+        .iter()
+        .find(|handle| handle.contains("behavior-contribution"))
+        .expect("behavior contribution handle");
+    let behavior_evidence = service
+        .evidence(&EvidenceCommand {
+            handle: behavior_handle.clone(),
+        })
+        .unwrap();
+    assert_eq!(behavior_evidence.kind, "behavior-contribution");
+    let behavior: serde_json::Value = serde_json::from_str(
+        behavior_evidence
+            .inline_text
+            .as_deref()
+            .expect("bounded behavior contribution is inline"),
+    )
+    .unwrap();
+    assert_eq!(behavior["runtime_llm_tokens"], 0);
+    assert_eq!(behavior["coverage_status"], "unmeasured");
+    assert_eq!(behavior["state_count"], run.behavior_state_count);
     let proven = service
         .verify(&VerifyCommand {
             change: "live-browser".into(),
         })
         .unwrap();
     assert_eq!(proven.verdict, "PROVEN", "{:?}", proven.proofs);
+
+    let repeated_run = service
+        .run(&RunCommand {
+            change: "live-browser".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(repeated_run.outcome, "passed");
+    assert!(repeated_run.behavior_state_count > 0);
+    assert_eq!(repeated_run.new_behavior_state_count, 0);
+    assert!(repeated_run.behavior_edge_count > 0);
+    assert_eq!(repeated_run.new_behavior_edge_count, 0);
 
     write_browser_quality(&repo.0, "hidden");
     let contradicted_run = service
@@ -1014,6 +1055,8 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         })
         .unwrap();
     assert_eq!(contradicted_run.outcome, "failed");
+    assert!(contradicted_run.behavior_state_count > 0);
+    assert!(contradicted_run.behavior_edge_count > 0);
     assert!(
         contradicted_run
             .artifact_handles

@@ -1141,24 +1141,30 @@ impl Store {
     ///
     /// # Errors
     ///
+    /// Returns `true` only when the state was new. Returns
     /// [`StoreError::Invalid`] when `digest` does not match the content hash.
-    pub fn put_behavior_state(&self, digest: &ContentHash, body: &[u8]) -> Result<(), StoreError> {
+    pub fn put_behavior_state(
+        &self,
+        digest: &ContentHash,
+        body: &[u8],
+    ) -> Result<bool, StoreError> {
         let hash = self.cas.put(body)?;
         if hash.as_str() != digest.as_str() {
             return Err(StoreError::Invalid(
                 "behavior state digest does not match CAS hash".into(),
             ));
         }
-        self.conn
+        let inserted = self
+            .conn
             .execute(
                 "INSERT OR IGNORE INTO behavior_states (id, digest) VALUES (?1, ?2)",
                 params![digest.as_str(), digest.as_str()],
             )
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
-        Ok(())
+        Ok(inserted == 1)
     }
 
-    /// Persist `src --action--> dst`. Duplicate edges are ignored.
+    /// Persist `src --action--> dst`. Returns `true` only for a new edge.
     ///
     /// # Errors
     ///
@@ -1168,15 +1174,16 @@ impl Store {
         src: &ContentHash,
         dst: &ContentHash,
         action: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<bool, StoreError> {
         let id = edge_id(src, dst, action)?;
-        self.conn
+        let inserted = self
+            .conn
             .execute(
                 "INSERT OR IGNORE INTO behavior_edges (id, src, dst, action) VALUES (?1, ?2, ?3, ?4)",
                 params![id, src.as_str(), dst.as_str(), action],
             )
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
-        Ok(())
+        Ok(inserted == 1)
     }
 
     /// Record a manual QA session so it can be replayed.

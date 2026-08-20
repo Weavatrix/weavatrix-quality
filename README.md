@@ -28,6 +28,7 @@ All 35 tasks in the canonical development plan are implemented. The live vertica
 - a passing suite proves only obligations explicitly bound to tests in policy;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
+- every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.
 
 Read [`docs/STATUS.md`](docs/STATUS.md) before changing the repository. The normative design is [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md).
 
@@ -59,6 +60,8 @@ A Rust, TS/JS, Bun, Go, or Playwright repository can:
 An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run. Every run returns `scope_reason`, selected/available test counts, and executor/browser invocation counts. File paths stay file-path argv values rather than becoming test-title regexes, and paths for one runner are batched into bounded processes (at most 128 filters and 24 KiB per process). More than sixteen batches widens to the full suite to avoid process amplification.
 
 Fresh normalized JUnit, Go, and typed browser results also feed persistent test analytics. WVQ records each exact executor/suite/test identity with its revision, outcome, and reported duration; clusters repeated failures by a stable fingerprint; and reports the slowest current cases with their historical mean. A test is called flaky only after the same identity has both passed and failed/errored in recorded history. The bounded `test-analytics` artifact stays in CAS, while `run` returns recorded, failed, flaky, and deterministically unclassified counts. This path makes no model call.
+
+Playwright observations also feed the live BehaviorGraph. WVQ hashes canonical route + accessibility + viewport state, persists semantic transitions between adjacent observations, links them to the program's sealed obligations and observed API operations, and reports both run-local and newly learned state/edge counts. The bounded `behavior-contribution` artifact records exact run/revision provenance and zero runtime LLM tokens. Browser coverage stays explicitly `unmeasured` until a browser coverage producer exists; it is never inferred from a DOM observation.
 
 For a package whose test script is exactly `vitest` or `vitest run`, WVQ selects the registered Vitest executor and adds the runner's built-in JUnit reporter automatically. It resolves the repository-local binary through offline, non-interactive npm execution, imports the report, and deletes only WVQ's private `.weavatrix-quality/junit.xml` before checking the revision. Repository-owned report paths are never removed. More complex package scripts stay on the generic npm boundary and can still contribute any fresh supported JUnit/LCOV artifacts they produce.
 

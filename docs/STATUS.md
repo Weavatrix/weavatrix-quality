@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: measured Vitest evidence and defensive selection audit
+Session: live BehaviorGraph production from Playwright observations
 
 ## Now
 
@@ -15,6 +15,8 @@ Unreleased state: the authoring vertical, actual selected-vs-full benchmark runn
 
 Live test analytics are now wired rather than model-only. Every normalized JUnit/Go case and typed browser program is persisted with exact run/revision identity, outcome, and duration. Failure occurrences use stable fingerprints and the deterministic flake triage; mixed pass plus fail/error history is the only condition that marks an identity flaky. Each run emits a bounded CAS-backed `test-analytics` artifact with current outcomes, failure clusters, flaky histories, and the twenty slowest reported durations with historical means. `RunReply` exposes recorded/failed/flaky/unknown counts. This path uses zero runtime LLM tokens.
 
+Playwright observations now feed the persistent BehaviorGraph on the normal live run path. Canonical route + accessibility digest + viewport states share one hash representation with CAS, and adjacent observations persist edges labelled by the exact typed `TestAction`. Run-local and newly admitted state/edge totals are separate in `RunReply`; a bounded same-revision `behavior-contribution` artifact links state digests to program obligations and observed API metadata. Missing browser coverage remains explicitly `unmeasured` rather than being invented from DOM evidence. Repeating the same behavior produces zero new states and edges, and the producer uses zero runtime LLM tokens.
+
 Selection now consumes conservative measured history as a real producer. Successful coverage is attributed to a test-node pair only when an executor ran exactly one selected test path; a multi-test batch never teaches ambiguous per-test coverage. The pair must be seen in two distinct run ids before it joins the Weavatrix base/head union, and duplicate ingestion from one run cannot increase confidence. Candidate queries and persisted evidence are bounded; a `selection-decision` CAS artifact records the algorithm, selected paths, explanations, history count, observation floor, and uncovered obligations.
 
 The live shadow benchmark now closes the defensive-learning loop. It requires an impacted run and an effective full run for the same change/revision, compares normalized failing identities, and persists one idempotent audit as `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`. A full-only failure remains visible even if its suite cannot be mapped safely; an exact repository test path is fed back into future selection immediately for the bounded impacted-node set. The `selection-audit` CAS artifact reports total misses, bounded identity/path samples, truncation, and zero runtime LLM tokens.
@@ -23,7 +25,7 @@ Direct Vitest package scripts now produce measured cases without repository conf
 
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation binds a generated program to the existing `OracleSeal`; persistence is now a separate passing-preview admission step.
 
-The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the current repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 46.36 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.69 s. The defensive audit is now `corroborated` with zero missed failures. This is a measured one-file reduction and a 1.33 s observation, not a general speedup claim. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
+The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the latest repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 48.26 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.79 s. The defensive audit is `corroborated` with zero missed failures. This is a measured one-file reduction with no speedup in this sample—the impacted run was 0.47 s slower. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
 
 ## Playwright authoring path
 
@@ -65,6 +67,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | coverage | Normalizes fresh LCOV/Go evidence, maps it to changed graph nodes, and persists a revision-bound `ProtectionSnapshot` |
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
+| behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
 | proof | Uses only the latest same-change, same-revision run; a green suite proves only obligations explicitly bound to executed tests |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
@@ -93,4 +96,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Finish the remaining reproduced competitor gaps: live mutation/behavior producers and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.
+Finish the remaining reproduced competitor gaps: live mutation producer and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.

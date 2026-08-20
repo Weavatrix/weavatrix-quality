@@ -295,19 +295,23 @@ fn behavior_states_and_edges_persist() {
     let store = open_temp();
     let body = br#"{"route":"/analytics/dashboard/42"}"#;
     let digest = store.put_blob(body).unwrap();
-    store.put_behavior_state(&digest, body).unwrap();
-    store.put_behavior_state(&digest, body).unwrap();
+    assert!(store.put_behavior_state(&digest, body).unwrap());
+    assert!(!store.put_behavior_state(&digest, body).unwrap());
     assert_eq!(store.behavior_state_count().unwrap(), 1);
 
     let after = store
         .put_blob(br#"{"route":"/analytics/dashboard/42","modal":"others"}"#)
         .unwrap();
-    store
-        .put_behavior_edge(&digest, &after, "activate")
-        .unwrap();
-    store
-        .put_behavior_edge(&digest, &after, "activate")
-        .unwrap();
+    assert!(
+        store
+            .put_behavior_edge(&digest, &after, "activate")
+            .unwrap()
+    );
+    assert!(
+        !store
+            .put_behavior_edge(&digest, &after, "activate")
+            .unwrap()
+    );
     assert_eq!(store.behavior_edge_count().unwrap(), 1);
 
     store

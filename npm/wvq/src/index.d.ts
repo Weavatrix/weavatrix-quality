@@ -46,6 +46,10 @@ export interface RunReply {
     available_test_count: number
     executor_invocations: number
     browser_programs: number
+    behavior_state_count: number
+    new_behavior_state_count: number
+    behavior_edge_count: number
+    new_behavior_edge_count: number
     recorded_test_count: number
     failed_test_count: number
     flaky_test_count: number

@@ -42,15 +42,23 @@ pub struct BehaviorState {
 }
 
 impl BehaviorState {
+    /// Canonical JSON bytes used by both state identity and CAS persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramError::Malformed`] when serialization fails.
+    pub fn canonical_json(&self) -> Result<Vec<u8>, ProgramError> {
+        serde_json::to_vec(&canonical_value(self))
+            .map_err(|err| ProgramError::Malformed(err.to_string()))
+    }
+
     /// SHA-256 of the canonical JSON. Flag insertion order does not matter.
     ///
     /// # Errors
     ///
     /// Returns [`ProgramError::Malformed`] if the digest cannot be formed.
     pub fn digest(&self) -> Result<ContentHash, ProgramError> {
-        let value = canonical_value(self);
-        let bytes =
-            serde_json::to_vec(&value).map_err(|err| ProgramError::Malformed(err.to_string()))?;
+        let bytes = self.canonical_json()?;
         let hex = Sha256::digest(bytes)
             .iter()
             .fold(String::new(), |mut out, byte| {

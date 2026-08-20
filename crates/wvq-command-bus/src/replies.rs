@@ -128,6 +128,14 @@ pub struct RunReply {
     pub executor_invocations: u64,
     /// Number of typed browser programs invoked.
     pub browser_programs: u64,
+    /// Unique normalized browser states contributed by this run.
+    pub behavior_state_count: u64,
+    /// Browser states first admitted to the persistent `BehaviorGraph`.
+    pub new_behavior_state_count: u64,
+    /// Unique normalized browser transitions contributed by this run.
+    pub behavior_edge_count: u64,
+    /// Browser transitions first admitted to the persistent `BehaviorGraph`.
+    pub new_behavior_edge_count: u64,
     /// Number of normalized test-case occurrences recorded for history.
     pub recorded_test_count: u64,
     /// Number of failed/error test-case occurrences in this run.
