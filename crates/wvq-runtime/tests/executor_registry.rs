@@ -3,12 +3,15 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+#[cfg(windows)]
 use std::time::Duration;
 
 use wvq_runtime::{
-    Executor, ExecutorId, ExecutorRegistry, ExecutorSpec, PrepareRequest, ProcessLimits,
-    RuntimeError, default_limits, discover_executor_targets,
+    Executor, ExecutorId, ExecutorRegistry, PrepareRequest, RuntimeError, default_limits,
+    discover_executor_targets,
 };
+#[cfg(windows)]
+use wvq_runtime::{ExecutorSpec, ProcessLimits};
 
 fn request(id: &str, extra: BTreeMap<String, String>) -> PrepareRequest {
     PrepareRequest {
