@@ -13,6 +13,7 @@ mod mutation;
 mod protection;
 mod protection_checks;
 mod protection_delta;
+mod protection_view;
 mod verdict;
 
 pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assemble};
@@ -49,5 +50,8 @@ pub use protection_checks::{
 pub use protection_delta::{
     DeltaContext, ProtectionDelta, ProtectionDeltaState, ProtectionSummary, protection_delta,
     summarise,
+};
+pub use protection_view::{
+    FlowView, ProtectionReport, ProtectionView, TestLineageView,
 };
 pub use verdict::{ProofVerdict, VerdictInput, decide_verdict};

@@ -1,9 +1,11 @@
-//! Agent-only MCP surface. Seven default tools. No shell. No Studio.
+﻿//! Agent-only MCP surface. Seven default tools. No shell. No Studio.
 
 #![forbid(unsafe_code)]
 
+mod protection;
 mod recovery;
 
+pub use protection::{SharedProtection, protection_server};
 pub use recovery::{SharedDesk, recovery_server};
 
 use std::sync::Arc;

@@ -1,4 +1,4 @@
-//! Exception-first Quality Studio API. Spec §31 and §58.
+﻿//! Exception-first Quality Studio API. Spec §31 and §58.
 //!
 //! Every endpoint is a projection of the shared command bus. The dashboard shows
 //! unresolved exceptions, never hundreds of green cases, and a human decision is
@@ -14,6 +14,7 @@ use wvq_command_bus::{
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
 };
+use wvq_proof::ProtectionView;
 use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::{Store, StoredAiUsage};
 
@@ -33,6 +34,9 @@ enum Route<'a> {
     RecoveryQuestions,
     RecoveryPatch,
     RecoveryDecisions,
+    Protection,
+    ProtectionTest(&'a str),
+    ProtectionFlow(&'a str),
 }
 
 impl Route<'_> {
@@ -137,6 +141,7 @@ pub struct Studio {
     service: Arc<dyn QualityService>,
     store: Mutex<Store>,
     recovery: Option<Arc<Mutex<RecoveryDesk>>>,
+    protection: Option<Arc<Mutex<ProtectionView>>>,
 }
 
 impl Studio {
@@ -147,7 +152,15 @@ impl Studio {
             service,
             store: Mutex::new(store),
             recovery: None,
+            protection: None,
         }
+    }
+
+    /// Attach a computed protection view, enabling the continuity screens.
+    #[must_use]
+    pub fn with_protection(mut self, view: Arc<Mutex<ProtectionView>>) -> Self {
+        self.protection = Some(view);
+        self
     }
 
     /// Enable the spec-recovery screens over a desk the host has populated.
@@ -185,7 +198,32 @@ impl Studio {
                 })
             }),
             Route::RecoveryDecisions => self.record_recovery_decision(&request.body),
+            Route::Protection => self.read_protection(|view| ok(&view.report())),
+            Route::ProtectionTest(test) => {
+                self.read_protection(|view| match view.lineage_of(test) {
+                    Some(record) => ok(record),
+                    None => HttpResponse::error(404, "no lineage recorded for that test"),
+                })
+            }
+            Route::ProtectionFlow(flow) => self.read_protection(|view| match view.flow(flow) {
+                Some(record) => ok(record),
+                None => HttpResponse::error(404, "that flow is not in the impacted surface"),
+            }),
         }
+    }
+
+    /// Run `body` against the protection view, or answer 404 when it is off.
+    fn read_protection<F>(&self, body: F) -> HttpResponse
+    where
+        F: FnOnce(&ProtectionView) -> HttpResponse,
+    {
+        let Some(view) = &self.protection else {
+            return HttpResponse::error(404, "protection continuity has not been computed");
+        };
+        let guard = view
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        body(&guard)
     }
 
     /// Run `body` against the recovery desk, or answer 404 when it is off.
@@ -379,6 +417,9 @@ fn parse_route(path: &str) -> Option<Route<'_>> {
         ["api", "v1", "recovery", "questions"] => Some(Route::RecoveryQuestions),
         ["api", "v1", "recovery", "patch"] => Some(Route::RecoveryPatch),
         ["api", "v1", "recovery", "decisions"] => Some(Route::RecoveryDecisions),
+        ["api", "v1", "protection"] => Some(Route::Protection),
+        ["api", "v1", "protection", "tests", test] => Some(Route::ProtectionTest(test)),
+        ["api", "v1", "protection", "flows", flow] => Some(Route::ProtectionFlow(flow)),
         ["api", "v1", "changes"] => Some(Route::Changes),
         ["api", "v1", "changes", change, "summary"] => Some(Route::Summary(change)),
         ["api", "v1", "requirements", requirement, "proofs"] => {

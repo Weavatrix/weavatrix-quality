@@ -21,6 +21,7 @@ mcport = { workspace = true }
 serde = { workspace = true }
 wvq-command-bus = { workspace = true }
 wvq-domain = { workspace = true }
+wvq-proof = { workspace = true }
 wvq-spec-recovery = { workspace = true }
 
 [dev-dependencies]

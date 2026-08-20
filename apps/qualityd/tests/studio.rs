@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qualityd::{HttpRequest, HttpResponse, Studio, serve};
 use serde_json::Value;
 use wvq_command_bus::{FakeService, ProofSummary, QualityService};
+use wvq_proof::{FlowView, ProtectionView, TestLineageView};
 use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::Store;
 
@@ -311,6 +312,61 @@ fn an_attached_desk_serves_the_recovery_screens() {
         &decision_body("hd-r1", "cand-unknown", "accept_as_intended"),
     );
     assert_eq!(unknown.status, 422);
+}
+
+#[test]
+fn protection_screens_are_absent_until_a_view_is_attached() {
+    let studio = default_studio();
+    let response = get(&studio, "/api/v1/protection");
+    assert_eq!(response.status, 404);
+    assert_eq!(
+        json(&response)["error"],
+        "protection continuity has not been computed"
+    );
+}
+
+#[test]
+fn an_attached_view_answers_what_protected_this_before() {
+    let view = ProtectionView {
+        lineage: vec![TestLineageView {
+            test: "auth-viewer.spec".into(),
+            state: "unchanged".into(),
+            matched_on: "test_name".into(),
+            protection_changed: true,
+            lost_flows: vec!["viewer-deny".into()],
+            phantom: true,
+            ..TestLineageView::default()
+        }],
+        flows: vec![FlowView {
+            flow: "viewer-deny".into(),
+            tests_before: vec!["auth-viewer.spec".into()],
+            coverage_before: vec!["viewer-denied".into()],
+            proof_before: vec!["P-811".into()],
+            ..FlowView::default()
+        }],
+        ..ProtectionView::default()
+    };
+    let studio =
+        studio_with(&Arc::new(FakeService::default())).with_protection(Arc::new(Mutex::new(view)));
+
+    let report = json(&get(&studio, "/api/v1/protection"));
+    assert_eq!(report["blocking"], false);
+    assert_eq!(report["suppressed_healthy"], 0);
+
+    let lineage = json(&get(&studio, "/api/v1/protection/tests/auth-viewer.spec"));
+    assert_eq!(lineage["phantom"], true, "the phantom test is visible");
+    assert_eq!(lineage["lost_flows"][0], "viewer-deny");
+
+    let flow = json(&get(&studio, "/api/v1/protection/flows/viewer-deny"));
+    assert_eq!(flow["tests_before"][0], "auth-viewer.spec");
+    assert_eq!(flow["proof_before"][0], "P-811");
+    assert!(
+        flow["tests_after"].as_array().expect("array").is_empty(),
+        "before and after sit side by side in one view"
+    );
+
+    assert_eq!(get(&studio, "/api/v1/protection/flows/unknown").status, 404);
+    assert_eq!(get(&studio, "/api/v1/protection/tests/unknown").status, 404);
 }
 
 #[test]
