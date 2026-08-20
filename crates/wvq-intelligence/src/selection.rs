@@ -65,6 +65,81 @@ pub struct SelectionPlan {
 const MANDATORY_WEIGHT: u64 = 1_000;
 const ALGORITHM: &str = "greedy-weighted-set-cover";
 
+/// Where candidate tests come from. Spec §83.
+///
+/// The five lists are unioned rather than filtered against each other. That is
+/// the whole point: a test whose importance is only visible *before* the change
+/// would vanish from any head-derived list the moment an edge is deleted.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CandidateSources {
+    /// Tests that historically protected the impacted base flows.
+    pub base_protectors: Vec<TestCandidate>,
+    /// Tests Weavatrix statically selected on head.
+    pub head_static: Vec<TestCandidate>,
+    /// Tests with measured dynamic coverage of head-affected nodes.
+    pub head_dynamic: Vec<TestCandidate>,
+    /// Tests proving changed `OpenSpec` obligations.
+    pub obligation_tests: Vec<TestCandidate>,
+    /// Clone-sibling and other risk-required tests.
+    pub risk_required: Vec<TestCandidate>,
+}
+
+/// Merge every source into one candidate set, keeping why each test is present.
+///
+/// A test named by several sources is merged once: obligations are unioned, the
+/// cheapest observed cost wins, the worst observed flake penalty wins, and the
+/// explanation records every source that asked for it.
+#[must_use]
+pub fn flow_aware_candidates(sources: CandidateSources) -> Vec<TestCandidate> {
+    let mut merged: Vec<TestCandidate> = Vec::new();
+    let labelled = [
+        ("base historical protector", sources.base_protectors),
+        ("head static selection", sources.head_static),
+        ("head dynamic coverage", sources.head_dynamic),
+        ("proves a changed obligation", sources.obligation_tests),
+        ("risk required", sources.risk_required),
+    ];
+
+    for (origin, candidates) in labelled {
+        for candidate in candidates {
+            match merged.iter_mut().find(|item| item.id == candidate.id) {
+                Some(existing) => {
+                    existing.covers.extend(candidate.covers);
+                    existing.cost = existing.cost.min(candidate.cost);
+                    existing.flake_penalty = existing.flake_penalty.max(candidate.flake_penalty);
+                    for line in candidate.explanation {
+                        if !existing.explanation.contains(&line) {
+                            existing.explanation.push(line);
+                        }
+                    }
+                    existing
+                        .explanation
+                        .push(format!("also selected by: {origin}"));
+                }
+                None => {
+                    let mut candidate = candidate;
+                    candidate.explanation.push(format!("selected by: {origin}"));
+                    merged.push(candidate);
+                }
+            }
+        }
+    }
+    merged.sort_by(|left, right| left.id.cmp(&right.id));
+    merged
+}
+
+/// Build the candidate union and run the greedy plan over it.
+#[must_use]
+pub fn select_flow_aware_plan(
+    sources: CandidateSources,
+    obligations: Vec<ObligationNeed>,
+) -> SelectionPlan {
+    select_minimal_plan(SelectionInput {
+        candidates: flow_aware_candidates(sources),
+        obligations,
+    })
+}
+
 /// Deterministic greedy weighted set cover.
 ///
 /// Mandatory (high-risk) obligations are weighted so they cannot lose to a
@@ -88,7 +163,8 @@ pub fn select_minimal_plan(input: SelectionInput) -> SelectionPlan {
     let mut selected = Vec::new();
 
     loop {
-        let Some((index, gain_mandatory, gain_optional)) = best_index(&unused, &remaining, &mandatory)
+        let Some((index, gain_mandatory, gain_optional)) =
+            best_index(&unused, &remaining, &mandatory)
         else {
             break;
         };
@@ -160,7 +236,14 @@ fn best_index(
         match best {
             None => best = Some((index, score, cost, gain_mandatory, candidate.id.as_str())),
             Some((_, best_score, best_cost, _, best_id)) => {
-                if better(score, cost, candidate.id.as_str(), best_score, best_cost, best_id) {
+                if better(
+                    score,
+                    cost,
+                    candidate.id.as_str(),
+                    best_score,
+                    best_cost,
+                    best_id,
+                ) {
                     best = Some((index, score, cost, gain_mandatory, candidate.id.as_str()));
                 }
             }
@@ -180,14 +263,7 @@ fn best_index(
     })
 }
 
-fn better(
-    score: u64,
-    cost: u64,
-    id: &str,
-    best_score: u64,
-    best_cost: u64,
-    best_id: &str,
-) -> bool {
+fn better(score: u64, cost: u64, id: &str, best_score: u64, best_cost: u64, best_id: &str) -> bool {
     let left = score.saturating_mul(best_cost);
     let right = best_score.saturating_mul(cost);
     if left != right {

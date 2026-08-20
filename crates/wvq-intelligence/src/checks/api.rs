@@ -124,11 +124,7 @@ fn cross_repo(head: &Value) -> Result<Vec<QualityFinding>, IntelligenceError> {
     Ok(findings)
 }
 
-fn handler_drift(
-    base: &Value,
-    head: &Value,
-    proven: &BTreeSet<String>,
-) -> Vec<QualityFinding> {
+fn handler_drift(base: &Value, head: &Value, proven: &BTreeSet<String>) -> Vec<QualityFinding> {
     let base_h = digest_map(base, "handlers");
     let head_h = digest_map(head, "handlers");
     let mut findings = Vec::new();
@@ -186,10 +182,7 @@ fn impacted_entry(item: &Value) -> Result<(String, bool), IntelligenceError> {
         .and_then(Value::as_str)
         .ok_or_else(|| IntelligenceError::InvalidEvidence("impacted entry missing id".into()))?;
     let risk = item.get("risk").and_then(Value::as_str).unwrap_or("");
-    Ok((
-        id.to_owned(),
-        matches!(risk, "high" | "critical"),
-    ))
+    Ok((id.to_owned(), matches!(risk, "high" | "critical")))
 }
 
 fn digest_map(report: &Value, key: &str) -> BTreeMap<String, String> {

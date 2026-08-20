@@ -14,13 +14,19 @@ pub fn map_history_risk(report: &Value) -> Result<Vec<QualityFinding>, Intellige
     let changed = string_set(report, "changed");
     let mut findings = Vec::new();
     findings.extend(cochange_omissions(report, &changed)?);
-    findings.extend(count_findings(report, "regressions", "WVQ-HIST-002", |path, n| {
-        format!("changed region {path} has {n} historical regressions")
-    })?);
+    findings.extend(count_findings(
+        report,
+        "regressions",
+        "WVQ-HIST-002",
+        |path, n| format!("changed region {path} has {n} historical regressions"),
+    )?);
     findings.extend(churn_hotspots(report, &changed)?);
-    findings.extend(count_findings(report, "reverts", "WVQ-HIST-004", |path, n| {
-        format!("region {path} was reverted {n} times historically")
-    })?);
+    findings.extend(count_findings(
+        report,
+        "reverts",
+        "WVQ-HIST-004",
+        |path, n| format!("region {path} was reverted {n} times historically"),
+    )?);
     findings.extend(cross_repo_history(report)?);
     Ok(findings)
 }
@@ -42,7 +48,10 @@ fn cochange_omissions(
             .get("path")
             .and_then(Value::as_str)
             .unwrap_or("(feature)");
-        if !changed.iter().any(|path| path == source || source == "(feature)") {
+        if !changed
+            .iter()
+            .any(|path| path == source || source == "(feature)")
+        {
             continue;
         }
         if changed.contains(partner) {
@@ -101,11 +110,14 @@ fn count_findings(
         let path = item
             .get("path")
             .and_then(Value::as_str)
-            .ok_or_else(|| {
-                IntelligenceError::InvalidEvidence(format!("{key} missing path"))
-            })?;
+            .ok_or_else(|| IntelligenceError::InvalidEvidence(format!("{key} missing path")))?;
         let count = item.get("count").and_then(Value::as_u64).unwrap_or(0);
-        findings.push(hist_finding(check, Severity::Warn, path, summary(path, count)));
+        findings.push(hist_finding(
+            check,
+            Severity::Warn,
+            path,
+            summary(path, count),
+        ));
     }
     Ok(findings)
 }
@@ -116,10 +128,9 @@ fn cross_repo_history(report: &Value) -> Result<Vec<QualityFinding>, Intelligenc
         return Ok(findings);
     };
     for item in items {
-        let repo = item
-            .get("repo")
-            .and_then(Value::as_str)
-            .ok_or_else(|| IntelligenceError::InvalidEvidence("history cross_repo missing repo".into()))?;
+        let repo = item.get("repo").and_then(Value::as_str).ok_or_else(|| {
+            IntelligenceError::InvalidEvidence("history cross_repo missing repo".into())
+        })?;
         if item.get("verified") == Some(&Value::Bool(true)) {
             continue;
         }

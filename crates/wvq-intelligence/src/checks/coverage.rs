@@ -44,9 +44,8 @@ pub fn map_coverage_to_nodes(
 ) -> Result<Vec<NodeCoverage>, IntelligenceError> {
     let mut out = Vec::new();
     for node in graph_nodes(graph) {
-        let id = node_id(node).ok_or_else(|| {
-            IntelligenceError::InvalidEvidence("coverage node missing id".into())
-        })?;
+        let id = node_id(node)
+            .ok_or_else(|| IntelligenceError::InvalidEvidence("coverage node missing id".into()))?;
         let Some(span) = node_span(node) else {
             out.push(NodeCoverage {
                 node_id: id,
@@ -91,7 +90,10 @@ pub fn map_coverage_findings(
 
 fn measure(coverage: Option<&CoverageArtifact>, id: &str, span: &NodeSpan) -> NodeCoverage {
     let Some(file) = coverage.and_then(|artifact| {
-        artifact.files.iter().find(|file| paths_eq(&file.path, &span.file))
+        artifact
+            .files
+            .iter()
+            .find(|file| paths_eq(&file.path, &span.file))
     }) else {
         return NodeCoverage {
             node_id: id.to_owned(),
@@ -108,7 +110,8 @@ fn measure(coverage: Option<&CoverageArtifact>, id: &str, span: &NodeSpan) -> No
         instrumented = instrumented.saturating_add(n);
     }
     for range in &file.uncovered {
-        instrumented = instrumented.saturating_add(overlap_len(*range, span.start_line, span.end_line));
+        instrumented =
+            instrumented.saturating_add(overlap_len(*range, span.start_line, span.end_line));
     }
     let measurement = if instrumented == 0 {
         CoverageMeasurement::Unmeasured
@@ -239,7 +242,9 @@ fn hot_path_weak(nodes: &[NodeCoverage], graph: &Value) -> Vec<QualityFinding> {
         if !flag(graph, &node.node_id, "hot_path") {
             continue;
         }
-        if node.instrumented_lines == 0 || node.covered_lines.saturating_mul(2) >= node.instrumented_lines {
+        if node.instrumented_lines == 0
+            || node.covered_lines.saturating_mul(2) >= node.instrumented_lines
+        {
             continue;
         }
         out.push(cov_finding(
@@ -335,9 +340,9 @@ fn node_span(node: &Value) -> Option<NodeSpan> {
 }
 
 fn flag(graph: &Value, id: &str, key: &str) -> bool {
-    graph_nodes(graph)
-        .iter()
-        .any(|node| node_id(node).as_deref() == Some(id) && node.get(key) == Some(&Value::Bool(true)))
+    graph_nodes(graph).iter().any(|node| {
+        node_id(node).as_deref() == Some(id) && node.get(key) == Some(&Value::Bool(true))
+    })
 }
 
 fn high_risk(graph: &Value, id: &str) -> bool {

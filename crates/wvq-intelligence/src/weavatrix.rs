@@ -67,12 +67,7 @@ pub trait CodeEvidenceProvider {
     ///
     /// Returns [`IntelligenceError`] for unknown operations, engine failures,
     /// or ambiguous revision identity.
-    fn operation(
-        &self,
-        repo: &Path,
-        name: &str,
-        args: &Value,
-    ) -> Result<Value, IntelligenceError>;
+    fn operation(&self, repo: &Path, name: &str, args: &Value) -> Result<Value, IntelligenceError>;
 }
 
 /// Embeds [`weavatrix_rust`]. No local parser, no local `Graph`.
@@ -81,16 +76,12 @@ pub struct WeavatrixProvider;
 
 impl CodeEvidenceProvider for WeavatrixProvider {
     fn analyze(&self, repo: &Path) -> Result<RepoEvidence, IntelligenceError> {
-        let engine = Weavatrix::open(repo).map_err(|err| IntelligenceError::Engine(err.to_string()))?;
+        let engine =
+            Weavatrix::open(repo).map_err(|err| IntelligenceError::Engine(err.to_string()))?;
         evidence_from_engine(&engine)
     }
 
-    fn operation(
-        &self,
-        repo: &Path,
-        name: &str,
-        args: &Value,
-    ) -> Result<Value, IntelligenceError> {
+    fn operation(&self, repo: &Path, name: &str, args: &Value) -> Result<Value, IntelligenceError> {
         let mut engine =
             Weavatrix::open(repo).map_err(|err| IntelligenceError::Engine(err.to_string()))?;
         let snapshot = engine.state().snapshot();
@@ -160,7 +151,8 @@ fn bind_field(
 }
 
 fn to_engine_value(value: &Value) -> Result<blazingly_json::Value, IntelligenceError> {
-    let raw = serde_json::to_string(value).map_err(|err| IntelligenceError::Json(err.to_string()))?;
+    let raw =
+        serde_json::to_string(value).map_err(|err| IntelligenceError::Json(err.to_string()))?;
     blazingly_json::from_str(&raw).map_err(|err| IntelligenceError::Json(err.to_string()))
 }
 
@@ -169,5 +161,3 @@ fn from_engine_value(value: &blazingly_json::Value) -> Result<Value, Intelligenc
         blazingly_json::to_string(value).map_err(|err| IntelligenceError::Json(err.to_string()))?;
     serde_json::from_str(&raw).map_err(|err| IntelligenceError::Json(err.to_string()))
 }
-
-

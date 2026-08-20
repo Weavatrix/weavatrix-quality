@@ -21,16 +21,15 @@ pub use checks::{
     gate_dead_code, gate_history, gate_topology, map_architecture_report,
     map_architecture_violation, map_coverage_to_nodes,
 };
+pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use flow::{
     FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,
 };
 pub use impact_union::{GraphDelta, ImpactedSurface, SurfaceDelta, impacted_surface};
-pub use test_lineage::{TestFacts, TestLineage, TestLineageState, track_lineage};
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
 pub use selection::{
-    ObligationNeed, SelectedTest, SelectionInput, SelectionPlan, TestCandidate, select_minimal_plan,
+    CandidateSources, ObligationNeed, SelectedTest, SelectionInput, SelectionPlan, TestCandidate,
+    flow_aware_candidates, select_flow_aware_plan, select_minimal_plan,
 };
-pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
-pub use weavatrix::{
-    CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider,
-};
+pub use test_lineage::{TestFacts, TestLineage, TestLineageState, track_lineage};
+pub use weavatrix::{CodeEvidenceProvider, IntelligenceError, RepoEvidence, WeavatrixProvider};

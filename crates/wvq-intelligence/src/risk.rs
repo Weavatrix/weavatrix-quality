@@ -77,9 +77,10 @@ pub fn risk_evidence(findings: &[QualityFinding]) -> Vec<RiskEvidence> {
 fn from_finding(finding: &QualityFinding) -> Option<RiskEvidence> {
     let check = finding.check.as_str();
     let (kind, level) = match check {
-        "WVQ-API-001" | "WVQ-API-006" => {
-            (RiskEvidenceKind::PublicApiChange, level_from(finding.severity))
-        }
+        "WVQ-API-001" | "WVQ-API-006" => (
+            RiskEvidenceKind::PublicApiChange,
+            level_from(finding.severity),
+        ),
         "WVQ-API-002" | "WVQ-API-005" => (RiskEvidenceKind::PublicApiChange, RiskLevel::Medium),
         "WVQ-API-004" | "WVQ-HIST-005" => (RiskEvidenceKind::CrossRepoImpact, RiskLevel::Medium),
         "WVQ-HIST-002" | "WVQ-HIST-004" => {
@@ -87,7 +88,9 @@ fn from_finding(finding: &QualityFinding) -> Option<RiskEvidence> {
         }
         "WVQ-HIST-003" => (RiskEvidenceKind::ChurnHotspot, RiskLevel::High),
         "WVQ-GRAPH-004" => (RiskEvidenceKind::CodeBlastRadius, RiskLevel::High),
-        "WVQ-ARCH-001" | "WVQ-ARCH-003" => (RiskEvidenceKind::ArchitectureBoundary, RiskLevel::High),
+        "WVQ-ARCH-001" | "WVQ-ARCH-003" => {
+            (RiskEvidenceKind::ArchitectureBoundary, RiskLevel::High)
+        }
         _ if check.starts_with("WVQ-API-") => (RiskEvidenceKind::PublicApiChange, RiskLevel::Low),
         _ if check.starts_with("WVQ-HIST-") => {
             (RiskEvidenceKind::HistoricalRegression, RiskLevel::Medium)
@@ -97,23 +100,23 @@ fn from_finding(finding: &QualityFinding) -> Option<RiskEvidence> {
     Some(RiskEvidence {
         kind,
         level,
-        subject: finding.weavatrix_fingerprint.clone().unwrap_or_else(|| {
-            match &finding.subject {
+        subject: finding
+            .weavatrix_fingerprint
+            .clone()
+            .unwrap_or_else(|| match &finding.subject {
                 wvq_domain::SubjectRef::Endpoint(id) | wvq_domain::SubjectRef::File(id) => {
                     id.clone()
                 }
                 wvq_domain::SubjectRef::GraphNode(id) => id.clone(),
                 other => other_subject(other),
-            }
-        }),
+            }),
         detail: finding.summary.clone(),
     })
 }
 
 fn other_subject(subject: &wvq_domain::SubjectRef) -> String {
     match subject {
-        wvq_domain::SubjectRef::Symbol(name)
-        | wvq_domain::SubjectRef::Test(name) => name.clone(),
+        wvq_domain::SubjectRef::Symbol(name) | wvq_domain::SubjectRef::Test(name) => name.clone(),
         wvq_domain::SubjectRef::Obligation(id) => id.to_string(),
         wvq_domain::SubjectRef::Requirement(id) => id.to_string(),
         wvq_domain::SubjectRef::Change(id) => id.to_string(),

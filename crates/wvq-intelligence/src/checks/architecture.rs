@@ -49,10 +49,7 @@ fn classify_violation(violation: &Value) -> (CheckId, Severity) {
         return (check("WVQ-ARCH-003"), Severity::Error);
     }
     if evidence_kind == "unresolved"
-        || violation
-            .pointer("/edge/kind")
-            .and_then(Value::as_str)
-            == Some("unresolved")
+        || violation.pointer("/edge/kind").and_then(Value::as_str) == Some("unresolved")
     {
         return (check("WVQ-ARCH-004"), Severity::Error);
     }

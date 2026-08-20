@@ -55,9 +55,10 @@ fn map_family(
     pairs: &[Value],
     prior_sizes: &BTreeMap<String, usize>,
 ) -> Result<Vec<QualityFinding>, IntelligenceError> {
-    let id = family.get("id").and_then(Value::as_str).ok_or_else(|| {
-        IntelligenceError::InvalidEvidence("clone family missing id".into())
-    })?;
+    let id = family
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| IntelligenceError::InvalidEvidence("clone family missing id".into()))?;
     let members = family
         .get("members")
         .and_then(Value::as_array)
@@ -88,7 +89,11 @@ fn map_family(
     };
     let mut family_finding = QualityFinding::new(
         check,
-        if string_clone { Severity::Warn } else { severity },
+        if string_clone {
+            Severity::Warn
+        } else {
+            severity
+        },
         subject.clone(),
         format!("clone family {id} with {} members", members.len()),
     );
@@ -101,7 +106,10 @@ fn map_family(
                 static_check("WVQ-CLONE-002"),
                 severity,
                 subject.clone(),
-                format!("clone family {id} grew from {prior} to {} members", members.len()),
+                format!(
+                    "clone family {id} grew from {prior} to {} members",
+                    members.len()
+                ),
             );
             growth.weavatrix_fingerprint = Some(format!("{id}:growth"));
             findings.push(growth);
@@ -145,11 +153,10 @@ fn sibling_risk(members: &[Value]) -> bool {
 }
 
 fn is_string_or_contract_clone(members: &[Value], pairs: &[&Value]) -> bool {
-    if pairs.iter().any(|pair| {
-        pair.pointer("/evidence/source")
-            .and_then(Value::as_str)
-            == Some("strings")
-    }) {
+    if pairs
+        .iter()
+        .any(|pair| pair.pointer("/evidence/source").and_then(Value::as_str) == Some("strings"))
+    {
         return true;
     }
     members.iter().any(|member| {

@@ -22,9 +22,9 @@ pub use architecture::map_architecture_violation;
 pub use coverage::{
     CoverageMeasurement, NodeCoverage, map_coverage_findings, map_coverage_to_nodes,
 };
-pub use history::map_history_risk;
 pub use dead_code::{dead_ids, live_ids, map_dead_code_report};
 pub use duplicates::{family_sizes, map_duplicates_report};
+pub use history::map_history_risk;
 pub use size::size_growth_findings;
 pub use topology::map_topology_delta;
 

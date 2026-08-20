@@ -35,12 +35,18 @@ pub fn map_topology_delta(
 ) -> Result<Vec<QualityFinding>, IntelligenceError> {
     let base_nodes = index_nodes(base)?;
     let head_nodes = index_nodes(head)?;
-    let god_band = u64_field(head, "god_band_degree").or_else(|| u64_field(base, "god_band_degree")).unwrap_or(10);
+    let god_band = u64_field(head, "god_band_degree")
+        .or_else(|| u64_field(base, "god_band_degree"))
+        .unwrap_or(10);
     let blast_ratio = ratio_millis(head)
         .or_else(|| ratio_millis(base))
         .unwrap_or(2000);
     let mut findings = Vec::new();
-    let ids: BTreeSet<_> = base_nodes.keys().chain(head_nodes.keys()).cloned().collect();
+    let ids: BTreeSet<_> = base_nodes
+        .keys()
+        .chain(head_nodes.keys())
+        .cloned()
+        .collect();
     for id in ids {
         let base_n = base_nodes.get(&id);
         let head_n = head_nodes.get(&id);
@@ -158,9 +164,8 @@ fn community_leaks(base: &Value, head: &Value) -> Result<Vec<QualityFinding>, In
 fn index_nodes(report: &Value) -> Result<BTreeMap<String, NodeMetrics>, IntelligenceError> {
     let mut map = BTreeMap::new();
     for item in node_items(report) {
-        let id = node_id(item).ok_or_else(|| {
-            IntelligenceError::InvalidEvidence("topology node missing id".into())
-        })?;
+        let id = node_id(item)
+            .ok_or_else(|| IntelligenceError::InvalidEvidence("topology node missing id".into()))?;
         let incoming = u64_field(item, "incoming").unwrap_or(0);
         let outgoing = u64_field(item, "outgoing").unwrap_or(0);
         let degree = u64_field(item, "degree").unwrap_or(incoming.saturating_add(outgoing));
@@ -204,9 +209,10 @@ fn index_edges(report: &Value) -> Result<BTreeSet<CrossEdge>, IntelligenceError>
         let from = item.get("from").and_then(Value::as_str).ok_or_else(|| {
             IntelligenceError::InvalidEvidence("topology edge missing from".into())
         })?;
-        let to = item.get("to").and_then(Value::as_str).ok_or_else(|| {
-            IntelligenceError::InvalidEvidence("topology edge missing to".into())
-        })?;
+        let to = item
+            .get("to")
+            .and_then(Value::as_str)
+            .ok_or_else(|| IntelligenceError::InvalidEvidence("topology edge missing to".into()))?;
         let from_community = u64_field(item, "from_community").unwrap_or(0);
         let to_community = u64_field(item, "to_community").unwrap_or(0);
         edges.insert(CrossEdge {

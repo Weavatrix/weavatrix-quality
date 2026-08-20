@@ -64,7 +64,8 @@ fn map_candidate(
     })?;
     let path = node_path(candidate);
     let orphaned = !prior_dead.contains(&id)
-        && (prior_live.contains(&id) || candidate.get("prior_reachable") == Some(&Value::Bool(true)));
+        && (prior_live.contains(&id)
+            || candidate.get("prior_reachable") == Some(&Value::Bool(true)));
     let (check, severity) = if orphaned {
         (static_check("WVQ-DEAD-002"), Severity::Warn)
     } else if is_test_path(&path) {
