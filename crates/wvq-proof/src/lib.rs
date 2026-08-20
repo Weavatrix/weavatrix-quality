@@ -11,6 +11,7 @@ mod heal;
 mod metamorphic;
 mod mutation;
 mod protection;
+mod protection_delta;
 mod verdict;
 
 pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assemble};
@@ -39,5 +40,9 @@ pub use mutation::{
 pub use protection::{
     FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,
     snapshot,
+};
+pub use protection_delta::{
+    DeltaContext, ProtectionDelta, ProtectionDeltaState, ProtectionSummary, protection_delta,
+    summarise,
 };
 pub use verdict::{ProofVerdict, VerdictInput, decide_verdict};
