@@ -9,6 +9,8 @@
 
 mod checks;
 mod debt;
+mod flow;
+mod impact_union;
 mod risk;
 mod selection;
 mod weavatrix;
@@ -18,6 +20,10 @@ pub use checks::{
     gate_dead_code, gate_history, gate_topology, map_architecture_report,
     map_architecture_violation, map_coverage_to_nodes,
 };
+pub use flow::{
+    FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,
+};
+pub use impact_union::{GraphDelta, ImpactedSurface, SurfaceDelta, impacted_surface};
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
 pub use selection::{
     ObligationNeed, SelectedTest, SelectionInput, SelectionPlan, TestCandidate, select_minimal_plan,

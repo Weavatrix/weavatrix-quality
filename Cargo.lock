@@ -580,6 +580,7 @@ name = "wvq-intelligence"
 version = "0.0.1"
 dependencies = [
  "blazingly-json",
+ "serde",
  "serde_json",
  "thiserror",
  "weavatrix-rust",

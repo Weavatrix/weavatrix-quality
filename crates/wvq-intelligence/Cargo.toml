@@ -14,6 +14,7 @@ categories = ["development-tools"]
 
 [dependencies]
 blazingly-json = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 weavatrix-rust = { workspace = true }
