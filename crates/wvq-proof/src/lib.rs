@@ -1,4 +1,4 @@
-//! Revision-bound Proof assembly. Never a single quality percentage.
+﻿//! Revision-bound Proof assembly. Never a single quality percentage.
 
 #![forbid(unsafe_code)]
 
@@ -11,6 +11,7 @@ mod heal;
 mod metamorphic;
 mod mutation;
 mod protection;
+mod protection_checks;
 mod protection_delta;
 mod verdict;
 
@@ -40,6 +41,10 @@ pub use mutation::{
 pub use protection::{
     FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,
     snapshot,
+};
+pub use protection_checks::{
+    ProtectionCheckInput, ProtectionFinding, ProtectionPolicy, ProtectionTrend, TestChange, blocks,
+    gate_protection,
 };
 pub use protection_delta::{
     DeltaContext, ProtectionDelta, ProtectionDeltaState, ProtectionSummary, protection_delta,
