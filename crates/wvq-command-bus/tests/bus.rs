@@ -429,6 +429,26 @@ fn explicit_committed_head_rejects_a_dirty_worktree() {
 }
 
 #[test]
+fn live_recovery_is_populated_from_git_and_weavatrix() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "/// Checked implementation.\npub fn add(a: i32, b: i32) -> i32 { a.saturating_add(b) }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let desk = service
+        .recovery_desk("live-add", "HEAD", "WORKTREE")
+        .unwrap();
+    let packet = desk.packet().expect("live recovery packet");
+    assert_eq!(packet.base_revision.len(), 40);
+    assert!(packet.head_revision.contains("WORKTREE@"));
+    assert!(!packet.code_delta_summary.changed_symbols.is_empty());
+    assert!(!packet.capability_clusters.is_empty());
+    assert_eq!(desk.review().change, "live-add");
+}
+
+#[test]
 fn live_model_call_charges_persistent_per_change_budget() {
     let repo = live_runner_repo();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

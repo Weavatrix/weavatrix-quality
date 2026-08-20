@@ -31,6 +31,11 @@ use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
     TestObligation, compile_obligations, load_quality_contract, read_change, seal,
 };
+use wvq_spec_recovery::{
+    CandidateRequirement, CandidateShape, CodeDeltaSummary, CommitFacts, EvidenceSource,
+    IntentEvidence, NarrativeInput, PublicSurfaceDelta, RecoveryDesk, RecoveryInput,
+    TestIntentSummary, TestsDelta, VerifyContext, cluster, narrate,
+};
 use wvq_store::{Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem};
 
 use crate::commands::{
@@ -505,6 +510,97 @@ impl LiveService {
         }
     }
 
+    /// Build a live brownfield recovery desk from an exact Git range and
+    /// revision-bound Weavatrix evidence. Recovered candidates remain proposals;
+    /// this method never seals them.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when refs, graph evidence, or Git provenance are unavailable.
+    pub fn recovery_desk(
+        &self,
+        change: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<RecoveryDesk, BusError> {
+        let range = self.revision_range(base, head)?;
+        let revision = self.revision()?;
+        let diff = self.weavatrix_operation(
+            &revision,
+            "graph_diff",
+            &json!({
+                "base_ref": range.base_ref,
+                "detail": "edges",
+                "max_results": 100_000
+            }),
+        )?;
+        ensure_complete_diff(&diff)?;
+        let files = changed_files(&self.repo, &range)?;
+        let (code_delta, surfaces) = recovery_code_delta(&diff);
+        if files.is_empty() && code_delta.changed_symbols.is_empty() {
+            return Err(BusError::Intelligence(format!(
+                "revision range `{base}` -> `{head}` contains no recoverable change"
+            )));
+        }
+
+        let head_revision = if head == "WORKTREE" {
+            format!("WORKTREE@{}", revision.as_str())
+        } else {
+            range.head_commit.clone()
+        };
+        let existing_requirements = recovery_existing_requirements(&self.repo, change)?;
+        let evidence = recovery_evidence(
+            &self.repo,
+            &range,
+            &code_delta,
+            &files,
+            &existing_requirements,
+        )?;
+        let commits = recovery_commits(
+            &self.repo,
+            &range,
+            &head_revision,
+            &code_delta.components,
+            !files.is_empty(),
+        )?;
+        let clusters = cluster(&commits);
+        let narrative = narrate(NarrativeInput {
+            change_cluster: change.to_owned(),
+            base_revision: range.base_commit.clone(),
+            head_revision,
+            evidence: evidence.clone(),
+            code_delta: code_delta.clone(),
+            tests_delta: files.tests_delta(),
+            behavior_delta: Vec::new(),
+        });
+        let candidates = recovery_candidates(&surfaces, &code_delta, &evidence);
+        let test_intent = files
+            .changed_tests()
+            .into_iter()
+            .map(|test| TestIntentSummary {
+                appears_to_expect: format!(
+                    "the assertions in `{test}` remain valid on both revisions"
+                ),
+                test,
+                changed_with_implementation: true,
+            })
+            .collect();
+        let mut desk = RecoveryDesk::new(change);
+        desk.recover(RecoveryInput {
+            narrative,
+            clusters,
+            surface_delta: surfaces.clone(),
+            test_intent,
+            candidates,
+            context: VerifyContext {
+                existing_requirements,
+                removed_endpoints: surfaces.removed,
+                observed: Vec::new(),
+            },
+        });
+        Ok(desk)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<RunState>> {
         self.state
             .lock()
@@ -661,6 +757,51 @@ struct RevisionRange {
     base_commit: String,
     head_ref: String,
     head_commit: String,
+}
+
+#[derive(Default)]
+struct ChangedFiles {
+    added: Vec<String>,
+    changed: Vec<String>,
+    removed: Vec<String>,
+}
+
+impl ChangedFiles {
+    fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.changed.is_empty() && self.removed.is_empty()
+    }
+
+    fn tests_delta(&self) -> TestsDelta {
+        TestsDelta {
+            added: self
+                .added
+                .iter()
+                .filter(|path| is_test_path(path))
+                .cloned()
+                .collect(),
+            changed: self
+                .changed
+                .iter()
+                .filter(|path| is_test_path(path))
+                .cloned()
+                .collect(),
+            removed: self
+                .removed
+                .iter()
+                .filter(|path| is_test_path(path))
+                .cloned()
+                .collect(),
+        }
+    }
+
+    fn changed_tests(&self) -> Vec<String> {
+        let mut tests = self.tests_delta();
+        tests.added.append(&mut tests.changed);
+        tests.added.append(&mut tests.removed);
+        tests.added.sort();
+        tests.added.dedup();
+        tests.added
+    }
 }
 
 #[derive(Debug)]
@@ -1801,6 +1942,362 @@ fn validate_revision_ref(field: &'static str, reference: &str) -> Result<(), Bus
         });
     }
     Ok(())
+}
+
+fn git_output(repo: &Path, args: &[String]) -> Result<Vec<u8>, BusError> {
+    let output = ProcessCommand::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .map_err(|err| BusError::Intelligence(format!("cannot run Git: {err}")))?;
+    if !output.status.success() {
+        return Err(BusError::Intelligence(format!(
+            "Git {} failed: {}",
+            args.first().map_or("operation", String::as_str),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(output.stdout)
+}
+
+fn changed_files(repo: &Path, range: &RevisionRange) -> Result<ChangedFiles, BusError> {
+    let mut args = vec![
+        "diff".into(),
+        "--name-status".into(),
+        "-M".into(),
+        range.base_commit.clone(),
+    ];
+    if range.head_ref != "WORKTREE" {
+        args.push(range.head_commit.clone());
+    }
+    args.push("--".into());
+    let raw = String::from_utf8(git_output(repo, &args)?)
+        .map_err(|err| BusError::Intelligence(format!("Git diff paths are not UTF-8: {err}")))?;
+    let mut out = ChangedFiles::default();
+    for line in raw.lines().filter(|line| !line.is_empty()) {
+        let fields = line.split('\t').collect::<Vec<_>>();
+        let status = fields.first().copied().unwrap_or_default();
+        match status.chars().next() {
+            Some('A') if fields.len() >= 2 => out.added.push(normalize_path(fields[1])),
+            Some('D') if fields.len() >= 2 => out.removed.push(normalize_path(fields[1])),
+            Some('R' | 'C') if fields.len() >= 3 => {
+                out.removed.push(normalize_path(fields[1]));
+                out.added.push(normalize_path(fields[2]));
+            }
+            Some(_) if fields.len() >= 2 => out.changed.push(normalize_path(fields[1])),
+            _ => {
+                return Err(BusError::Intelligence(format!(
+                    "cannot decode Git name-status row `{line}`"
+                )));
+            }
+        }
+    }
+    if range.head_ref == "WORKTREE" {
+        let untracked = String::from_utf8(git_output(
+            repo,
+            &[
+                "ls-files".into(),
+                "--others".into(),
+                "--exclude-standard".into(),
+            ],
+        )?)
+        .map_err(|err| BusError::Intelligence(format!("Git paths are not UTF-8: {err}")))?;
+        out.added.extend(
+            untracked
+                .lines()
+                .filter(|line| !line.is_empty())
+                .map(normalize_path),
+        );
+    }
+    for list in [&mut out.added, &mut out.changed, &mut out.removed] {
+        list.sort();
+        list.dedup();
+    }
+    Ok(out)
+}
+
+fn recovery_code_delta(diff: &Value) -> (CodeDeltaSummary, PublicSurfaceDelta) {
+    let added = values_at(diff, "/nodes/added");
+    let removed = values_at(diff, "/nodes/removed");
+    let changed = values_at(diff, "/nodes/changed");
+    let mut changed_nodes = Vec::new();
+    changed_nodes.extend(added.iter());
+    changed_nodes.extend(removed.iter());
+    for item in changed {
+        changed_nodes.extend(item.get("before"));
+        changed_nodes.extend(item.get("after"));
+    }
+    let mut changed_symbols = changed_nodes
+        .iter()
+        .filter_map(|node| graph_node_id(node))
+        .collect::<Vec<_>>();
+    changed_symbols.sort();
+    changed_symbols.dedup();
+    let mut components = changed_nodes
+        .iter()
+        .filter(|node| {
+            node.get("kind")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind.to_ascii_lowercase().contains("component"))
+        })
+        .filter_map(|node| graph_node_id(node))
+        .collect::<Vec<_>>();
+    components.sort();
+    components.dedup();
+    let surfaces = PublicSurfaceDelta {
+        added: surface_labels(added),
+        removed: surface_labels(removed),
+    };
+    (
+        CodeDeltaSummary {
+            components,
+            endpoints_added: surfaces.added.clone(),
+            endpoints_removed: surfaces.removed.clone(),
+            changed_symbols,
+        },
+        surfaces,
+    )
+}
+
+fn recovery_existing_requirements(repo: &Path, change: &str) -> Result<Vec<String>, BusError> {
+    let path = repo
+        .join("openspec")
+        .join("changes")
+        .join(change)
+        .join("spec.md");
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let spec = read_change(repo, change)?;
+    Ok(requirement_texts(&spec))
+}
+
+fn recovery_evidence(
+    repo: &Path,
+    range: &RevisionRange,
+    code: &CodeDeltaSummary,
+    files: &ChangedFiles,
+    existing_requirements: &[String],
+) -> Result<Vec<IntentEvidence>, BusError> {
+    let mut out = existing_requirements
+        .iter()
+        .map(|text| IntentEvidence::new(EvidenceSource::ExistingOpenSpec, text, "OpenSpec"))
+        .collect::<Vec<_>>();
+    for symbol in code.changed_symbols.iter().take(500) {
+        out.push(IntentEvidence::new(
+            EvidenceSource::CodeDelta,
+            symbol,
+            format!(
+                "Weavatrix graph_diff {}..{}",
+                range.base_commit, range.head_ref
+            ),
+        ));
+    }
+    for endpoint in code
+        .endpoints_added
+        .iter()
+        .chain(code.endpoints_removed.iter())
+    {
+        out.push(IntentEvidence::new(
+            EvidenceSource::ChangedEndpoint,
+            endpoint,
+            "Weavatrix public-surface delta",
+        ));
+    }
+    for test in files.changed_tests() {
+        out.push(IntentEvidence::new(
+            EvidenceSource::ChangedTest,
+            format!("test changed: {test}"),
+            format!("Git diff {test}"),
+        ));
+    }
+    let log = recovery_log(repo, range)?;
+    for record in log {
+        if !record.title.is_empty() {
+            out.push(IntentEvidence::new(
+                EvidenceSource::CommitTitle,
+                record.title,
+                format!("commit {}", record.id),
+            ));
+        }
+        if !record.body.is_empty() {
+            out.push(IntentEvidence::new(
+                EvidenceSource::CommitBody,
+                record.body,
+                format!("commit {} body", record.id),
+            ));
+        }
+    }
+    Ok(out)
+}
+
+struct RecoveryLogRecord {
+    id: String,
+    title: String,
+    body: String,
+}
+
+fn recovery_log(repo: &Path, range: &RevisionRange) -> Result<Vec<RecoveryLogRecord>, BusError> {
+    let revset = format!("{}..{}", range.base_commit, range.head_commit);
+    let raw = git_output(
+        repo,
+        &[
+            "log".into(),
+            "--reverse".into(),
+            "--format=%H%x1f%s%x1f%b%x1e".into(),
+            revset,
+            "--".into(),
+        ],
+    )?;
+    let raw = String::from_utf8(raw)
+        .map_err(|err| BusError::Intelligence(format!("Git log is not UTF-8: {err}")))?;
+    let mut records = Vec::new();
+    for record in raw.split('\u{1e}') {
+        let record = record.trim_matches(['\r', '\n']);
+        if record.is_empty() {
+            continue;
+        }
+        let mut fields = record.splitn(3, '\u{1f}');
+        let id = fields.next().unwrap_or_default().trim().to_owned();
+        let title = fields.next().unwrap_or_default().trim().to_owned();
+        let body = fields.next().unwrap_or_default().trim().to_owned();
+        if id.len() != 40 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(BusError::Intelligence(format!(
+                "Git log returned an invalid commit id `{id}`"
+            )));
+        }
+        records.push(RecoveryLogRecord { id, title, body });
+    }
+    Ok(records)
+}
+
+fn recovery_commits(
+    repo: &Path,
+    range: &RevisionRange,
+    head_revision: &str,
+    components: &[String],
+    has_file_delta: bool,
+) -> Result<Vec<CommitFacts>, BusError> {
+    let mut facts = recovery_log(repo, range)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, record)| CommitFacts {
+            id: record.id,
+            title: record.title,
+            index: u32::try_from(index).unwrap_or(u32::MAX),
+            issue: linked_issue(&record.body),
+            ..CommitFacts::default()
+        })
+        .collect::<Vec<_>>();
+    if range.head_ref == "WORKTREE" && has_file_delta {
+        facts.push(CommitFacts {
+            id: head_revision.to_owned(),
+            title: "working tree change".into(),
+            index: u32::try_from(facts.len()).unwrap_or(u32::MAX),
+            components: components.to_vec(),
+            ..CommitFacts::default()
+        });
+    }
+    Ok(facts)
+}
+
+fn linked_issue(text: &str) -> Option<String> {
+    text.split(|character: char| !(character.is_ascii_alphanumeric() || character == '-'))
+        .find(|token| {
+            let Some((prefix, number)) = token.rsplit_once('-') else {
+                return false;
+            };
+            !prefix.is_empty()
+                && prefix
+                    .chars()
+                    .all(|character| character.is_ascii_uppercase())
+                && !number.is_empty()
+                && number.chars().all(|character| character.is_ascii_digit())
+        })
+        .map(ToOwned::to_owned)
+}
+
+fn recovery_candidates(
+    surfaces: &PublicSurfaceDelta,
+    code: &CodeDeltaSummary,
+    evidence: &[IntentEvidence],
+) -> Vec<CandidateRequirement> {
+    let mut subjects = surfaces
+        .added
+        .iter()
+        .map(|surface| (surface.as_str(), true, "surface is available"))
+        .chain(
+            surfaces
+                .removed
+                .iter()
+                .map(|surface| (surface.as_str(), false, "surface is unavailable")),
+        )
+        .chain(
+            code.components
+                .iter()
+                .map(|component| (component.as_str(), true, "component is visible")),
+        )
+        .collect::<Vec<_>>();
+    subjects.sort_by_key(|(subject, expected, _)| ((*subject).to_owned(), *expected));
+    subjects.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
+    subjects
+        .into_iter()
+        .take(100)
+        .enumerate()
+        .map(|(index, (subject, expected_to_hold, outcome))| {
+            let lower = subject.to_ascii_lowercase();
+            CandidateRequirement {
+                id: format!("recovered-{}-{}", index + 1, recovery_slug(subject)),
+                subject: subject.to_owned(),
+                text: format!(
+                    "When a user exercises `{subject}`, the externally observable {outcome}."
+                ),
+                expected_to_hold,
+                actor: Some("user".into()),
+                precondition: Some("the changed capability is deployed".into()),
+                trigger: Some(format!("the user exercises `{subject}`")),
+                endpoint: (surfaces.added.contains(&subject.to_owned())
+                    || surfaces.removed.contains(&subject.to_owned()))
+                .then(|| subject.to_owned()),
+                evidence: evidence
+                    .iter()
+                    .filter(|item| item.text.contains(subject))
+                    .take(20)
+                    .cloned()
+                    .collect(),
+                shape: CandidateShape {
+                    numeric_limit: subject.chars().any(|character| character.is_ascii_digit()),
+                    permission_sensitive: ["permission", "auth", "role", "admin", "viewer"]
+                        .iter()
+                        .any(|token| lower.contains(token)),
+                    async_ui: ["async", "loading", "refresh", "request"]
+                        .iter()
+                        .any(|token| lower.contains(token)),
+                },
+                covered_cases: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+fn recovery_slug(value: &str) -> String {
+    let mut out = String::new();
+    let mut separator = false;
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            if separator && !out.is_empty() {
+                out.push('-');
+            }
+            out.push(character.to_ascii_lowercase());
+            separator = false;
+        } else {
+            separator = true;
+        }
+        if out.len() >= 48 {
+            break;
+        }
+    }
+    if out.is_empty() { "change".into() } else { out }
 }
 
 fn parse_model_kind(kind: &str) -> Result<AiCallKind, BusError> {

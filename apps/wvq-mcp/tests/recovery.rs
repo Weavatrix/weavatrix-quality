@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use mcport::{ConcurrentToolServer, Value};
 use wvq_command_bus::{FakeService, QualityService};
-use wvq_mcp::{SharedDesk, quality_server, recovery_server};
+use wvq_mcp::{HostProfile, SharedDesk, parse_host_args, quality_server, recovery_server};
 use wvq_spec_recovery::RecoveryDesk;
 
 const RECOVERY_TOOLS: [&str; 6] = [
@@ -41,6 +41,28 @@ fn the_recovery_profile_exposes_its_six_tools() {
     for tool in RECOVERY_TOOLS {
         assert!(names.iter().any(|name| name == tool), "missing {tool}");
     }
+}
+
+#[test]
+fn host_selects_a_live_recovery_range_explicitly() {
+    let options = parse_host_args(
+        &[
+            "--profile",
+            "recovery",
+            "--change",
+            "checkout",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap();
+    assert_eq!(options.profile, HostProfile::Recovery);
+    assert_eq!(options.change, "checkout");
+    assert_eq!(options.base, "origin/main");
+    assert_eq!(options.head, "HEAD");
 }
 
 #[test]

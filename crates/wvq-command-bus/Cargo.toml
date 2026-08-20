@@ -23,6 +23,7 @@ wvq-intelligence = { workspace = true }
 wvq-proof = { workspace = true }
 wvq-runtime = { workspace = true }
 wvq-spec = { workspace = true }
+wvq-spec-recovery = { workspace = true }
 wvq-store = { workspace = true }
 
 [lints]

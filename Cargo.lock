@@ -586,6 +586,7 @@ dependencies = [
  "wvq-proof",
  "wvq-runtime",
  "wvq-spec",
+ "wvq-spec-recovery",
  "wvq-store",
 ]
 

@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use mcport::{ConcurrentMcpServer, ConcurrentToolServer, RuntimeConfig, ToolReply, Value, json};
 use serde::Serialize;
@@ -19,6 +20,78 @@ use wvq_command_bus::{
     BusError, ContextCommand, EvidenceCommand, ExplainCommand, PlanCommand, QualityService,
     RunCommand, StatusCommand, VerifyCommand, estimate_tokens,
 };
+
+/// MCP profile selected by the stdio host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostProfile {
+    /// Seven-tool coding-agent profile.
+    Default,
+    /// Six-tool human-reviewed brownfield recovery profile.
+    Recovery,
+}
+
+/// Strict host options. These affect startup only and never become shell argv.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostOptions {
+    /// Repository root.
+    pub repo: PathBuf,
+    /// Tool profile.
+    pub profile: HostProfile,
+    /// Recovery change identity.
+    pub change: String,
+    /// Immutable base ref.
+    pub base: String,
+    /// Working tree or checked-out commit.
+    pub head: String,
+}
+
+/// Parse the stdio host arguments.
+///
+/// # Errors
+///
+/// Unknown, repeated, or incomplete options are rejected.
+pub fn parse_host_args(args: &[String]) -> Result<HostOptions, String> {
+    let mut flags = BTreeMap::new();
+    let mut index = 0;
+    while index < args.len() {
+        let name = args[index]
+            .strip_prefix("--")
+            .ok_or_else(|| format!("unexpected argument `{}`", args[index]))?;
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| format!("option --{name} requires a value"))?;
+        if flags.insert(name.to_owned(), value.clone()).is_some() {
+            return Err(format!("option --{name} was supplied more than once"));
+        }
+        index += 2;
+    }
+    if let Some(unknown) = flags
+        .keys()
+        .find(|name| !["repo", "profile", "change", "base", "head"].contains(&name.as_str()))
+    {
+        return Err(format!("unknown option --{unknown}"));
+    }
+    let profile = match flags.get("profile").map_or("default", String::as_str) {
+        "default" => HostProfile::Default,
+        "recovery" => HostProfile::Recovery,
+        other => return Err(format!("unknown MCP profile `{other}`")),
+    };
+    Ok(HostOptions {
+        repo: flags
+            .get("repo")
+            .map_or_else(|| PathBuf::from("."), PathBuf::from),
+        profile,
+        change: flags
+            .get("change")
+            .cloned()
+            .unwrap_or_else(|| "current".into()),
+        base: flags.get("base").cloned().unwrap_or_else(|| "HEAD".into()),
+        head: flags
+            .get("head")
+            .cloned()
+            .unwrap_or_else(|| "WORKTREE".into()),
+    })
+}
 
 /// Controlled concurrency and handler deadlines for the default profile.
 #[must_use]
