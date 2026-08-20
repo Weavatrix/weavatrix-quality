@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: Playwright TestProgram authoring tools
+Session: live shadow benchmark and Playwright TestProgram authoring tools
 
 ## Now
 
@@ -11,7 +11,11 @@ Release state: the live-producer implementation (`ce2a9d5`) and Linux portabilit
 
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
-Unreleased authoring state: a command-bus draft/validate/preview API, a three-tool `--profile authoring` MCP server, and three `qualityd` POST endpoints are implemented locally. The default MCP profile remains exactly seven tools.
+Unreleased state: the authoring vertical plus an actual selected-vs-full benchmark runner are implemented locally. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
+
+The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
+
+The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A repeat passed both scopes. On this broad graph case Weavatrix selected all 41 test files, so WVQ correctly widened to one full process instead of spawning 41 filtered processes; measured runs were 51.24 s and 52.02 s, with zero runtime LLM tokens. `scope_reason` now explains every widening, and `symbol:` graph node IDs are normalized back to repository paths.
 
 ## Playwright authoring path
 
@@ -24,6 +28,8 @@ Unreleased authoring state: a command-bus draft/validate/preview API, a three-to
 | transports | MCP: `quality_test_draft`, `quality_test_validate`, `quality_test_preview`; HTTP: `POST /api/v1/authoring/{draft,validate,preview}` |
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
+
+Final local validation: 346 Rust tests and 7 Playwright-runner tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
 
 ## Live production path
 
@@ -62,4 +68,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-After committing the authoring slice, load `docs/benchmark-methodology.md` for the requested real WVQ benchmark and the TypeScript runtime-boundary sections before designing the JS distribution package. Rust remains the authority for policy and proof semantics.
+Next, design the JS distribution package as a typed client plus platform binary wrapper; do not duplicate Rust policy/proof semantics in TypeScript. Then run the competitor matrix against current official product documentation.

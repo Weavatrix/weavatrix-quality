@@ -14,7 +14,9 @@ categories = ["development-tools"]
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+wvq-command-bus = { workspace = true }
 wvq-intelligence = { workspace = true }
 wvq-runtime = { workspace = true }
 

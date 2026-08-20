@@ -559,7 +559,9 @@ name = "wvq-bench"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror",
+ "wvq-command-bus",
  "wvq-intelligence",
  "wvq-runtime",
 ]

@@ -112,6 +112,8 @@ pub struct RunReply {
     /// Effective scope. May widen from `impacted` to `all` when complete
     /// selection evidence is unavailable.
     pub scope: String,
+    /// Exact reason the requested scope was kept or widened.
+    pub scope_reason: String,
     /// `complete` or `queued`.
     pub status: String,
     /// True when a run was recorded (still no arbitrary shell).

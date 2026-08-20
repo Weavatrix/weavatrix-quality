@@ -56,7 +56,7 @@ A Rust, TS/JS, Bun, Go, or Playwright repository can:
 8. assemble and persist same-revision Proofs;
 9. expose the result through CLI, MCP, and the `qualityd` Studio service.
 
-An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run.
+An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run. Every run returns `scope_reason`, including the exact missing obligation/path/executor cause. More than sixteen separate filtered processes also widens to one full-suite process to avoid making a broad selection slower than the baseline.
 
 ## CLI
 
@@ -75,6 +75,19 @@ wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt T
 ```
 
 Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1.
+
+For an actual selected-vs-full shadow measurement, use the live benchmark binary. It executes both scopes through `LiveService`, records real elapsed time and evidence bytes, and reports when impacted selection widened:
+
+```sh
+cargo run -p wvq-bench -- \
+  --repo /path/to/repository \
+  --change current \
+  --base origin/main \
+  --head WORKTREE \
+  --evidence-policy minimal
+```
+
+The older labelled ecosystem cases remain available as deterministic selection-quality fixtures; their declared costs are not presented as measured wall-clock time.
 
 ## Repository policy
 

@@ -397,6 +397,7 @@ impl QualityService for FakeService {
             head: cmd.head.clone(),
             requested_scope: cmd.scope.clone(),
             scope: cmd.scope.clone(),
+            scope_reason: format!("{} scope requested by caller", cmd.scope),
             status: "complete".into(),
             executed: true,
             outcome: state.outcome,
@@ -610,6 +611,42 @@ pub struct LiveService {
     executor_init_error: Option<String>,
 }
 
+fn canonical_repo_path(repo: &Path) -> PathBuf {
+    let canonical = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    strip_windows_verbatim_prefix(&canonical)
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+    use std::path::{Component, Prefix};
+
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path.to_path_buf();
+    };
+    let mut normalized = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:\\", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut root = PathBuf::from(r"\\");
+            root.push(server);
+            root.push(share);
+            root
+        }
+        _ => return path.to_path_buf(),
+    };
+    for component in components {
+        if !matches!(component, Component::RootDir | Component::CurDir) {
+            normalized.push(component.as_os_str());
+        }
+    }
+    normalized
+}
+
 impl LiveService {
     /// `repo` is the repository root that contains `openspec/`.
     #[must_use]
@@ -619,7 +656,7 @@ impl LiveService {
             Err(err) => (ExecutorRegistry::new(), Some(err.to_string())),
         };
         Self {
-            repo: repo.as_ref().to_path_buf(),
+            repo: canonical_repo_path(repo.as_ref()),
             state: Mutex::new(None),
             executors,
             executor_init_error,
@@ -631,7 +668,7 @@ impl LiveService {
     #[must_use]
     pub fn with_executors(repo: impl AsRef<Path>, executors: ExecutorRegistry) -> Self {
         Self {
-            repo: repo.as_ref().to_path_buf(),
+            repo: canonical_repo_path(repo.as_ref()),
             state: Mutex::new(None),
             executors,
             executor_init_error: None,
@@ -1360,13 +1397,14 @@ impl QualityService for LiveService {
             .iter()
             .map(|binding| binding.path.clone())
             .collect::<BTreeSet<_>>();
-        let (execution_requests, effective_scope, executed_tests) = build_execution_requests(
-            &self.repo,
-            &targets,
-            &live_selection,
-            &browser_paths,
-            &cmd.scope,
-        );
+        let (execution_requests, effective_scope, scope_reason, executed_tests) =
+            build_execution_requests(
+                &self.repo,
+                &targets,
+                &live_selection,
+                &browser_paths,
+                &cmd.scope,
+            );
         let mut records = Vec::new();
         for request in &execution_requests {
             let target = &request.target;
@@ -1622,6 +1660,7 @@ impl QualityService for LiveService {
             &range,
             &cmd.scope,
             &effective_scope,
+            &scope_reason,
             &cmd.evidence_policy,
             outcome,
             &records,
@@ -1651,6 +1690,7 @@ impl QualityService for LiveService {
             head: range.head_ref,
             requested_scope: cmd.scope.clone(),
             scope: effective_scope,
+            scope_reason,
             status: "complete".into(),
             executed: true,
             outcome: outcome.into(),
@@ -4437,9 +4477,30 @@ fn build_execution_requests(
     selection: &LiveSelection,
     browser_paths: &BTreeSet<String>,
     requested_scope: &str,
-) -> (Vec<ExecutionRequest>, String, Option<BTreeSet<String>>) {
-    if requested_scope != "impacted" || !selection.complete() || selection.selected.is_empty() {
-        return full_execution_requests(targets);
+) -> (
+    Vec<ExecutionRequest>,
+    String,
+    String,
+    Option<BTreeSet<String>>,
+) {
+    const MAX_FILTERED_PROCESSES: usize = 16;
+    if requested_scope != "impacted" {
+        return full_execution_requests(targets, "full scope requested by caller");
+    }
+    if !selection.complete() {
+        return full_execution_requests(
+            targets,
+            &format!(
+                "impacted selection widened: uncovered obligations: {}",
+                selection.uncovered_all.join(", ")
+            ),
+        );
+    }
+    if selection.selected.is_empty() {
+        return full_execution_requests(
+            targets,
+            "impacted selection widened: no executable tests were selected",
+        );
     }
     let mut requests = BTreeMap::<(String, String, String), ExecutionRequest>::new();
     let mut executed = BTreeSet::new();
@@ -4450,7 +4511,10 @@ fn build_execution_requests(
         }
         let absolute = repo.join(selected);
         if !absolute.is_file() {
-            return full_execution_requests(targets);
+            return full_execution_requests(
+                targets,
+                &format!("impacted selection widened: selected test `{selected}` is missing"),
+            );
         }
         let mut matching = targets
             .iter()
@@ -4463,7 +4527,12 @@ fn build_execution_requests(
                 "npm-test" | "vitest" | "jest" | "bun-test" | "playwright"
             )
         }) else {
-            return full_execution_requests(targets);
+            return full_execution_requests(
+                targets,
+                &format!(
+                    "impacted selection widened: selected test `{selected}` has no filterable registered executor"
+                ),
+            );
         };
         let filter = absolute
             .strip_prefix(&target.cwd)
@@ -4471,7 +4540,12 @@ fn build_execution_requests(
             .map(|path| normalize_path(&path.to_string_lossy()))
             .filter(|path| !path.is_empty());
         let Some(filter) = filter else {
-            return full_execution_requests(targets);
+            return full_execution_requests(
+                targets,
+                &format!(
+                    "impacted selection widened: selected test `{selected}` cannot be expressed as a safe runner filter"
+                ),
+            );
         };
         let cwd = target.cwd.display().to_string();
         requests.insert(
@@ -4484,12 +4558,28 @@ fn build_execution_requests(
         );
         executed.insert(selected.clone());
     }
+    if requests.len() > MAX_FILTERED_PROCESSES {
+        return full_execution_requests(
+            targets,
+            &format!(
+                "impacted selection widened: {} filtered processes exceed the safe process-amplification limit {MAX_FILTERED_PROCESSES}",
+                requests.len()
+            ),
+        );
+    }
     if requests.is_empty() && executed.is_empty() {
-        full_execution_requests(targets)
+        full_execution_requests(
+            targets,
+            "impacted selection widened: selection produced no runnable requests",
+        )
     } else {
         (
             requests.into_values().collect(),
             "impacted".into(),
+            format!(
+                "complete selection mapped {} test paths to bounded runner filters",
+                executed.len()
+            ),
             Some(executed),
         )
     }
@@ -4497,7 +4587,13 @@ fn build_execution_requests(
 
 fn full_execution_requests(
     targets: &[ExecutorTarget],
-) -> (Vec<ExecutionRequest>, String, Option<BTreeSet<String>>) {
+    reason: &str,
+) -> (
+    Vec<ExecutionRequest>,
+    String,
+    String,
+    Option<BTreeSet<String>>,
+) {
     (
         targets
             .iter()
@@ -4509,6 +4605,7 @@ fn full_execution_requests(
             })
             .collect(),
         "all".into(),
+        reason.into(),
         None,
     )
 }
@@ -4573,7 +4670,10 @@ fn execute_full_targets(
 }
 
 fn test_path_from_node_id(id: &str) -> Option<String> {
-    let raw = id.strip_prefix("file:").unwrap_or(id);
+    let raw = id
+        .strip_prefix("file:")
+        .or_else(|| id.strip_prefix("symbol:"))
+        .unwrap_or(id);
     let path = raw.split('#').next().unwrap_or(raw);
     is_test_path(path).then(|| normalize_path(path))
 }
@@ -5431,6 +5531,7 @@ fn execution_summary(
     range: &RevisionRange,
     requested_scope: &str,
     effective_scope: &str,
+    scope_reason: &str,
     evidence_policy: &str,
     outcome: &str,
     records: &[ExecutorRecord],
@@ -5481,6 +5582,7 @@ fn execution_summary(
         "head": {"ref": range.head_ref, "commit": range.head_commit},
         "requested_scope": requested_scope,
         "effective_scope": effective_scope,
+        "scope_reason": scope_reason,
         "evidence_policy": evidence_policy,
         "outcome": outcome,
         "executors": items,
@@ -5764,6 +5866,59 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    #[test]
+    fn live_service_canonicalizes_existing_repository_paths() {
+        let root = TempDir::new("canonical-repo");
+        let dotted = root.0.join(".");
+        let service = LiveService::new(&dotted);
+        assert_eq!(service.repo, canonical_repo_path(&dotted));
+        assert!(service.repo.is_absolute());
+        #[cfg(windows)]
+        assert!(!service.repo.to_string_lossy().starts_with(r"\\?\"));
+    }
+
+    #[test]
+    fn graph_symbol_ids_resolve_to_repository_test_paths() {
+        assert_eq!(
+            test_path_from_node_id("symbol:src/widget/Widget.test.tsx#renders"),
+            Some("src/widget/Widget.test.tsx".into())
+        );
+        assert_eq!(
+            test_path_from_node_id("file:src/widget/Widget.test.tsx"),
+            Some("src/widget/Widget.test.tsx".into())
+        );
+    }
+
+    #[test]
+    fn large_filtered_selection_widens_before_process_amplification() {
+        let root = TempDir::new("filter-amplification");
+        let selected = (0..17)
+            .map(|index| {
+                let path = format!("tests/case-{index}.test.ts");
+                std::fs::create_dir_all(root.0.join("tests")).unwrap();
+                std::fs::write(root.0.join(&path), "test").unwrap();
+                path
+            })
+            .collect::<Vec<_>>();
+        let selection = LiveSelection {
+            selected,
+            explanations: Vec::new(),
+            uncovered_mandatory: Vec::new(),
+            uncovered_all: Vec::new(),
+            bindings: Vec::new(),
+        };
+        let targets = vec![ExecutorTarget {
+            executor: wvq_runtime::ExecutorId::new("npm-test").unwrap(),
+            cwd: root.0.clone(),
+        }];
+        let (requests, scope, reason, executed) =
+            build_execution_requests(&root.0, &targets, &selection, &BTreeSet::new(), "impacted");
+        assert_eq!(scope, "all");
+        assert_eq!(requests.len(), 1);
+        assert!(executed.is_none());
+        assert!(reason.contains("17 filtered processes"), "{reason}");
     }
 
     fn record(executor: &str) -> ExecutorRecord {
