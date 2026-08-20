@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: live shadow benchmark, distribution, and test analytics
+Session: measured Vitest evidence and defensive selection audit
 
 ## Now
 
@@ -19,9 +19,11 @@ Selection now consumes conservative measured history as a real producer. Success
 
 The live shadow benchmark now closes the defensive-learning loop. It requires an impacted run and an effective full run for the same change/revision, compares normalized failing identities, and persists one idempotent audit as `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`. A full-only failure remains visible even if its suite cannot be mapped safely; an exact repository test path is fed back into future selection immediately for the bounded impacted-node set. The `selection-audit` CAS artifact reports total misses, bounded identity/path samples, truncation, and zero runtime LLM tokens.
 
+Direct Vitest package scripts now produce measured cases without repository configuration. Discovery promotes only exact `vitest` or `vitest run` scripts with a declared Vitest dependency to the frozen runner. The executor resolves the local package binary through `npm exec --offline --yes=false`, enables Vitest's built-in JUnit reporter, uses the existing private evidence directory for root or nested packages, imports the fresh report, and removes the generated file before revision validation. Repository-owned JUnit paths are untouched; stale private output is removed before every invocation.
+
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
 
-The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the same broad graph case, impacted execution selected 41 of 42 available test files in one process and passed in 47.95 s; full execution passed in 46.82 s. This is a valid one-file reduction but not a speedup claim. Both used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
+The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the current repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 46.36 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.69 s. The defensive audit is now `corroborated` with zero missed failures. This is a measured one-file reduction and a 1.33 s observation, not a general speedup claim. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
 
 ## Playwright authoring path
 
@@ -35,7 +37,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation before the final workspace rerun: 354 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; affected-crate Clippy passes for all targets with warnings denied.
+Current validation: 356 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 

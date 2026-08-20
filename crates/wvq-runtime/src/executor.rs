@@ -127,19 +127,29 @@ impl ExecutorRegistry {
     /// Returns [`RuntimeError::InvalidArg`] if a built-in id is illegal.
     pub fn production() -> Result<Self, RuntimeError> {
         let mut registry = Self::new();
+        let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
         registry.register(spec(
             "cargo-test",
             "cargo",
             &["test", "--workspace", "--all-targets"],
             None,
         )?)?;
+        registry.register(spec("npm-test", npm, &["test", "--"], None)?)?;
         registry.register(spec(
-            "npm-test",
-            if cfg!(windows) { "npm.cmd" } else { "npm" },
-            &["test", "--"],
+            "vitest",
+            npm,
+            &[
+                "exec",
+                "--offline",
+                "--yes=false",
+                "--",
+                "vitest",
+                "run",
+                "--reporter=junit",
+                "--outputFile=.weavatrix-quality/junit.xml",
+            ],
             None,
         )?)?;
-        registry.register(spec("vitest", "vitest", &["run"], None)?)?;
         registry.register(spec(
             "jest",
             "jest",

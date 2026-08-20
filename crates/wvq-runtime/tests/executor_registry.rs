@@ -68,7 +68,18 @@ fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
     vitest.filters.clone_from(&paths);
     assert_eq!(
         registry.prepare(vitest).unwrap().args,
-        ["run", "tests/alpha.test.ts", "tests/beta.test.ts"]
+        [
+            "exec",
+            "--offline",
+            "--yes=false",
+            "--",
+            "vitest",
+            "run",
+            "--reporter=junit",
+            "--outputFile=.weavatrix-quality/junit.xml",
+            "tests/alpha.test.ts",
+            "tests/beta.test.ts"
+        ]
     );
 
     let mut jest = request("jest", BTreeMap::new());
@@ -101,7 +112,23 @@ fn repository_discovery_returns_only_registered_ids() {
         .iter()
         .map(|target| target.executor.as_str())
         .collect();
-    assert_eq!(ids, ["cargo-test", "npm-test"]);
+    assert_eq!(ids, ["cargo-test", "vitest"]);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn complex_repository_test_script_stays_on_the_generic_npm_boundary() {
+    let root = std::env::temp_dir().join(format!("wvq-discovery-complex-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"scripts":{"test":"node prepare.mjs && vitest run --coverage"},"devDependencies":{"vitest":"4"}}"#,
+    )
+    .unwrap();
+
+    let targets = discover_executor_targets(&root).unwrap();
+    assert_eq!(targets[0].executor.as_str(), "npm-test");
     let _ = std::fs::remove_dir_all(root);
 }
 

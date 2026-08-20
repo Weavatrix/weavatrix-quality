@@ -111,8 +111,14 @@ fn discover_package(
         .and_then(Value::as_str)
         .is_some_and(|script| !is_placeholder_test_script(script))
     {
+        let script = scripts
+            .and_then(|value| value.get("test"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         if cwd.join("bun.lock").is_file() || cwd.join("bun.lockb").is_file() {
             insert(targets, "bun-test", cwd)?;
+        } else if direct_test_executor(script, &json).is_some_and(|id| id == "vitest") {
+            insert(targets, "vitest", cwd)?;
         } else {
             insert(targets, "npm-test", cwd)?;
         }
@@ -129,6 +135,12 @@ fn discover_package(
         }
     }
     Ok(())
+}
+
+fn direct_test_executor<'a>(script: &str, package: &'a Value) -> Option<&'a str> {
+    let normalized = script.split_whitespace().collect::<Vec<_>>().join(" ");
+    (matches!(normalized.as_str(), "vitest" | "vitest run") && has_dependency(package, "vitest"))
+        .then_some("vitest")
 }
 
 fn has_dependency(json: &Value, name: &str) -> bool {

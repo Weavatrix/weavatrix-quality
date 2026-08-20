@@ -1384,6 +1384,9 @@ impl QualityService for LiveService {
         let range = self.revision_range(&cmd.base, &cmd.head)?;
         let changed = changed_files(&self.repo, &range)?;
         let store = self.store()?;
+        for target in &targets {
+            clear_generated_runner_artifacts(&target.cwd)?;
+        }
         let before = self.revision()?;
         let protection_graph = protection_graph_for_files(&self.repo, &before, &changed.all())?;
         let graph_diff = self.weavatrix_operation(
@@ -1460,6 +1463,7 @@ impl QualityService for LiveService {
                     target.cwd.display()
                 ))
             })?;
+            clear_generated_runner_artifacts(&target.cwd)?;
             let prepared = self
                 .executors
                 .prepare(PrepareRequest {
@@ -1501,6 +1505,7 @@ impl QualityService for LiveService {
                 },
             };
             attach_normalized_artifacts(&self.repo, &target.cwd, started, &mut record);
+            clear_generated_runner_artifacts(&target.cwd)?;
             records.push(record);
         }
 
@@ -5146,6 +5151,7 @@ fn execute_full_targets(
                 target.cwd.display()
             ))
         })?;
+        clear_generated_runner_artifacts(&target.cwd)?;
         let prepared = executors
             .prepare(PrepareRequest {
                 executor: target.executor.clone(),
@@ -5186,6 +5192,7 @@ fn execute_full_targets(
             },
         };
         attach_normalized_artifacts(repo, &target.cwd, started, &mut record);
+        clear_generated_runner_artifacts(&target.cwd)?;
         records.push(record);
     }
     Ok(records)
@@ -6444,6 +6451,26 @@ fn execution_summary(
 const MAX_RUNNER_ARTIFACT_BYTES: u64 = 8 * 1024 * 1024;
 const ARTIFACT_CLOCK_TOLERANCE: Duration = Duration::from_secs(2);
 
+fn clear_generated_runner_artifacts(cwd: &Path) -> Result<(), BusError> {
+    for relative in [
+        ".weavatrix-quality/junit.xml",
+        ".weavatrix-quality/go-cover.out",
+    ] {
+        let path = cwd.join(relative);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(BusError::Runtime(format!(
+                    "cannot clear generated runner artifact {}: {err}",
+                    path.display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_lines)]
 fn attach_normalized_artifacts(
     repo: &Path,
@@ -6897,6 +6924,24 @@ mod tests {
                 .map(|artifact| artifact.kind.as_str())
                 .collect::<Vec<_>>(),
             ["junit", "normalized-test-run", "lcov", "coverage"]
+        );
+    }
+
+    #[test]
+    fn generated_runner_report_is_cleared_without_touching_user_report_paths() {
+        let root = TempDir::new("clear-runner-artifacts");
+        std::fs::create_dir_all(root.0.join(".weavatrix-quality")).unwrap();
+        let generated = root.0.join(".weavatrix-quality/junit.xml");
+        let user_owned = root.0.join("junit.xml");
+        std::fs::write(&generated, "stale generated evidence").unwrap();
+        std::fs::write(&user_owned, "repository-owned evidence").unwrap();
+
+        clear_generated_runner_artifacts(&root.0).unwrap();
+
+        assert!(!generated.exists());
+        assert_eq!(
+            std::fs::read_to_string(user_owned).unwrap(),
+            "repository-owned evidence"
         );
     }
 
