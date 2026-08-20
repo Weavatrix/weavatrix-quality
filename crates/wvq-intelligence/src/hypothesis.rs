@@ -96,8 +96,20 @@ pub struct DefectHypothesis {
     pub because: String,
     /// Concrete inputs or states that settle it.
     pub probes: Vec<String>,
-    /// How much it would matter.
+    /// How much it would matter if true.
     pub weight: HypothesisWeight,
+    /// How sure we are the signal behind it really occurred.
+    pub confidence: SignalConfidence,
+    /// What established the signal.
+    pub evidence: String,
+}
+
+impl DefectHypothesis {
+    /// Whether this question is allowed to fail a build.
+    #[must_use]
+    pub fn blocks(&self) -> bool {
+        self.weight == HypothesisWeight::High && self.confidence == SignalConfidence::Confirmed
+    }
 }
 
 fn hypothesis(
@@ -113,6 +125,8 @@ fn hypothesis(
         because,
         probes,
         weight,
+        confidence: SignalConfidence::Inferred,
+        evidence: String::new(),
     }
 }
 
@@ -122,8 +136,17 @@ fn hypothesis(
 /// most consequential question first. An empty signal set yields nothing: a
 /// change with no recognised shape must not generate busywork.
 #[must_use]
-pub fn hypothesise(signals: &[ChangeSignal]) -> Vec<DefectHypothesis> {
-    let mut out: Vec<DefectHypothesis> = signals.iter().flat_map(one).collect();
+pub fn hypothesise(signals: &[DetectedSignal]) -> Vec<DefectHypothesis> {
+    let mut out: Vec<DefectHypothesis> = signals
+        .iter()
+        .flat_map(|detected| {
+            one(&detected.signal).into_iter().map(|mut item| {
+                item.confidence = detected.confidence;
+                item.evidence.clone_from(&detected.provenance);
+                item
+            })
+        })
+        .collect();
     out.sort_by(|left, right| {
         right
             .weight
@@ -282,16 +305,126 @@ fn simple(signal: &ChangeSignal) -> Vec<DefectHypothesis> {
 /// matter. Spec §59 Stage C: a category is promoted only once its precision is
 /// measured on the repository.
 ///
-/// A shadow run over 60 accepted, bug-free commits showed textual detectors
-/// firing on a third to a half of them. Consequence and detection quality are
-/// therefore tracked apart, and an unmeasured detector never blocks.
+/// A shadow run over sixty accepted, defect-free changes had text-matching
+/// detectors firing on a third to a half of them, because words like "viewer"
+/// and operators like `<` occur everywhere. Consequence and detection quality
+/// are therefore tracked apart, per signal, and an unmeasured detector advises
+/// rather than blocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignalConfidence {
-    /// Pattern-matched from text. Precision unmeasured; advisory only.
+    /// Pattern-matched from diff text. Precision unmeasured; advisory only.
     Inferred,
-    /// Backed by graph or schema evidence that names the exact symbol.
+    /// Corroborated by graph evidence naming the exact symbol.
     Confirmed,
+}
+
+/// One signal plus how it was established.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetectedSignal {
+    /// The structural fact.
+    pub signal: ChangeSignal,
+    /// Whether the graph corroborated it.
+    pub confidence: SignalConfidence,
+    /// Exactly what established it.
+    pub provenance: String,
+}
+
+impl ChangeSignal {
+    /// Take this signal as a text match, with no graph corroboration.
+    #[must_use]
+    pub fn inferred(self) -> DetectedSignal {
+        DetectedSignal {
+            signal: self,
+            confidence: SignalConfidence::Inferred,
+            provenance: "matched in the diff text".into(),
+        }
+    }
+
+    /// The symbol this signal is about.
+    #[must_use]
+    pub fn subject(&self) -> &str {
+        match self {
+            Self::DefaultSensitivityFlipped { subject, .. }
+            | Self::MembershipGuardAdded { subject, .. }
+            | Self::BoundaryChanged { subject }
+            | Self::PermissionPredicateChanged { subject }
+            | Self::AggregationIntroduced { subject } => subject,
+            Self::PersistedKeyRetired { key, .. } => key,
+            Self::DerivationSourceMoved { derived, .. } => derived,
+            Self::TestMovedWithImplementation { test } => test,
+        }
+    }
+}
+
+/// What Weavatrix knows about the repository, projected for corroboration.
+///
+/// Every list is graph-derived. WVQ never builds a second code graph, so an
+/// empty list means "the graph did not say", never "there is nothing".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphFacts {
+    /// Symbols that sit on an authorization or permission path.
+    pub permission_symbols: Vec<String>,
+    /// Named numeric limits and thresholds.
+    pub limit_symbols: Vec<String>,
+    /// Keys that reach persisted or normalised storage.
+    pub persisted_keys: Vec<String>,
+    /// Enum domains the graph can enumerate, keyed by the value's symbol.
+    pub domains: std::collections::BTreeMap<String, Vec<String>>,
+    /// Symbols the change actually touched.
+    pub changed_symbols: Vec<String>,
+}
+
+impl GraphFacts {
+    fn touched(&self, subject: &str) -> bool {
+        self.changed_symbols.iter().any(|item| item == subject)
+    }
+}
+
+/// Raise a text match to `Confirmed` when the graph names the same symbol.
+///
+/// This is the fix for the measured false-positive rate: a permission question
+/// is only allowed to block when the graph says the changed symbol is genuinely
+/// on an authorization path, not when the word "viewer" appeared in a diff.
+#[must_use]
+pub fn corroborate(signal: ChangeSignal, facts: &GraphFacts) -> DetectedSignal {
+    let subject = signal.subject().to_owned();
+    let confirmed_by = match &signal {
+        ChangeSignal::PermissionPredicateChanged { .. } => facts
+            .permission_symbols
+            .contains(&subject)
+            .then(|| format!("graph places `{subject}` on an authorization path")),
+        ChangeSignal::BoundaryChanged { .. } => facts
+            .limit_symbols
+            .contains(&subject)
+            .then(|| format!("graph knows `{subject}` as a named limit")),
+        ChangeSignal::PersistedKeyRetired { .. } => facts
+            .persisted_keys
+            .contains(&subject)
+            .then(|| format!("graph shows `{subject}` reaching persisted storage")),
+        ChangeSignal::MembershipGuardAdded { .. } => facts
+            .domains
+            .get(&subject)
+            .filter(|domain| !domain.is_empty())
+            .map(|domain| format!("graph enumerates {} values for `{subject}`", domain.len())),
+        ChangeSignal::DefaultSensitivityFlipped { .. }
+        | ChangeSignal::DerivationSourceMoved { .. } => facts
+            .touched(&subject)
+            .then(|| format!("graph confirms `{subject}` changed in this revision")),
+        // A test moving with its implementation is a fact about the commit, not
+        // about a symbol. It stays advisory whatever the graph says.
+        ChangeSignal::TestMovedWithImplementation { .. }
+        | ChangeSignal::AggregationIntroduced { .. } => None,
+    };
+
+    match confirmed_by {
+        Some(provenance) => DetectedSignal {
+            signal,
+            confidence: SignalConfidence::Confirmed,
+            provenance,
+        },
+        None => signal.inferred(),
+    }
 }
 
 /// Hypotheses that should stop a change before it merges.
@@ -300,15 +433,11 @@ pub enum SignalConfidence {
 /// must be `Confirmed`. A high-stakes question raised by a detector whose
 /// precision nobody has measured is advice, not a gate.
 #[must_use]
-pub fn blocking_questions(
-    hypotheses: &[DefectHypothesis],
-    confidence: SignalConfidence,
-) -> Vec<&DefectHypothesis> {
-    if confidence != SignalConfidence::Confirmed {
-        return Vec::new();
-    }
+pub fn blocking_questions(hypotheses: &[DefectHypothesis]) -> Vec<&DefectHypothesis> {
     hypotheses
         .iter()
-        .filter(|item| item.weight == HypothesisWeight::High)
+        .filter(|item| {
+            item.weight == HypothesisWeight::High && item.confidence == SignalConfidence::Confirmed
+        })
         .collect()
 }

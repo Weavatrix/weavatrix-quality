@@ -1,65 +1,63 @@
 # STATUS — Weavatrix Quality
 
-Last updated: 2026-08-19
-Session: sequential implementation (Task 21 done)
+Last updated: 2026-08-20
+Session: sequential implementation (Tasks 1–35 done, plus the hypothesis engine)
 
 ## Now
 
-**Milestone:** M7 done (flake triage + safe healing).
+**All 35 tasks of the canonical plan are implemented, tested and committed.**
 
 **Current task:** none in progress.
 
-**Next task:** Task 22 — mutation, metamorphic, cheap explorer (`docs/development-plan.md`, spec §57).
+**Next:** not more implementation. The plan's own §59 says the next step is a
+CI rollout in observe-only mode, and §62 says nothing may be called "10×" until
+human-effort data exists. Both are measurement, not code.
 
-**Load next** (do not load the whole spec):
+## What is built
 
-- spec §57 Task 22, §21 mutation, §22 metamorphic, §25 explorer
-- `crates/wvq-proof` flake + heal
-- `crates/wvq-runtime` TestProgram
+| Range | Delivers |
+| --- | --- |
+| Tasks 1–3 | typed domain, `OpenSpec` change-delta reader, `OracleSeal` |
+| Tasks 4–9 | Weavatrix embed, Quality Debt Ratchet, `WVQ-ARCH/SIZE/DEAD/CLONE/GRAPH/API/HIST-*` |
+| Tasks 10–13 | JUnit/LCOV/`go test -json` normalization, bounded executors, coverage↔graph, minimal selection |
+| Tasks 14–17 | SQLite + CAS ledger, Proof engine, CLI + bounded MCP, shadow benchmark harness |
+| Tasks 18–21 | browser `TestProgram`, record/replay `BehaviorGraph`, Delta Triangle, flake triage + safe healing |
+| Tasks 22–23 | mutation, metamorphic relations, cheap explorer, AI Cost Firewall, Quality Studio |
+| Tasks 24–28 | `wvq-spec-recovery`: intent-evidence tiers, capability clustering, candidate verifier, mandatory QA review, recovery MCP + Studio |
+| Tasks 29–35 | dual-revision impact, test lineage, `ProtectionSnapshot`/`Delta`, flow-aware selection, `WVQ-PROTECT-001…012`, protection MCP + Studio |
+| beyond plan | defect-hypothesis engine with per-signal confidence |
 
-## Done
+## What is deliberately not built
 
-- [x] Adopt canonical master spec 2026-08-18 as the in-repo authority
-- [x] Name locked: **Weavatrix Quality** / `weavatrix-quality` / WVQ / `wvq`
-- [x] Cargo workspace + empty `wvq-domain`
-- [x] Agent context files so later sessions do not re-derive the product
-- [x] Task 1 — typed IDs, `Severity`, `FindingState`, `SubjectRef`, `QualityFinding`
-- [x] Task 2 — `OpenSpec` change-delta reader with file/line provenance
-- [x] Task 3 — `quality.yaml` compile + `OracleSeal` (AI metadata does not move the seal)
-- [x] Task 4 — embed `weavatrix-rust` as the only `CodeEvidenceProvider` (no second graph)
-- [x] Task 5 — Quality Debt Ratchet (`existing/new/fixed/returned/excepted`)
-- [x] Task 6 — architecture + size gates (`WVQ-ARCH-*`, `WVQ-SIZE-*`)
-- [x] Task 7 — dead-code + clone delta (`WVQ-DEAD-*`, `WVQ-CLONE-*`)
-- [x] Task 8 — topology drift (`WVQ-GRAPH-*`, base/head numbers)
-- [x] Task 9 — API + history risk (`WVQ-API-*`, `WVQ-HIST-*`, `RiskEvidence[]`)
-- [x] Task 10 — runner result normalization (JUnit / LCOV / `go test -json`)
-- [x] Task 11 — bounded executor registry (no arbitrary shell)
-- [x] Task 12 — dynamic coverage ↔ Weavatrix (`WVQ-COV-*`, unmeasured ≠ uncovered)
-- [x] Task 13 — minimal selection (greedy weighted set cover + explanation chain)
-- [x] Task 14 — SQLite + CAS evidence ledger (immutable proofs)
-- [x] Task 15 — Proof engine (`PROVEN`/`CONTRADICTED`/`PARTIAL`/`UNPROVEN`/`HUMAN_REQUIRED`)
-- [x] Task 16 — command bus, CLI `wvq`, MCP via `mcport` (seven default tools)
-- [x] Task 17 — shadow benchmark harness (selected vs full; no published 10×)
-- [x] Task 18 — Browser `TestProgram` IR + thin Playwright bridge (no AI)
-- [x] Task 19 — record/replay + `BehaviorGraph` (promote to `TestProgram`)
-- [x] Task 20 — Delta Triangle (structured-before-pixel `BehaviorDelta`, unexpected findings)
-- [x] Task 21 — flake fingerprints + safe healing (seal/assertions immutable)
+The **producers**. Nothing yet feeds live `graph_diff` output into the impact
+union, real measured coverage into `FlowProtection`, or a real model into the AI
+budget. `charge()` and `put_ai_usage` are exercised only by tests, which is
+correct at this stage: the ordinary green path spends zero runtime tokens by
+design, so the AI callers appear only when the explorer's escape packet and the
+flake decision packet are wired to a model.
 
-## Not started
+The rules are built and tested. Connecting them to a live repository is the next
+layer of work.
 
-Tasks 22–35. See `docs/development-plan.md`.
+## Measured, not assumed
 
-## Last commit
+A shadow run over sixty accepted, defect-free changes in a real repository:
 
-`feat(triage): diagnose and safely heal tests`
+| Detector kind | Fired on | Verdict |
+| --- | ---: | --- |
+| text-matching (permissions, boundaries, folds, test co-change) | 33–92% | too noisy to gate |
+| graph-backed (default flip, retired persisted key) | 5–8% | usable |
 
-## Open questions
+42% of clean changes would have been blocked by the first tuning. That is why
+`SignalConfidence` exists and why only `High` weight **and** `Confirmed`
+confidence may fail a build. Promote a category only after its precision is
+measured on the repository in question — spec §59 Stage C.
 
-None that block Task 1. Product-level questions stay in the spec; do not invent answers.
+## Known debt in this repository
 
-## Do not forget
-
-- This is a **separate product** that embeds `weavatrix-rust`. It is not a feature of `weavatrix` or `weavatrix-loom`.
-- v1 first-class ecosystems: JS/TS/Node/Bun and Go.
-- Proof is the first-class result, not a test file and not a quality %.
-- Dual-revision impact and protection continuity are first-class, not later polish.
+- `cargo fmt --all -- --check` fails on roughly forty pre-existing files. The
+  drift predates the current work and was deliberately not mixed into feature
+  commits.
+- `[profile.dev] debug = "line-tables-only"` is set in the workspace manifest.
+  It cuts `target/` from about 3 GB to 1.35 GB; revert the line if full
+  debuginfo is wanted back.

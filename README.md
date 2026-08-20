@@ -19,9 +19,13 @@ Humans review only unresolved product intent.
 
 ## Status
 
-**M4.** Domain, OpenSpec, Weavatrix embed, debt ratchet, selection, ledger, Proof, CLI, and bounded MCP are in tree. Read [`docs/STATUS.md`](docs/STATUS.md) before writing code.
+**All 35 planned tasks are in tree.** Domain, OpenSpec reader, `OracleSeal`, Weavatrix embed, debt ratchet, the check families, runner normalization, selection, ledger, Proof, CLI, bounded MCP, browser `TestProgram`, `BehaviorGraph`, Delta Triangle, flake triage and safe healing, mutation/metamorphic/explorer, AI Cost Firewall, Quality Studio, spec recovery, and protection continuity.
+
+Read [`docs/STATUS.md`](docs/STATUS.md) before writing code.
 
 Normative specification: [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md) (2026-08-18).
+
+What is **not** done: the producers. Nothing yet feeds real `graph_diff` output into the impact union, real coverage into `FlowProtection`, or a real model into the AI budget. The rules are built and tested; wiring them to a live repository is the next layer, and the CI rollout in §59 has not started.
 
 ## Place in the ecosystem
 
@@ -65,9 +69,31 @@ Recorder, explorer, and mutation come after that loop is real.
 wvq init | spec validate | spec seal | analyze | debt | select | run | verify | explain | record | replay | baseline | doctor
 ```
 
-MCP default profile (via `mcport`): `quality_context`, `quality_plan`, `quality_run`, `quality_status`, `quality_verify`, `quality_explain`, `quality_evidence`.
+MCP default profile (via `mcport`) is **seven tools and stays seven**: `quality_context`, `quality_plan`, `quality_run`, `quality_status`, `quality_verify`, `quality_explain`, `quality_evidence`.
+
+Two opt-in profiles sit beside it, off the coding-agent surface so its schema footprint stays small:
+
+```text
+spec recovery   quality_spec_recover | _review | _questions | _preview_patch | _verify | _seal
+protection      quality_protection   | quality_test_lineage | quality_flow
+```
+
+`qualityd` serves the exception-first Studio API over the same command bus. The change dashboard lists only unresolved proofs and counts the green ones; drill-down screens show everything.
 
 No arbitrary shell over MCP. Large artifacts stay behind handles.
+
+## Finding possible defects, without guessing
+
+Routing a change to the right human is necessary but not sufficient. WVQ also turns the *shape* of a change into falsifiable questions with concrete probes — a flipped default asks about the absent value, a retired persisted key asks what happens to records that still carry it, a new membership guard enumerates what falls outside the set.
+
+Two things are tracked separately, and this matters:
+
+- **weight** — how much it would cost if the answer is bad;
+- **confidence** — whether the graph actually corroborated the signal, or a regex merely matched some text.
+
+Only `High` weight **and** `Confirmed` confidence may fail a build. This is not caution for its own sake. A shadow run over sixty accepted, defect-free changes had text-matching detectors firing on 42% of them, because words like "viewer" and operators like `<` are everywhere; the two graph-backed detectors fired on 5–8%. A gate that stops two changes in five is a gate people switch off.
+
+Spec §59 Stage C is the rule: a category is promoted to blocking only after its precision is measured on that repository.
 
 ## Build
 
