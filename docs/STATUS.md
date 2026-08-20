@@ -15,7 +15,7 @@ Unreleased state: the authoring vertical, actual selected-vs-full benchmark runn
 
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
 
-The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A repeat passed both scopes. On this broad graph case Weavatrix selected all 41 test files, so WVQ correctly widened to one full process instead of spawning 41 filtered processes; measured runs were 51.24 s and 52.02 s, with zero runtime LLM tokens. `scope_reason` now explains every widening, and `symbol:` graph node IDs are normalized back to repository paths.
+The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the same broad graph case, impacted execution selected 41 of 42 available test files in one process and passed in 47.95 s; full execution passed in 46.82 s. This is a valid one-file reduction but not a speedup claim. Both used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
 
 ## Playwright authoring path
 
@@ -29,7 +29,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Final local validation: 346 Rust tests and 7 Playwright-runner tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
+Final local validation: 347 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied.
 
 ## JS/npm distribution
 

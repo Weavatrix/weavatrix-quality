@@ -28,6 +28,10 @@ pub struct MeasuredRun {
     pub executed: bool,
     /// Aggregate executor outcome.
     pub outcome: String,
+    /// Repository test paths selected for this run.
+    pub selected_test_count: u64,
+    /// Filterable repository test paths available for this run.
+    pub available_test_count: u64,
     /// Real elapsed wall-clock time around command-bus execution and evidence reads.
     pub wall_clock_ms: u64,
     /// Number of evidence handles returned by the run.
@@ -61,7 +65,7 @@ pub struct LiveShadowReport {
     pub runtime_llm_tokens: u64,
     /// Both runs completed over the same requested revision range.
     pub comparable: bool,
-    /// Whether selection stayed narrower instead of widening fail-closed to `all`.
+    /// Whether an impacted run executed fewer repository test paths than were available.
     pub selection_reduced: bool,
 }
 
@@ -119,7 +123,8 @@ pub fn run_live_shadow(
         },
     )?;
     let comparable = comparable_run(&impacted, base, head) && comparable_run(&full, base, head);
-    let selection_reduced = impacted.effective_scope == "impacted";
+    let selection_reduced = impacted.effective_scope == "impacted"
+        && impacted.selected_test_count < impacted.available_test_count;
     Ok(LiveShadowReport {
         measurement_kind: "live_execution",
         change: change.to_owned(),
@@ -161,12 +166,14 @@ fn measure(
         status: reply.status,
         executed: reply.executed,
         outcome: reply.outcome,
+        selected_test_count: reply.selected_test_count,
+        available_test_count: reply.available_test_count,
         wall_clock_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
         artifact_count,
         artifact_handles: reply.artifact_handles,
         artifact_bytes: evidence.bytes,
-        executor_invocations: evidence.executors,
-        browser_programs: evidence.browser_programs,
+        executor_invocations: evidence.executors.or(Some(reply.executor_invocations)),
+        browser_programs: evidence.browser_programs.or(Some(reply.browser_programs)),
     })
 }
 

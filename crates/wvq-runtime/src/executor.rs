@@ -54,7 +54,7 @@ pub struct ExecutorSpec {
     pub program: String,
     /// Frozen argv prefix after the program.
     pub prefix: Vec<String>,
-    /// Optional flag that receives the typed filter as the next argv slot.
+    /// Optional flag inserted once before the typed filter argv slots.
     pub filter_flag: Option<String>,
     /// Capabilities.
     pub capabilities: ExecutorCapabilities,
@@ -67,8 +67,8 @@ pub struct PrepareRequest {
     pub executor: ExecutorId,
     /// Working directory.
     pub cwd: PathBuf,
-    /// Optional test-name filter (one argv value, never a shell string).
-    pub filter: Option<String>,
+    /// Optional test filters (separate argv values, never a shell string).
+    pub filters: Vec<String>,
     /// Extra MCP/user fields. Only empty is accepted.
     pub extra: BTreeMap<String, String>,
     /// Deadline / output caps.
@@ -139,14 +139,14 @@ impl ExecutorRegistry {
             &["test", "--"],
             None,
         )?)?;
+        registry.register(spec("vitest", "vitest", &["run"], None)?)?;
         registry.register(spec(
-            "vitest",
-            "vitest",
-            &["run"],
-            Some("--testNamePattern"),
+            "jest",
+            "jest",
+            &["--runInBand"],
+            Some("--runTestsByPath"),
         )?)?;
-        registry.register(spec("jest", "jest", &["--runInBand"], Some("-t"))?)?;
-        registry.register(spec("bun-test", "bun", &["test"], Some("-t"))?)?;
+        registry.register(spec("bun-test", "bun", &["test"], None)?)?;
         registry.register(spec(
             "go-test",
             "go",
@@ -158,7 +158,7 @@ impl ExecutorRegistry {
             ],
             Some("-run"),
         )?)?;
-        registry.register(spec("playwright", "playwright", &["test"], Some("-g"))?)?;
+        registry.register(spec("playwright", "playwright", &["test"], None)?)?;
         Ok(registry)
     }
 
@@ -192,12 +192,13 @@ impl ExecutorRegistry {
             .get(&request.executor)
             .ok_or_else(|| RuntimeError::UnknownExecutor(request.executor.as_str().to_owned()))?;
         let mut args = spec.prefix.clone();
-        if let Some(filter) = request.filter.as_deref() {
-            let filter = sanitize_filter(filter)?;
+        if !request.filters.is_empty() {
             if let Some(flag) = &spec.filter_flag {
                 args.push(flag.clone());
             }
-            args.push(filter);
+            for filter in &request.filters {
+                args.push(sanitize_filter(filter)?);
+            }
         }
         Ok(PreparedRun {
             executor: spec.id.clone(),

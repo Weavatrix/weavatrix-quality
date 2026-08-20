@@ -33,6 +33,8 @@ fn live_shadow_executes_impacted_and_all_and_measures_stored_evidence() {
     );
     assert_eq!(report.impacted.outcome, "passed");
     assert_eq!(report.full.outcome, "passed");
+    assert_eq!(report.impacted.selected_test_count, 1);
+    assert_eq!(report.impacted.available_test_count, 2);
     assert_eq!(report.impacted.executor_invocations, Some(2));
     assert_eq!(report.impacted.browser_programs, Some(1));
     assert_eq!(report.impacted.artifact_count, 2);
@@ -40,6 +42,7 @@ fn live_shadow_executes_impacted_and_all_and_measures_stored_evidence() {
     assert_eq!(report.impacted.artifact_bytes, report.full.artifact_bytes);
     assert_eq!(report.runtime_llm_tokens, 0);
     assert!(report.comparable);
+    assert!(report.selection_reduced);
 }
 
 #[test]

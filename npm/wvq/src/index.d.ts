@@ -42,6 +42,10 @@ export interface RunReply {
     status: string
     executed: boolean
     outcome: 'passed' | 'failed' | 'error'
+    selected_test_count: number
+    available_test_count: number
+    executor_invocations: number
+    browser_programs: number
     artifact_handles: string[]
 }
 

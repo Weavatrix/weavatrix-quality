@@ -17,7 +17,7 @@ fn request(id: &str, extra: BTreeMap<String, String>) -> PrepareRequest {
     PrepareRequest {
         executor: ExecutorId::new(id).unwrap(),
         cwd: std::env::temp_dir(),
-        filter: None,
+        filters: Vec::new(),
         extra,
         limits: default_limits(),
         cancel: Arc::new(AtomicBool::new(false)),
@@ -37,7 +37,7 @@ fn unknown_executor_id_fails() {
 fn registered_go_test_gets_frozen_typed_argv() {
     let registry = ExecutorRegistry::production().unwrap();
     let mut req = request("go-test", BTreeMap::new());
-    req.filter = Some("TestAdd".into());
+    req.filters = vec!["TestAdd".into()];
     let prepared = registry.prepare(req).unwrap();
     assert_eq!(prepared.program, "go");
     assert_eq!(
@@ -56,6 +56,31 @@ fn registered_go_test_gets_frozen_typed_argv() {
             .capabilities(&prepared.executor)
             .map(|caps| caps.cases),
         Some(true)
+    );
+}
+
+#[test]
+fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
+    let registry = ExecutorRegistry::production().unwrap();
+    let paths = vec!["tests/alpha.test.ts".into(), "tests/beta.test.ts".into()];
+
+    let mut vitest = request("vitest", BTreeMap::new());
+    vitest.filters.clone_from(&paths);
+    assert_eq!(
+        registry.prepare(vitest).unwrap().args,
+        ["run", "tests/alpha.test.ts", "tests/beta.test.ts"]
+    );
+
+    let mut jest = request("jest", BTreeMap::new());
+    jest.filters = paths;
+    assert_eq!(
+        registry.prepare(jest).unwrap().args,
+        [
+            "--runInBand",
+            "--runTestsByPath",
+            "tests/alpha.test.ts",
+            "tests/beta.test.ts"
+        ]
     );
 }
 
@@ -94,7 +119,7 @@ fn mcp_command_field_cannot_select_an_executable() {
 fn filter_shell_metacharacters_are_rejected() {
     let registry = ExecutorRegistry::production().unwrap();
     let mut req = request("vitest", BTreeMap::new());
-    req.filter = Some("ok | calc.exe".into());
+    req.filters = vec!["ok | calc.exe".into()];
     assert!(matches!(
         registry.prepare(req),
         Err(RuntimeError::InvalidArg(_))

@@ -56,7 +56,7 @@ A Rust, TS/JS, Bun, Go, or Playwright repository can:
 8. assemble and persist same-revision Proofs;
 9. expose the result through CLI, MCP, and the `qualityd` Studio service.
 
-An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run. Every run returns `scope_reason`, including the exact missing obligation/path/executor cause. More than sixteen separate filtered processes also widens to one full-suite process to avoid making a broad selection slower than the baseline.
+An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run. Every run returns `scope_reason`, selected/available test counts, and executor/browser invocation counts. File paths stay file-path argv values rather than becoming test-title regexes, and paths for one runner are batched into bounded processes (at most 128 filters and 24 KiB per process). More than sixteen batches widens to the full suite to avoid process amplification.
 
 ## CLI
 

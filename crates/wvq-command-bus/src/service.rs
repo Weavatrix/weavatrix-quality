@@ -401,6 +401,10 @@ impl QualityService for FakeService {
             status: "complete".into(),
             executed: true,
             outcome: state.outcome,
+            selected_test_count: 1,
+            available_test_count: 2,
+            executor_invocations: 0,
+            browser_programs: 0,
             artifact_handles: state.handles,
         })
     }
@@ -1168,7 +1172,7 @@ impl Drop for TemporaryWorktree {
 struct ExecutorRecord {
     executor: String,
     cwd: String,
-    selection: Option<String>,
+    selection: Vec<String>,
     status_code: Option<i32>,
     passed: bool,
     error: Option<String>,
@@ -1240,9 +1244,11 @@ struct LiveSelection {
 
 struct ExecutionRequest {
     target: ExecutorTarget,
-    filter: Option<String>,
-    selected_test: Option<String>,
+    filters: Vec<String>,
+    selected_tests: Vec<String>,
 }
+
+type FilterGroups = BTreeMap<(String, String), (ExecutorTarget, Vec<(String, String)>)>;
 
 impl LiveSelection {
     fn complete(&self) -> bool {
@@ -1397,6 +1403,8 @@ impl QualityService for LiveService {
             .iter()
             .map(|binding| binding.path.clone())
             .collect::<BTreeSet<_>>();
+        let available_test_count =
+            available_test_paths(&self.repo, &targets, &browser_paths)?.len();
         let (execution_requests, effective_scope, scope_reason, executed_tests) =
             build_execution_requests(
                 &self.repo,
@@ -1419,7 +1427,7 @@ impl QualityService for LiveService {
                 .prepare(PrepareRequest {
                     executor: target.executor.clone(),
                     cwd: target.cwd.clone(),
-                    filter: request.filter.clone(),
+                    filters: request.filters.clone(),
                     extra: BTreeMap::new(),
                     limits: default_limits(),
                     cancel: Arc::clone(&cancel),
@@ -1434,7 +1442,7 @@ impl QualityService for LiveService {
                 }) => ExecutorRecord {
                     executor: target.executor.as_str().to_owned(),
                     cwd: relative_or_display(&self.repo, &target.cwd),
-                    selection: request.selected_test.clone(),
+                    selection: request.selected_tests.clone(),
                     status_code,
                     passed: status_code == Some(0),
                     error: None,
@@ -1445,7 +1453,7 @@ impl QualityService for LiveService {
                 Err(err) => ExecutorRecord {
                     executor: target.executor.as_str().to_owned(),
                     cwd: relative_or_display(&self.repo, &target.cwd),
-                    selection: request.selected_test.clone(),
+                    selection: request.selected_tests.clone(),
                     status_code: None,
                     passed: false,
                     error: Some(err.to_string()),
@@ -1676,6 +1684,10 @@ impl QualityService for LiveService {
         )?;
         handles.sort();
 
+        let selected_test_count = executed_tests
+            .as_ref()
+            .map_or(available_test_count, BTreeSet::len);
+
         let state = RunState {
             id: run_id.to_string(),
             status: "complete".into(),
@@ -1694,6 +1706,10 @@ impl QualityService for LiveService {
             status: "complete".into(),
             executed: true,
             outcome: outcome.into(),
+            selected_test_count: u64::try_from(selected_test_count).unwrap_or(u64::MAX),
+            available_test_count: u64::try_from(available_test_count).unwrap_or(u64::MAX),
+            executor_invocations: u64::try_from(records.len()).unwrap_or(u64::MAX),
+            browser_programs: u64::try_from(browser_runs.len()).unwrap_or(u64::MAX),
             artifact_handles: handles,
         })
     }
@@ -4502,7 +4518,7 @@ fn build_execution_requests(
             "impacted selection widened: no executable tests were selected",
         );
     }
-    let mut requests = BTreeMap::<(String, String, String), ExecutionRequest>::new();
+    let mut grouped = FilterGroups::new();
     let mut executed = BTreeSet::new();
     for selected in &selection.selected {
         if browser_paths.contains(selected) {
@@ -4521,12 +4537,10 @@ fn build_execution_requests(
             .filter(|target| absolute.starts_with(&target.cwd))
             .collect::<Vec<_>>();
         matching.sort_by_key(|target| std::cmp::Reverse(target.cwd.components().count()));
-        let Some(target) = matching.into_iter().find(|target| {
-            matches!(
-                target.executor.as_str(),
-                "npm-test" | "vitest" | "jest" | "bun-test" | "playwright"
-            )
-        }) else {
+        let Some(target) = matching
+            .into_iter()
+            .find(|target| supports_path_filters(target.executor.as_str()))
+        else {
             return full_execution_requests(
                 targets,
                 &format!(
@@ -4548,21 +4562,19 @@ fn build_execution_requests(
             );
         };
         let cwd = target.cwd.display().to_string();
-        requests.insert(
-            (target.executor.as_str().to_owned(), cwd, filter.clone()),
-            ExecutionRequest {
-                target: target.clone(),
-                filter: Some(filter),
-                selected_test: Some(selected.clone()),
-            },
-        );
+        grouped
+            .entry((target.executor.as_str().to_owned(), cwd))
+            .or_insert_with(|| (target.clone(), Vec::new()))
+            .1
+            .push((filter, selected.clone()));
         executed.insert(selected.clone());
     }
+    let requests = batch_filter_groups(grouped);
     if requests.len() > MAX_FILTERED_PROCESSES {
         return full_execution_requests(
             targets,
             &format!(
-                "impacted selection widened: {} filtered processes exceed the safe process-amplification limit {MAX_FILTERED_PROCESSES}",
+                "impacted selection widened: {} batched processes exceed the safe process-amplification limit {MAX_FILTERED_PROCESSES}",
                 requests.len()
             ),
         );
@@ -4573,16 +4585,95 @@ fn build_execution_requests(
             "impacted selection widened: selection produced no runnable requests",
         )
     } else {
-        (
-            requests.into_values().collect(),
-            "impacted".into(),
-            format!(
-                "complete selection mapped {} test paths to bounded runner filters",
-                executed.len()
-            ),
-            Some(executed),
-        )
+        let process_count = requests.len();
+        let reason = format!(
+            "complete selection mapped {} test paths to {process_count} bounded runner {}",
+            executed.len(),
+            if process_count == 1 {
+                "process"
+            } else {
+                "processes"
+            }
+        );
+        (requests, "impacted".into(), reason, Some(executed))
     }
+}
+
+fn batch_filter_groups(grouped: FilterGroups) -> Vec<ExecutionRequest> {
+    const MAX_FILTERS_PER_PROCESS: usize = 128;
+    const MAX_FILTER_BYTES_PER_PROCESS: usize = 24 * 1024;
+
+    let mut requests = Vec::new();
+    for (_, (target, pairs)) in grouped {
+        let mut filters = Vec::new();
+        let mut selected_tests = Vec::new();
+        let mut filter_bytes = 0;
+        for (filter, selected) in pairs {
+            let next_bytes = filter_bytes + filter.len() + 1;
+            if !filters.is_empty()
+                && (filters.len() >= MAX_FILTERS_PER_PROCESS
+                    || next_bytes > MAX_FILTER_BYTES_PER_PROCESS)
+            {
+                requests.push(ExecutionRequest {
+                    target: target.clone(),
+                    filters: std::mem::take(&mut filters),
+                    selected_tests: std::mem::take(&mut selected_tests),
+                });
+                filter_bytes = 0;
+            }
+            filter_bytes += filter.len() + 1;
+            filters.push(filter);
+            selected_tests.push(selected);
+        }
+        if !filters.is_empty() {
+            requests.push(ExecutionRequest {
+                target,
+                filters,
+                selected_tests,
+            });
+        }
+    }
+    requests
+}
+
+fn supports_path_filters(executor: &str) -> bool {
+    matches!(
+        executor,
+        "npm-test" | "vitest" | "jest" | "bun-test" | "playwright"
+    )
+}
+
+fn available_test_paths(
+    repo: &Path,
+    targets: &[ExecutorTarget],
+    browser_paths: &BTreeSet<String>,
+) -> Result<BTreeSet<String>, BusError> {
+    let raw = String::from_utf8(git_output(
+        repo,
+        &[
+            "ls-files".into(),
+            "--cached".into(),
+            "--others".into(),
+            "--exclude-standard".into(),
+            "-z".into(),
+        ],
+    )?)
+    .map_err(|err| BusError::Intelligence(format!("Git paths are not UTF-8: {err}")))?;
+    let mut paths = raw
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(normalize_path)
+        .filter(|path| is_test_path(path))
+        .filter(|path| repo.join(path).is_file())
+        .filter(|path| {
+            let absolute = repo.join(path);
+            targets.iter().any(|target| {
+                supports_path_filters(target.executor.as_str()) && absolute.starts_with(&target.cwd)
+            })
+        })
+        .collect::<BTreeSet<_>>();
+    paths.extend(browser_paths.iter().cloned());
+    Ok(paths)
 }
 
 fn full_execution_requests(
@@ -4600,8 +4691,8 @@ fn full_execution_requests(
             .cloned()
             .map(|target| ExecutionRequest {
                 target,
-                filter: None,
-                selected_test: None,
+                filters: Vec::new(),
+                selected_tests: Vec::new(),
             })
             .collect(),
         "all".into(),
@@ -4628,7 +4719,7 @@ fn execute_full_targets(
             .prepare(PrepareRequest {
                 executor: target.executor.clone(),
                 cwd: target.cwd.clone(),
-                filter: None,
+                filters: Vec::new(),
                 extra: BTreeMap::new(),
                 limits: default_limits(),
                 cancel: Arc::clone(cancel),
@@ -4643,7 +4734,7 @@ fn execute_full_targets(
             }) => ExecutorRecord {
                 executor: target.executor.as_str().to_owned(),
                 cwd: relative_or_display(repo, &target.cwd),
-                selection: None,
+                selection: Vec::new(),
                 status_code,
                 passed: status_code == Some(0),
                 error: None,
@@ -4654,7 +4745,7 @@ fn execute_full_targets(
             Err(err) => ExecutorRecord {
                 executor: target.executor.as_str().to_owned(),
                 cwd: relative_or_display(repo, &target.cwd),
-                selection: None,
+                selection: Vec::new(),
                 status_code: None,
                 passed: false,
                 error: Some(err.to_string()),
@@ -5254,12 +5345,15 @@ fn measured_protection_flows(
                 if node.measurement != CoverageMeasurement::Covered {
                     continue;
                 }
-                let test = record
-                    .selection
-                    .clone()
-                    .unwrap_or_else(|| format!("executor:{}@{}", record.executor, record.cwd));
-                if !flow.tests.contains(&test) {
-                    flow.tests.push(test);
+                let tests = if record.selection.is_empty() {
+                    vec![format!("executor:{}@{}", record.executor, record.cwd)]
+                } else {
+                    record.selection.clone()
+                };
+                for test in tests {
+                    if !flow.tests.contains(&test) {
+                        flow.tests.push(test);
+                    }
                 }
                 if !flow.covered_nodes.contains(&node_id) {
                     flow.covered_nodes.push(node_id);
@@ -5892,7 +5986,7 @@ mod tests {
     }
 
     #[test]
-    fn large_filtered_selection_widens_before_process_amplification() {
+    fn large_file_selection_batches_into_one_bounded_runner_process() {
         let root = TempDir::new("filter-amplification");
         let selected = (0..17)
             .map(|index| {
@@ -5915,17 +6009,20 @@ mod tests {
         }];
         let (requests, scope, reason, executed) =
             build_execution_requests(&root.0, &targets, &selection, &BTreeSet::new(), "impacted");
-        assert_eq!(scope, "all");
+        assert_eq!(scope, "impacted");
         assert_eq!(requests.len(), 1);
-        assert!(executed.is_none());
-        assert!(reason.contains("17 filtered processes"), "{reason}");
+        assert_eq!(requests[0].filters.len(), 17);
+        assert_eq!(requests[0].selected_tests.len(), 17);
+        assert_eq!(executed.as_ref().map(BTreeSet::len), Some(17));
+        assert!(reason.contains("17 test paths"), "{reason}");
+        assert!(reason.contains("1 bounded runner process"), "{reason}");
     }
 
     fn record(executor: &str) -> ExecutorRecord {
         ExecutorRecord {
             executor: executor.into(),
             cwd: ".".into(),
-            selection: None,
+            selection: Vec::new(),
             status_code: Some(0),
             passed: true,
             error: None,

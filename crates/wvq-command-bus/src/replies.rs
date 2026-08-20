@@ -120,6 +120,14 @@ pub struct RunReply {
     pub executed: bool,
     /// Aggregate executor outcome: `passed`, `failed`, or `error`.
     pub outcome: String,
+    /// Number of repository test paths selected for this run.
+    pub selected_test_count: u64,
+    /// Number of filterable repository test paths available to this run.
+    pub available_test_count: u64,
+    /// Number of bounded registered executor processes invoked.
+    pub executor_invocations: u64,
+    /// Number of typed browser programs invoked.
+    pub browser_programs: u64,
     /// Artifact handles produced (possibly empty).
     pub artifact_handles: Vec<String>,
 }
