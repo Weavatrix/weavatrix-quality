@@ -636,6 +636,8 @@ name = "wvq-spec-recovery"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "thiserror",
+ "wvq-domain",
 ]
 
 [[package]]

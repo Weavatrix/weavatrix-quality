@@ -17,6 +17,7 @@
 mod cluster;
 mod evidence;
 mod narrative;
+mod review;
 mod verify;
 
 pub use cluster::{CapabilityCluster, ClusterBasis, CommitFacts, cluster};
@@ -25,6 +26,7 @@ pub use evidence::{
     establishes_intent, strongest_tier,
 };
 pub use narrative::{ChangeNarrative, CodeDeltaSummary, NarrativeInput, TestsDelta, narrate};
+pub use review::{CandidateReview, CandidateState, ReviewError, SealApproval};
 pub use verify::{
     CandidateRequirement, CandidateShape, FindingKind, ObservedFact, VerifierFinding,
     VerifierReport, VerifyContext, verify_candidates,
