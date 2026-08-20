@@ -102,6 +102,10 @@ pub struct RunReply {
     pub run_id: String,
     /// Change.
     pub change: String,
+    /// Requested immutable Git base.
+    pub base: String,
+    /// Requested head (`WORKTREE` or the checked-out commit-ish).
+    pub head: String,
     /// Scope requested by the caller.
     pub requested_scope: String,
     /// Effective scope. May widen from `impacted` to `all` when complete
@@ -245,6 +249,10 @@ pub type AnalyzeReply = ContextReply;
 pub struct DebtReply {
     /// Exact Weavatrix revision used for the audit, when live.
     pub revision: Option<String>,
+    /// Requested immutable Git base.
+    pub base: String,
+    /// Requested head (`WORKTREE` or the checked-out commit-ish).
+    pub head: String,
     /// Whether immutable base/head comparison was available.
     pub comparison_present: bool,
     /// Present on base and head.
@@ -268,6 +276,10 @@ pub struct DebtReply {
 pub struct SelectReply {
     /// Exact Weavatrix revision used for selection, when live.
     pub revision: Option<String>,
+    /// Requested immutable Git base.
+    pub base: String,
+    /// Requested head (`WORKTREE` or the checked-out commit-ish).
+    pub head: String,
     /// Algorithm id.
     pub algorithm: String,
     /// Selected test ids.

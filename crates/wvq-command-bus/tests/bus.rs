@@ -192,6 +192,8 @@ fn plan_does_not_execute() {
             change: "sankey-others".into(),
             scope: "impacted".into(),
             evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap();
     assert!(fake.run_was_executed());
@@ -205,6 +207,8 @@ fn unknown_scope_fails_closed() {
             change: "current".into(),
             scope: "everything-everywhere".into(),
             evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap_err();
     assert!(matches!(err, BusError::Unknown { field: "scope", .. }));
@@ -333,6 +337,8 @@ fn live_select_unions_base_and_head_static_candidates() {
     let reply = service
         .select(&SelectCommand {
             change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap();
     assert!(!reply.executed);
@@ -357,12 +363,69 @@ fn live_debt_uses_an_immutable_git_baseline() {
     let reply = service
         .debt(&wvq_command_bus::DebtCommand {
             change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap();
     assert!(reply.comparison_present);
     assert!(reply.revision.is_some());
     assert_eq!(reply.new, 0);
     assert_eq!(reply.fixed, 0);
+}
+
+#[test]
+fn live_run_accepts_an_exact_committed_pr_range() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "/// Checked-in head.\npub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
+    git(&repo.0, &["add", "-A"]);
+    git(
+        &repo.0,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "feature head",
+        ],
+    );
+    let service = LiveService::new(&repo.0);
+    let reply = service
+        .run(&RunCommand {
+            change: "live-add".into(),
+            scope: "all".into(),
+            evidence_policy: "minimal".into(),
+            base: "HEAD~1".into(),
+            head: "HEAD".into(),
+        })
+        .unwrap();
+    assert_eq!(reply.base, "HEAD~1");
+    assert_eq!(reply.head, "HEAD");
+    assert_eq!(reply.outcome, "passed");
+}
+
+#[test]
+fn explicit_committed_head_rejects_a_dirty_worktree() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a.saturating_add(b) }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let err = service
+        .select(&SelectCommand {
+            change: "live-add".into(),
+            base: "HEAD~1".into(),
+            head: "HEAD".into(),
+        })
+        .unwrap_err();
+    assert!(err.to_string().contains("dirty worktree"), "{err}");
 }
 
 #[test]
@@ -436,6 +499,8 @@ fn live_run_rejects_a_repo_without_a_supported_runner() {
             change: "sankey-others".into(),
             scope: "impacted".into(),
             evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap_err();
     assert!(
@@ -459,6 +524,8 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
             change: "live-add".into(),
             scope: "impacted".into(),
             evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap();
     assert!(reply.executed);
@@ -593,6 +660,8 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
             change: "live-add".into(),
             scope: "all".into(),
             evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         })
         .unwrap();
     assert_eq!(run.outcome, "passed");

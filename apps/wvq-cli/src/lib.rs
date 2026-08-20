@@ -39,10 +39,10 @@ Usage:
   wvq [--repo PATH] spec validate [--change ID]
   wvq [--repo PATH] spec seal [--change ID]
   wvq [--repo PATH] analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
-  wvq [--repo PATH] debt [--change ID]
-  wvq [--repo PATH] select [--change ID]
+  wvq [--repo PATH] debt [--change ID] [--base REF] [--head REF|WORKTREE]
+  wvq [--repo PATH] select [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
-  wvq [--repo PATH] run [--change ID] [--scope impacted|all] [--evidence-policy standard|minimal|none]
+  wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID]
   wvq [--repo PATH] explain <id>
   wvq [--repo PATH] plan [--change ID]
@@ -94,6 +94,14 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         .get("change")
         .cloned()
         .unwrap_or_else(|| "current".to_owned());
+    let base = flags
+        .get("base")
+        .cloned()
+        .unwrap_or_else(|| "HEAD".to_owned());
+    let head = flags
+        .get("head")
+        .cloned()
+        .unwrap_or_else(|| "WORKTREE".to_owned());
     let command = match positionals.as_slice() {
         [spec, action] if spec == "spec" && action == "validate" => {
             Command::SpecValidate(SpecCommand { change })
@@ -109,8 +117,8 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
                 .unwrap_or_else(|| "implementation".to_owned()),
             token_budget: parse_budget(flags.get("token-budget"))?,
         }),
-        [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change }),
-        [cmd] if cmd == "select" => Command::Select(SelectCommand { change }),
+        [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change, base, head }),
+        [cmd] if cmd == "select" => Command::Select(SelectCommand { change, base, head }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
             kind: required_flag(&flags, "kind")?,
@@ -126,6 +134,8 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
                 .get("evidence-policy")
                 .cloned()
                 .unwrap_or_else(|| "standard".to_owned()),
+            base,
+            head,
         }),
         [cmd] if cmd == "verify" => Command::Verify(VerifyCommand { change }),
         [cmd] if cmd == "plan" => Command::Plan(PlanCommand { change }),
@@ -159,11 +169,14 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             Some(&["repo", "change"])
         }
         [cmd] if cmd == "analyze" => Some(&["repo", "change", "purpose", "token-budget"]),
-        [cmd] if matches!(cmd.as_str(), "debt" | "select" | "verify" | "plan") => {
-            Some(&["repo", "change"])
+        [cmd] if matches!(cmd.as_str(), "debt" | "select") => {
+            Some(&["repo", "change", "base", "head"])
         }
+        [cmd] if matches!(cmd.as_str(), "verify" | "plan") => Some(&["repo", "change"]),
         [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
-        [cmd] if cmd == "run" => Some(&["repo", "change", "scope", "evidence-policy"]),
+        [cmd] if cmd == "run" => {
+            Some(&["repo", "change", "base", "head", "scope", "evidence-policy"])
+        }
         [cmd] if cmd == "status" => Some(&["repo"]),
         [cmd, _] if cmd == "explain" => Some(&["repo"]),
         _ => None,

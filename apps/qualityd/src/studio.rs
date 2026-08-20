@@ -276,6 +276,8 @@ impl Studio {
         };
         let debt = match self.service.debt(&DebtCommand {
             change: change.to_owned(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
         }) {
             Ok(reply) => reply,
             Err(err) => return bus_error(&err),

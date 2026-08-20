@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -341,6 +342,8 @@ impl QualityService for FakeService {
         Ok(RunReply {
             run_id: state.id,
             change: cmd.change.clone(),
+            base: cmd.base.clone(),
+            head: cmd.head.clone(),
             requested_scope: cmd.scope.clone(),
             scope: cmd.scope.clone(),
             status: "complete".into(),
@@ -421,13 +424,13 @@ impl QualityService for FakeService {
     }
 
     fn debt(&self, cmd: &DebtCommand) -> Result<DebtReply, BusError> {
-        let _ = cmd;
-        Ok(empty_debt())
+        Ok(empty_debt(&cmd.base, &cmd.head))
     }
 
     fn select(&self, cmd: &SelectCommand) -> Result<SelectReply, BusError> {
-        let _ = cmd;
         Ok(SelectReply {
+            base: cmd.base.clone(),
+            head: cmd.head.clone(),
             revision: None,
             algorithm: "greedy-weighted-set-cover".into(),
             selected: Vec::new(),
@@ -542,6 +545,89 @@ impl LiveService {
         }
     }
 
+    fn revision_range(&self, base: &str, head: &str) -> Result<RevisionRange, BusError> {
+        self.require_git_root()?;
+        validate_revision_ref("base", base)?;
+        validate_revision_ref("head", head)?;
+
+        let checked_out_head = self.resolve_commit("HEAD")?;
+        let head_commit = if head == "WORKTREE" {
+            checked_out_head.clone()
+        } else {
+            let requested_head = self.resolve_commit(head)?;
+            if requested_head != checked_out_head {
+                return Err(BusError::Ambiguous(format!(
+                    "explicit head `{head}` resolves to `{requested_head}`, but the checked-out HEAD is `{checked_out_head}`"
+                )));
+            }
+            if self.worktree_is_dirty()? {
+                return Err(BusError::Ambiguous(format!(
+                    "explicit committed head `{head}` requires a clean repository; dirty worktree content must use head `WORKTREE`"
+                )));
+            }
+            requested_head
+        };
+        let base_commit = self.resolve_commit(base)?;
+        Ok(RevisionRange {
+            base_ref: base.to_owned(),
+            base_commit,
+            head_ref: head.to_owned(),
+            head_commit,
+        })
+    }
+
+    fn resolve_commit(&self, reference: &str) -> Result<String, BusError> {
+        let output = ProcessCommand::new("git")
+            .args(["rev-parse", "--verify", "--end-of-options"])
+            .arg(format!("{reference}^{{commit}}"))
+            .current_dir(&self.repo)
+            .output()
+            .map_err(|err| {
+                BusError::Intelligence(format!("cannot resolve Git ref `{reference}`: {err}"))
+            })?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(BusError::Intelligence(format!(
+                "cannot resolve Git ref `{reference}` to a commit{}",
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
+            )));
+        }
+        let commit = String::from_utf8(output.stdout).map_err(|err| {
+            BusError::Intelligence(format!("Git returned a non-UTF-8 commit id: {err}"))
+        })?;
+        let commit = commit.trim();
+        if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(BusError::Intelligence(format!(
+                "Git returned an invalid commit id for `{reference}`: `{commit}`"
+            )));
+        }
+        Ok(commit.to_owned())
+    }
+
+    fn worktree_is_dirty(&self) -> Result<bool, BusError> {
+        let output = ProcessCommand::new("git")
+            .args([
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=normal",
+                "--ignore-submodules=none",
+            ])
+            .current_dir(&self.repo)
+            .output()
+            .map_err(|err| BusError::Intelligence(format!("cannot inspect Git worktree: {err}")))?;
+        if !output.status.success() {
+            return Err(BusError::Intelligence(format!(
+                "cannot inspect Git worktree: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        Ok(!output.stdout.is_empty())
+    }
+
     fn weavatrix_operation(
         &self,
         revision: &RevisionId,
@@ -568,6 +654,13 @@ struct Compiled {
     change: String,
     spec: OpenSpecChange,
     obligations: Vec<TestObligation>,
+}
+
+struct RevisionRange {
+    base_ref: String,
+    base_commit: String,
+    head_ref: String,
+    head_commit: String,
 }
 
 #[derive(Debug)]
@@ -707,14 +800,14 @@ impl QualityService for LiveService {
                 "no supported registered executor was discovered from repository manifests".into(),
             ));
         }
-        self.require_git_root()?;
+        let range = self.revision_range(&cmd.base, &cmd.head)?;
         let store = self.store()?;
         let before = self.revision()?;
         let graph_diff = self.weavatrix_operation(
             &before,
             "graph_diff",
             &json!({
-                "base_ref": "HEAD",
+                "base_ref": range.base_ref,
                 "detail": "edges",
                 "max_results": 100_000
             }),
@@ -723,7 +816,7 @@ impl QualityService for LiveService {
             &before,
             "change_impact",
             &json!({
-                "base_ref": "HEAD",
+                "base_ref": range.base_ref,
                 "depth": 6,
                 "max_nodes": 100_000,
                 "precision": "graph"
@@ -733,7 +826,7 @@ impl QualityService for LiveService {
             &before,
             "select_tests",
             &json!({
-                "base_ref": "HEAD",
+                "base_ref": range.base_ref,
                 "depth": 6,
                 "max_nodes": 2000,
                 "max_tests": 500,
@@ -839,6 +932,22 @@ impl QualityService for LiveService {
         put_json_run_artifact(
             &store,
             &run_id,
+            &format!("artifact-{}-revision-range", run_id.as_str()),
+            "revision-range",
+            &json!({
+                "schema_v": 1,
+                "base": {"ref": range.base_ref, "commit": range.base_commit},
+                "head": {
+                    "ref": range.head_ref,
+                    "commit": range.head_commit,
+                    "content_revision": before.as_str()
+                }
+            }),
+            &mut handles,
+        )?;
+        put_json_run_artifact(
+            &store,
+            &run_id,
             &format!("artifact-{}-graph-diff", run_id.as_str()),
             "weavatrix-graph-diff",
             &graph_diff,
@@ -940,6 +1049,7 @@ impl QualityService for LiveService {
             &run_id,
             &compiled.change,
             &before,
+            &range,
             &cmd.scope,
             &effective_scope,
             &cmd.evidence_policy,
@@ -966,6 +1076,8 @@ impl QualityService for LiveService {
         Ok(RunReply {
             run_id: run_id.to_string(),
             change: compiled.change,
+            base: range.base_ref,
+            head: range.head_ref,
             requested_scope: cmd.scope.clone(),
             scope: effective_scope,
             status: "complete".into(),
@@ -1201,7 +1313,7 @@ impl QualityService for LiveService {
         }
         if self.repo.join(".git").exists() {
             for change in list_changes(&self.repo)? {
-                let selection = self.select(&SelectCommand { change });
+                let selection = self.select(&working_tree_selection(change));
                 let Ok(selection) = selection else {
                     continue;
                 };
@@ -1283,12 +1395,12 @@ impl QualityService for LiveService {
 
     fn debt(&self, cmd: &DebtCommand) -> Result<DebtReply, BusError> {
         let _ = self.compiled(&cmd.change)?;
-        self.require_git_root()?;
+        let range = self.revision_range(&cmd.base, &cmd.head)?;
         let revision = self.revision()?;
         let report = self.weavatrix_operation(
             &revision,
             "run_audit",
-            &json!({"base_ref": "HEAD", "debt": "all", "max_findings": 5000}),
+            &json!({"base_ref": range.base_ref, "debt": "all", "max_findings": 5000}),
         )?;
         let debt = report
             .get("debt")
@@ -1349,6 +1461,8 @@ impl QualityService for LiveService {
             .collect::<Vec<_>>();
         limitations.extend(exceptions.notes);
         Ok(DebtReply {
+            base: range.base_ref,
+            head: range.head_ref,
             revision: Some(revision.to_string()),
             comparison_present,
             existing: u64::try_from(existing_ids.difference(&excepted).count()).unwrap_or(u64::MAX),
@@ -1369,18 +1483,23 @@ impl QualityService for LiveService {
 
     fn select(&self, cmd: &SelectCommand) -> Result<SelectReply, BusError> {
         let compiled = self.compiled(&cmd.change)?;
-        self.require_git_root()?;
+        let range = self.revision_range(&cmd.base, &cmd.head)?;
         let revision = self.revision()?;
         let static_report = self.weavatrix_operation(
             &revision,
             "select_tests",
-            &json!({"max_tests": 500, "depth": 6, "max_nodes": 2000}),
+            &json!({
+                "base_ref": range.base_ref,
+                "max_tests": 500,
+                "depth": 6,
+                "max_nodes": 2000
+            }),
         )?;
         let diff = self.weavatrix_operation(
             &revision,
             "graph_diff",
             &json!({
-                "base_ref": "HEAD",
+                "base_ref": range.base_ref,
                 "detail": "edges",
                 "max_results": 2000,
                 "token_budget": 20000
@@ -1397,6 +1516,8 @@ impl QualityService for LiveService {
         let selection = build_live_selection(&self.repo, &static_report, &diff, &obligations)?;
         let selection_complete = selection.complete();
         Ok(SelectReply {
+            base: range.base_ref,
+            head: range.head_ref,
             revision: Some(revision.to_string()),
             algorithm: "weavatrix-base-head-union+greedy-weighted-set-cover".into(),
             selected: selection.selected,
@@ -1606,8 +1727,10 @@ fn deterministic_checks() -> Vec<String> {
     ]
 }
 
-fn empty_debt() -> DebtReply {
+fn empty_debt(base: &str, head: &str) -> DebtReply {
     DebtReply {
+        base: base.to_owned(),
+        head: head.to_owned(),
         revision: None,
         comparison_present: false,
         existing: 0,
@@ -1617,6 +1740,14 @@ fn empty_debt() -> DebtReply {
         excepted: 0,
         findings: Vec::new(),
         limitations: Vec::new(),
+    }
+}
+
+fn working_tree_selection(change: String) -> SelectCommand {
+    SelectCommand {
+        change,
+        base: "HEAD".into(),
+        head: "WORKTREE".into(),
     }
 }
 
@@ -1648,6 +1779,28 @@ fn validate_evidence_policy(policy: &str) -> Result<(), BusError> {
             value: other.to_owned(),
         }),
     }
+}
+
+fn validate_revision_ref(field: &'static str, reference: &str) -> Result<(), BusError> {
+    if reference.is_empty()
+        || reference.len() > 512
+        || reference.starts_with('-')
+        || reference
+            .bytes()
+            .any(|byte| matches!(byte, 0 | b'\n' | b'\r'))
+    {
+        return Err(BusError::Unknown {
+            field,
+            value: reference.to_owned(),
+        });
+    }
+    if field == "base" && reference == "WORKTREE" {
+        return Err(BusError::Unknown {
+            field,
+            value: reference.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 fn parse_model_kind(kind: &str) -> Result<AiCallKind, BusError> {
@@ -2912,6 +3065,7 @@ fn execution_summary(
     run: &RunId,
     change: &str,
     revision: &RevisionId,
+    range: &RevisionRange,
     requested_scope: &str,
     effective_scope: &str,
     evidence_policy: &str,
@@ -2943,6 +3097,8 @@ fn execution_summary(
         "run_id": run.as_str(),
         "change": change,
         "revision": revision.as_str(),
+        "base": {"ref": range.base_ref, "commit": range.base_commit},
+        "head": {"ref": range.head_ref, "commit": range.head_commit},
         "requested_scope": requested_scope,
         "effective_scope": effective_scope,
         "evidence_policy": evidence_policy,

@@ -263,6 +263,20 @@ fn catalog_descriptors_are_honest_objects() {
 }
 
 #[test]
+fn quality_run_schema_exposes_the_exact_revision_range() {
+    let catalog = server().catalog();
+    let run = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "quality_run")
+        .expect("quality_run");
+    let properties = run["inputSchema"]["properties"].as_object().unwrap();
+    assert!(properties.contains_key("base"));
+    assert!(properties.contains_key("head"));
+}
+
+#[test]
 fn live_mcp_run_status_and_verify_execute_the_shared_command_bus() {
     let repo = live_repo();
     let service: Arc<dyn QualityService> = Arc::new(LiveService::new(&repo.0));

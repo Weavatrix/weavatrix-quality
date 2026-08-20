@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use wvq_cli::run_with;
-use wvq_command_bus::FakeService;
+use wvq_cli::{parse_args, run_with};
+use wvq_command_bus::{Command, FakeService};
 
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
@@ -269,4 +269,23 @@ fn misspelled_or_duplicate_flags_are_rejected() {
     );
     assert_ne!(duplicate.code, 0);
     assert!(duplicate.stderr.contains("more than once"));
+}
+
+#[test]
+fn committed_pr_range_is_preserved_by_cli() {
+    let parsed = parse_args(&argv(&[
+        "run",
+        "--change",
+        "sankey-others",
+        "--base",
+        "origin/main",
+        "--head",
+        "HEAD",
+    ]))
+    .unwrap();
+    let Command::Run(command) = parsed.command else {
+        panic!("expected run command");
+    };
+    assert_eq!(command.base, "origin/main");
+    assert_eq!(command.head, "HEAD");
 }

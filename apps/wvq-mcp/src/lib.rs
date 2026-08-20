@@ -63,7 +63,7 @@ pub fn quality_server(service: &Arc<dyn QualityService>) -> ConcurrentMcpServer 
         )
         .typed_tool(
             "quality_run",
-            "Execute repository-discovered registered runners with bounded argv, deadline, output, CAS evidence, and revision checks. Impacted widens to all until selection evidence is complete. No arbitrary shell.",
+            "Execute repository-discovered registered runners for an explicit base/head range with bounded argv, deadline, output, CAS evidence, and revision checks. Impacted widens to all until selection evidence is complete. No arbitrary shell.",
             schema_run(),
             move |ctx, input: RunCommand| {
                 let cancel = Arc::new(AtomicBool::new(false));
@@ -167,6 +167,14 @@ fn schema_run() -> Value {
             "change": {
                 "type": "string",
                 "description": "Change id, or `current` when unambiguous."
+            },
+            "base": {
+                "type": "string",
+                "description": "Immutable Git base ref. Defaults to HEAD for working-tree analysis."
+            },
+            "head": {
+                "type": "string",
+                "description": "WORKTREE, or a commit ref that must equal the checked-out clean HEAD."
             },
             "scope": {
                 "type": "string",

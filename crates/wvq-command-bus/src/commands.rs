@@ -22,6 +22,14 @@ fn default_evidence_policy() -> String {
     "standard".to_owned()
 }
 
+fn default_base() -> String {
+    "HEAD".to_owned()
+}
+
+fn default_head() -> String {
+    "WORKTREE".to_owned()
+}
+
 /// Bounded context packet for an agent or CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextCommand {
@@ -56,6 +64,12 @@ pub struct RunCommand {
     /// `standard`, `minimal`, or `none`.
     #[serde(default = "default_evidence_policy")]
     pub evidence_policy: String,
+    /// Immutable Git base revision. Defaults to `HEAD` for a working-tree run.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or a commit-ish that must resolve to the checked-out clean `HEAD`.
+    #[serde(default = "default_head")]
+    pub head: String,
 }
 
 /// Compact progress for a run.
@@ -105,6 +119,12 @@ pub struct DebtCommand {
     /// Change id, or `current`.
     #[serde(default = "default_change")]
     pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
 }
 
 /// Minimal impacted selection. Does not execute.
@@ -113,6 +133,12 @@ pub struct SelectCommand {
     /// Change id, or `current`.
     #[serde(default = "default_change")]
     pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
 }
 
 /// Explicit opt-in local model escape. Never used by normal verification.
