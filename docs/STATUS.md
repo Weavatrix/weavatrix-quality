@@ -7,7 +7,7 @@ Session: live producer completion and public-release validation
 
 All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are now part of `LiveService`, shared by the CLI, default MCP server, and Studio service.
 
-Current release task: validate the whole workspace, commit without co-author trailers, push `main`, and verify the public CI result.
+Release state: the live-producer implementation (`ce2a9d5`) and Linux portability fix (`73edbed`) are published on `main`. GitHub Actions run [32378815119](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32378815119) passed the clean-checkout workspace tests and Clippy job.
 
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
