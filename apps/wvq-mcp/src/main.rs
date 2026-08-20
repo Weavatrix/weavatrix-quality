@@ -7,15 +7,15 @@ use std::sync::Mutex;
 
 use wvq_command_bus::{LiveService, QualityService};
 use wvq_mcp::{
-    HostProfile, parse_host_args, protection_server, quality_server, recovery_server,
-    runtime_config,
+    HostProfile, authoring_server, parse_host_args, protection_server, quality_server,
+    recovery_server, runtime_config,
 };
 
 fn main() -> ExitCode {
     let args = env::args().skip(1).collect::<Vec<_>>();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!(
-            "wvq-mcp — Weavatrix Quality MCP\n\nUsage:\n  wvq-mcp [--repo PATH] [--profile default|recovery|protection] [--change ID] [--base REF] [--head REF|WORKTREE]"
+            "wvq-mcp — Weavatrix Quality MCP\n\nUsage:\n  wvq-mcp [--repo PATH] [--profile default|recovery|protection|authoring] [--change ID] [--base REF] [--head REF|WORKTREE]"
         );
         return ExitCode::SUCCESS;
     }
@@ -49,6 +49,11 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             }
+        }
+        HostProfile::Authoring => {
+            let service: Arc<dyn QualityService> = Arc::new(live);
+            authoring_server(&service, &options.change, &options.base, &options.head)
+                .serve(runtime_config())
         }
     };
     match result {

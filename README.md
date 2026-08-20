@@ -27,6 +27,7 @@ All 35 tasks in the canonical development plan are implemented. The live vertica
 - SQLite + CAS preserve runs, evidence, debt history, AI usage, and immutable proofs across processes;
 - a passing suite proves only obligations explicitly bound to tests in policy;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
+- agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, and preview it through the real browser with screenshot/trace handles.
 
 Read [`docs/STATUS.md`](docs/STATUS.md) before changing the repository. The normative design is [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md).
 
@@ -105,6 +106,15 @@ ai:
   max_cost_micros: 0
   input_micros_per_million: 0
   output_micros_per_million: 0
+
+browser:
+  base_url: http://127.0.0.1:3000
+  engine: chromium # chromium, firefox, or webkit through Playwright
+  headless: true
+  timeout_ms: 30000
+  module_root: .
+  programs: # optional while an agent is drafting its first TestProgram
+    - .weavatrix-quality/programs/permissions.json
 ```
 
 The model endpoint must resolve to loopback and return OpenAI-compatible completion content plus usage counters. WVQ checks the worst-case reservation before connecting, caps the response at 1 MiB, supports content-length and chunked responses, then persists measured usage. Change-local `quality.yaml` AI hints can only reduce the global token ceilings.
@@ -118,9 +128,25 @@ quality_context  quality_plan  quality_run  quality_status
 quality_verify   quality_explain  quality_evidence
 ```
 
-It has controlled concurrency, cooperative cancellation, no arbitrary shell, and handle-only delivery for large artifacts. Recovery and protection servers are exported as opt-in profiles for embedding without increasing the default coding-agent schema footprint.
+It has controlled concurrency, cooperative cancellation, no arbitrary shell, and handle-only delivery for large artifacts. Recovery, protection, and authoring servers are opt-in profiles, so the default coding-agent schema footprint remains seven tools.
 
-`qualityd` serves the exception-first Studio API over the same command bus. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
+The authoring profile is fixed at startup to one change and Git range:
+
+```sh
+wvq-mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
+```
+
+It exposes three high-level operations:
+
+```text
+quality_test_draft     complete sealed obligations + bounded changed-code/Weavatrix context
+quality_test_validate  strict TestProgram validation against the existing OracleSeal; no writes
+quality_test_preview   real Playwright run with observation/screenshot/trace handles; no test save
+```
+
+`quality_test_draft` normally uses zero model tokens and lets the calling agent produce the candidate. `use_model: true` explicitly requests one configured loopback planning call through the same persistent AI Cost Firewall. Candidate JSON cannot contain or replace oracle predicates, cannot use XPath, shell, JavaScript evaluation, filesystem writes, or unregistered cross-origin API operations. Screenshot capture defaults on for preview; trace capture is opt-in.
+
+`qualityd` serves the exception-first Studio API over the same command bus. The corresponding authoring endpoints are `POST /api/v1/authoring/draft`, `/validate`, and `/preview`. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
 
 ## Defect hypotheses
 

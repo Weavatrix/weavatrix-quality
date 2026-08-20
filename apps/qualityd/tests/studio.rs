@@ -87,6 +87,59 @@ fn changes_are_listed() {
 }
 
 #[test]
+fn authoring_http_projects_draft_validate_and_preview_from_the_shared_bus() {
+    let studio = default_studio();
+    let draft = post(
+        &studio,
+        "/api/v1/authoring/draft",
+        r#"{"change":"live","base":"BASE","head":"HEAD","token_budget":8000}"#,
+    );
+    assert_eq!(draft.status, 200, "{}", draft.body);
+    let draft = json(&draft);
+    assert_eq!(draft["change"], "live");
+    assert_eq!(draft["candidate"], Value::Null);
+    assert_eq!(draft["obligations"][0]["id"], "others-visible");
+
+    let program = serde_json::json!({"id": "generated-http-program"});
+    let validated = post(
+        &studio,
+        "/api/v1/authoring/validate",
+        &serde_json::json!({"change": "live", "program": program}).to_string(),
+    );
+    assert_eq!(validated.status, 200, "{}", validated.body);
+    assert_eq!(json(&validated)["persisted"], false);
+
+    let preview = post(
+        &studio,
+        "/api/v1/authoring/preview",
+        &serde_json::json!({
+            "change": "live",
+            "program": {"id": "generated-http-program"},
+            "screenshot": true,
+            "trace": true
+        })
+        .to_string(),
+    );
+    assert_eq!(preview.status, 200, "{}", preview.body);
+    let preview = json(&preview);
+    assert_eq!(preview["passed"], true);
+    assert_eq!(preview["program_persisted"], false);
+    assert_eq!(preview["screenshot_handles"].as_array().unwrap().len(), 1);
+    assert!(preview["trace_handle"].as_str().is_some());
+
+    assert_eq!(get(&studio, "/api/v1/authoring/draft").status, 405);
+    assert_eq!(
+        post(
+            &studio,
+            "/api/v1/authoring/draft",
+            r#"{"token_budget":8000,"unexpected":true}"#,
+        )
+        .status,
+        400
+    );
+}
+
+#[test]
 fn dashboard_shows_exceptions_and_hides_pass_noise() {
     let fake = Arc::new(FakeService::default());
     fake.set_verdict("HUMAN_REQUIRED");

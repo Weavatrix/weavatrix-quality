@@ -41,14 +41,15 @@ use wvq_spec_recovery::{
 use wvq_store::{Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem};
 
 use crate::commands::{
-    ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand,
-    ModelCommand, PlanCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand,
-    VerifyCommand,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, ChangesCommand, Command,
+    ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand,
+    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
-    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, ModelReply,
-    PlanReply, ProofSummary, Reply, RunReply, SelectReply, SpecSealReply, SpecValidateReply,
-    StatusReply, VerifyReply, bound_items,
+    AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorValidateReply,
+    AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply,
+    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply, SpecSealReply,
+    SpecValidateReply, StatusReply, VerifyReply, bound_items, estimate_tokens,
 };
 
 /// Command-bus failure. Unknown values fail closed.
@@ -74,6 +75,9 @@ pub enum BusError {
     /// Identity or revision could not be formed.
     #[error("invalid identity: {0}")]
     Identity(String),
+    /// Caller-supplied command or candidate failed strict validation.
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
     /// Registered runner discovery, preparation, or execution failed.
     #[error("runtime: {0}")]
     Runtime(String),
@@ -181,6 +185,43 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError`] when model policy, transport, usage evidence, or budget is invalid.
     fn model(&self, cmd: &ModelCommand) -> Result<ModelReply, BusError>;
+    /// Build a bounded revision- and seal-bound browser-test authoring packet.
+    ///
+    /// The optional model call is explicit and charged through the AI Cost Firewall.
+    /// This method never persists a candidate or changes an oracle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when revision, graph, intent, budget, or model evidence is invalid.
+    fn author_draft(&self, cmd: &AuthorDraftCommand) -> Result<AuthorDraftReply, BusError>;
+    /// Validate one candidate `TestProgram` against an existing `OracleSeal`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] on malformed IR, unknown obligations, or missing sealed predicates.
+    fn author_validate(&self, cmd: &AuthorValidateCommand)
+    -> Result<AuthorValidateReply, BusError>;
+    /// Execute a validated candidate through actual Playwright and return evidence handles.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] on invalid IR/runtime/revision evidence.
+    fn author_preview(&self, cmd: &AuthorPreviewCommand) -> Result<AuthorPreviewReply, BusError> {
+        self.author_preview_controlled(cmd, Arc::new(AtomicBool::new(false)))
+    }
+    /// Execute an authoring preview with transport-owned cooperative cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same failures as [`QualityService::author_preview`].
+    fn author_preview_controlled(
+        &self,
+        cmd: &AuthorPreviewCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AuthorPreviewReply, BusError> {
+        let _ = cancel;
+        self.author_preview(cmd)
+    }
     /// Known `OpenSpec` changes.
     ///
     /// # Errors
@@ -209,6 +250,9 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::Debt(cmd) => service.debt(&cmd).map(Reply::Debt),
         Command::Select(cmd) => service.select(&cmd).map(Reply::Select),
         Command::Model(cmd) => service.model(&cmd).map(Reply::Model),
+        Command::AuthorDraft(cmd) => service.author_draft(&cmd).map(Reply::AuthorDraft),
+        Command::AuthorValidate(cmd) => service.author_validate(&cmd).map(Reply::AuthorValidate),
+        Command::AuthorPreview(cmd) => service.author_preview(&cmd).map(Reply::AuthorPreview),
         Command::Changes(cmd) => service.changes(&cmd).map(Reply::Changes),
     }
 }
@@ -464,6 +508,88 @@ impl QualityService for FakeService {
             input_tokens: planning_tokens + runtime_tokens,
             output_tokens: 0,
             cost_micros: browser_escape_calls + vision_calls,
+        })
+    }
+
+    fn author_draft(&self, cmd: &AuthorDraftCommand) -> Result<AuthorDraftReply, BusError> {
+        validate_authoring_budget(cmd.token_budget)?;
+        let model_usage = cmd.use_model.then(|| AuthorModelUsage {
+            model: "fake-local-model".into(),
+            input_tokens: 1,
+            output_tokens: 1,
+            cost_micros: 0,
+        });
+        Ok(AuthorDraftReply {
+            change: cmd.change.clone(),
+            revision: "fake-revision".into(),
+            base: cmd.base.clone(),
+            head: cmd.head.clone(),
+            changed_files: vec!["src/widget.ts".into()],
+            context: vec!["changed file src/widget.ts".into()],
+            obligations: vec![AuthoringObligation {
+                id: "others-visible".into(),
+                requirement: "sankey.visual-limit".into(),
+                scenario: "overflow-grouped".into(),
+                kind: "behavioral".into(),
+                risk: "high".into(),
+                condition: None,
+                expected: Some(json!({"kind": "visible", "target": {"test_id": "others"}})),
+                required_evidence: vec!["dom".into()],
+            }],
+            truncated: false,
+            tokens_used: 32,
+            token_budget: cmd.token_budget,
+            candidate: None,
+            model_usage,
+        })
+    }
+
+    fn author_validate(
+        &self,
+        cmd: &AuthorValidateCommand,
+    ) -> Result<AuthorValidateReply, BusError> {
+        let id = cmd
+            .program
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| BusError::InvalidInput("authoring candidate omitted id".into()))?;
+        Ok(AuthorValidateReply {
+            change: cmd.change.clone(),
+            seal_id: "oseal-fake".into(),
+            program_id: id.into(),
+            program: cmd.program.clone(),
+            obligations: vec!["others-visible".into()],
+            valid: true,
+            persisted: false,
+        })
+    }
+
+    fn author_preview_controlled(
+        &self,
+        cmd: &AuthorPreviewCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AuthorPreviewReply, BusError> {
+        let _ = cancel;
+        let validated = self.author_validate(&AuthorValidateCommand {
+            change: cmd.change.clone(),
+            program: cmd.program.clone(),
+        })?;
+        Ok(AuthorPreviewReply {
+            change: validated.change,
+            revision: "fake-revision".into(),
+            program_id: validated.program_id,
+            passed: true,
+            asserted: validated.obligations,
+            contradicted: Vec::new(),
+            failure: None,
+            observation_handles: vec!["artifact-fake-author-observation-0".into()],
+            screenshot_handles: if cmd.screenshot {
+                vec!["artifact-fake-author-screenshot-0".into()]
+            } else {
+                Vec::new()
+            },
+            trace_handle: cmd.trace.then(|| "artifact-fake-author-trace".into()),
+            program_persisted: false,
         })
     }
 
@@ -2068,12 +2194,513 @@ impl QualityService for LiveService {
         })
     }
 
+    fn author_draft(&self, cmd: &AuthorDraftCommand) -> Result<AuthorDraftReply, BusError> {
+        validate_authoring_budget(cmd.token_budget)?;
+        let compiled = self.compiled(&cmd.change)?;
+        let range = self.revision_range(&cmd.base, &cmd.head)?;
+        let changed = changed_files(&self.repo, &range)?;
+        if changed.is_empty() {
+            return Err(BusError::Intelligence(format!(
+                "revision range `{}` -> `{}` contains no changed code to author against",
+                cmd.base, cmd.head
+            )));
+        }
+        let revision = self.revision()?;
+        let graph_diff = self.weavatrix_operation(
+            &revision,
+            "graph_diff",
+            &json!({
+                "base_ref": range.base_ref,
+                "detail": "edges",
+                "max_results": 100_000
+            }),
+        )?;
+        ensure_complete_diff(&graph_diff)?;
+        let change_impact = self.weavatrix_operation(
+            &revision,
+            "change_impact",
+            &json!({
+                "base_ref": range.base_ref,
+                "depth": 6,
+                "max_nodes": 100_000,
+                "precision": "graph"
+            }),
+        )?;
+        if change_impact
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err(BusError::Intelligence(
+                "change_impact was truncated; refusing a partial authoring packet".into(),
+            ));
+        }
+
+        let changed_files = changed.all();
+        let obligations = authoring_obligations(&compiled.obligations)?;
+        let authority_tokens = authoring_authority_tokens(&changed_files, &obligations)?;
+        if authority_tokens >= cmd.token_budget {
+            return Err(BusError::Runtime(format!(
+                "authoring token budget {} cannot contain the complete sealed authority (needs more than {authority_tokens})",
+                cmd.token_budget
+            )));
+        }
+        let context_items =
+            authoring_context(&compiled.spec, &changed_files, &graph_diff, &change_impact);
+        let (context, context_tokens, truncated) = bound_items(
+            context_items,
+            cmd.token_budget.saturating_sub(authority_tokens),
+        );
+        let mut reply = AuthorDraftReply {
+            change: compiled.change.clone(),
+            revision: revision.to_string(),
+            base: range.base_ref,
+            head: range.head_ref,
+            changed_files,
+            context,
+            obligations,
+            truncated,
+            tokens_used: authority_tokens.saturating_add(context_tokens),
+            token_budget: cmd.token_budget,
+            candidate: None,
+            model_usage: None,
+        };
+
+        if cmd.use_model {
+            let model = self.model(&ModelCommand {
+                change: compiled.change.clone(),
+                kind: "planning".into(),
+                prompt: authoring_model_prompt(&reply)?,
+            })?;
+            let candidate: Value = serde_json::from_str(&model.text).map_err(|err| {
+                BusError::Model(format!(
+                    "authoring model did not return one strict TestProgram JSON object: {err}"
+                ))
+            })?;
+            let validated = validate_author_candidate(&self.repo, &compiled, &candidate)?;
+            reply.candidate = Some(
+                serde_json::to_value(&validated.program)
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+            );
+            reply.model_usage = Some(AuthorModelUsage {
+                model: model.model,
+                input_tokens: model.input_tokens,
+                output_tokens: model.output_tokens,
+                cost_micros: model.cost_micros,
+            });
+        }
+        Ok(reply)
+    }
+
+    fn author_validate(
+        &self,
+        cmd: &AuthorValidateCommand,
+    ) -> Result<AuthorValidateReply, BusError> {
+        let compiled = self.compiled(&cmd.change)?;
+        let validated = validate_author_candidate(&self.repo, &compiled, &cmd.program)?;
+        let program = serde_json::to_value(&validated.program)
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        Ok(AuthorValidateReply {
+            change: compiled.change,
+            seal_id: validated.seal_id,
+            program_id: validated.program.id.to_string(),
+            program,
+            obligations: validated
+                .program
+                .obligations
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            valid: true,
+            persisted: false,
+        })
+    }
+
+    fn author_preview_controlled(
+        &self,
+        cmd: &AuthorPreviewCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<AuthorPreviewReply, BusError> {
+        let compiled = self.compiled(&cmd.change)?;
+        let _range = self.revision_range(&cmd.base, &cmd.head)?;
+        let before = self.revision()?;
+        let validated = validate_author_candidate(&self.repo, &compiled, &cmd.program)?;
+        let policy = load_browser_policy(&self.repo, &compiled.obligations)?.ok_or_else(|| {
+            BusError::Runtime(
+                "authoring preview requires a browser runtime in .weavatrix-quality/config.yaml"
+                    .into(),
+            )
+        })?;
+        let mut program = validated.program;
+        program.evidence_policy.screenshot = if cmd.screenshot {
+            CaptureWhen::Always
+        } else {
+            CaptureWhen::Never
+        };
+        program.evidence_policy.trace = if cmd.trace {
+            CaptureWhen::Always
+        } else {
+            CaptureWhen::Never
+        };
+        let preview_token = author_preview_token(program.id.as_str())?;
+        let evidence_dir = self
+            .repo
+            .join(".weavatrix-quality")
+            .join("authoring-evidence")
+            .join(&preview_token);
+        let result = run_browser_program(
+            &BrowserRunConfig {
+                base_url: policy.base_url,
+                browser: policy.browser,
+                headless: policy.headless,
+                timeout: policy.timeout,
+                module_root: policy.module_root,
+                runtime_dir: self
+                    .repo
+                    .join(".weavatrix-quality/runtime/playwright-runner"),
+                evidence_dir: evidence_dir.clone(),
+                cancel,
+            },
+            &program,
+            &validated.oracles,
+        )
+        .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let after = self.revision()?;
+        if before != after {
+            return Err(BusError::Ambiguous(format!(
+                "repository revision changed during authoring preview: `{before}` -> `{after}`"
+            )));
+        }
+        let store = self.store()?;
+        let persisted = persist_author_preview(&store, &preview_token, &result)?;
+        let _ = std::fs::remove_dir(&evidence_dir);
+        Ok(AuthorPreviewReply {
+            change: compiled.change,
+            revision: before.to_string(),
+            program_id: program.id.to_string(),
+            passed: result.passed,
+            asserted: result.asserted,
+            contradicted: result.contradicted,
+            failure: result.failure,
+            observation_handles: persisted.observation_handles,
+            screenshot_handles: persisted.screenshot_handles,
+            trace_handle: persisted.trace_handle,
+            program_persisted: false,
+        })
+    }
+
     fn changes(&self, cmd: &ChangesCommand) -> Result<ChangesReply, BusError> {
         let _ = cmd;
         Ok(ChangesReply {
             changes: list_changes(&self.repo)?,
         })
     }
+}
+
+struct ValidatedAuthorProgram {
+    program: TestProgram,
+    oracles: Vec<ProgramOracle>,
+    seal_id: String,
+}
+
+fn validate_authoring_budget(budget: u64) -> Result<(), BusError> {
+    if (256..=64_000).contains(&budget) {
+        Ok(())
+    } else {
+        Err(BusError::Unknown {
+            field: "token_budget",
+            value: budget.to_string(),
+        })
+    }
+}
+
+fn authoring_obligations(
+    obligations: &[TestObligation],
+) -> Result<Vec<AuthoringObligation>, BusError> {
+    obligations
+        .iter()
+        .map(|item| {
+            Ok(AuthoringObligation {
+                id: item.id.to_string(),
+                requirement: item.requirement.to_string(),
+                scenario: item.scenario.to_string(),
+                kind: obligation_kind_token(item.kind).into(),
+                risk: risk_token(item.risk).into(),
+                condition: item
+                    .condition
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+                expected: item
+                    .expected
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+                required_evidence: item
+                    .required_evidence
+                    .iter()
+                    .map(|kind| evidence_kind_token(*kind).to_owned())
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+fn authoring_authority_tokens(
+    changed_files: &[String],
+    obligations: &[AuthoringObligation],
+) -> Result<u64, BusError> {
+    let authority = serde_json::to_string(&json!({
+        "changed_files": changed_files,
+        "obligations": obligations,
+    }))
+    .map_err(|err| BusError::Runtime(err.to_string()))?;
+    Ok(estimate_tokens(&authority).max(1))
+}
+
+fn authoring_context(
+    spec: &OpenSpecChange,
+    changed_files: &[String],
+    diff: &Value,
+    impact: &Value,
+) -> Vec<String> {
+    let mut out = detailed_requirement_texts(spec);
+    out.extend(
+        changed_files
+            .iter()
+            .map(|path| format!("changed file: {path}")),
+    );
+    for (label, pointer) in [
+        ("graph added", "/nodes/added"),
+        ("graph removed", "/nodes/removed"),
+    ] {
+        out.extend(
+            values_at(diff, pointer)
+                .iter()
+                .filter_map(graph_node_id)
+                .map(|id| format!("{label}: {id}")),
+        );
+    }
+    for item in values_at(diff, "/nodes/changed") {
+        if let Some(id) = item.get("before").and_then(graph_node_id) {
+            out.push(format!("graph changed base: {id}"));
+        }
+        if let Some(id) = item.get("after").and_then(graph_node_id) {
+            out.push(format!("graph changed head: {id}"));
+        }
+    }
+    out.extend(
+        values_at(impact, "/impacted_nodes")
+            .iter()
+            .filter_map(graph_node_id)
+            .map(|id| format!("graph impacted: {id}")),
+    );
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn detailed_requirement_texts(spec: &OpenSpecChange) -> Vec<String> {
+    let mut out = Vec::new();
+    for capability in &spec.capabilities {
+        for operation in &capability.operations {
+            let delta = match operation {
+                RequirementOp::Added(delta)
+                | RequirementOp::Modified(delta)
+                | RequirementOp::Removed(delta) => delta,
+                RequirementOp::Renamed { from, to, location } => {
+                    out.push(format!(
+                        "intent rename at {}:{}: {from} -> {to}",
+                        location.file.display(),
+                        location.line
+                    ));
+                    continue;
+                }
+            };
+            out.push(format!(
+                "intent requirement {}: {} — {}",
+                delta.id, delta.name, delta.text
+            ));
+            for scenario in &delta.scenarios {
+                let clauses = scenario
+                    .clauses
+                    .iter()
+                    .map(|clause| format!("{:?} {}", clause.kind, clause.text))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                out.push(format!(
+                    "intent scenario {} ({}) for {}: {clauses}",
+                    scenario.id, scenario.name, delta.id
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn authoring_model_prompt(reply: &AuthorDraftReply) -> Result<String, BusError> {
+    let input = serde_json::to_value(reply).map_err(|err| BusError::Runtime(err.to_string()))?;
+    serde_json::to_string(&json!({
+        "task": "Return exactly one JSON object containing a canonical schema_v=1 TestProgram. Do not use markdown.",
+        "rules": [
+            "source must be generated",
+            "only assert obligation ids whose expected field is non-null",
+            "every declared obligation must have an assert step",
+            "prefer semantic targets: test_id, role plus accessible_name, or label",
+            "routes and api operation paths must be same-origin root-relative",
+            "never invent an oracle, expected predicate, shell command, XPath, JavaScript, or filesystem write",
+            "use only navigate, activate, fill, select, press, wait, set_feature_flag, inject_fault, api_call, assert"
+        ],
+        "test_program_shape": {
+            "schema_v": 1,
+            "id": "generated-program-id",
+            "source": "generated",
+            "obligations": ["sealed-obligation-id"],
+            "preconditions": [],
+            "steps": [{"action": "navigate", "route": "/"}, {"action": "assert", "obligation": "sealed-obligation-id"}],
+            "data": {},
+            "faults": {},
+            "api_operations": {},
+            "evidence_policy": {"screenshot": "on_failure", "trace": "on_failure", "network": "always", "console": "always", "storage": "on_failure"},
+            "deterministic_seed": 1
+        },
+        "authoring_packet": input
+    }))
+    .map_err(|err| BusError::Runtime(err.to_string()))
+}
+
+fn validate_author_candidate(
+    repo: &Path,
+    compiled: &Compiled,
+    candidate: &Value,
+) -> Result<ValidatedAuthorProgram, BusError> {
+    if !candidate.is_object() {
+        return Err(BusError::InvalidInput(
+            "authoring candidate must be one TestProgram JSON object".into(),
+        ));
+    }
+    let raw = serde_json::to_string(candidate).map_err(|err| BusError::Runtime(err.to_string()))?;
+    let program = TestProgram::from_json(&raw)
+        .map_err(|err| BusError::InvalidInput(format!("invalid authoring candidate: {err}")))?;
+    let mut unique = BTreeSet::new();
+    if program
+        .obligations
+        .iter()
+        .any(|obligation| !unique.insert(obligation.as_str()))
+    {
+        return Err(BusError::InvalidInput(format!(
+            "authoring candidate {} repeats an obligation",
+            program.id
+        )));
+    }
+    let known = compiled
+        .obligations
+        .iter()
+        .map(|obligation| (obligation.id.as_str(), obligation))
+        .collect::<BTreeMap<_, _>>();
+    let mut oracles = Vec::new();
+    for obligation in &program.obligations {
+        let sealed = known.get(obligation.as_str()).ok_or_else(|| {
+            BusError::InvalidInput(format!(
+                "authoring candidate {} names unknown obligation {obligation}",
+                program.id
+            ))
+        })?;
+        let expected = sealed.expected.as_ref().ok_or_else(|| {
+            BusError::InvalidInput(format!(
+                "authoring candidate {} cannot assert {obligation}: the existing seal has no executable expected predicate",
+                program.id
+            ))
+        })?;
+        oracles.push(ProgramOracle {
+            obligation: obligation.clone(),
+            condition: sealed
+                .condition
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|err| BusError::Runtime(err.to_string()))?,
+            expected: serde_json::to_value(expected)
+                .map_err(|err| BusError::Runtime(err.to_string()))?,
+        });
+    }
+    let contract = load_quality_contract(repo, &compiled.change)?;
+    let oracle_seal = seal(&contract, &compiled.obligations, &compiled.spec)?;
+    Ok(ValidatedAuthorProgram {
+        program,
+        oracles,
+        seal_id: oracle_seal.id.to_string(),
+    })
+}
+
+fn author_preview_token(program: &str) -> Result<String, BusError> {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| BusError::Runtime(format!("system clock is before Unix epoch: {err}")))?
+        .as_nanos();
+    Ok(format!("{}-{nanos}", safe_file_token(program)))
+}
+
+struct PersistedAuthorPreview {
+    observation_handles: Vec<String>,
+    screenshot_handles: Vec<String>,
+    trace_handle: Option<String>,
+}
+
+fn persist_author_preview(
+    store: &Store,
+    token: &str,
+    result: &BrowserProgramRun,
+) -> Result<PersistedAuthorPreview, BusError> {
+    let mut artifacts = Vec::<(String, String, Vec<u8>)>::new();
+    let mut observation_handles = Vec::new();
+    for (index, observation) in result.observations.iter().enumerate() {
+        let id = format!("artifact-author-{token}-observation-{index}");
+        let bytes =
+            serde_json::to_vec(observation).map_err(|err| BusError::Store(err.to_string()))?;
+        artifacts.push((id.clone(), "browser-observation".into(), bytes));
+        observation_handles.push(id);
+    }
+    let mut screenshot_handles = Vec::new();
+    for (index, path) in result.screenshot_paths.iter().enumerate() {
+        let bytes = std::fs::read(path).map_err(|err| {
+            BusError::Runtime(format!(
+                "cannot import authoring screenshot {}: {err}",
+                path.display()
+            ))
+        })?;
+        remove_browser_evidence_file(path)?;
+        let id = format!("artifact-author-{token}-screenshot-{index}");
+        artifacts.push((id.clone(), "screenshot".into(), bytes));
+        screenshot_handles.push(id);
+    }
+    let trace_handle = if let Some(path) = &result.trace_path {
+        let bytes = std::fs::read(path).map_err(|err| {
+            BusError::Runtime(format!(
+                "cannot import authoring trace {}: {err}",
+                path.display()
+            ))
+        })?;
+        remove_browser_evidence_file(path)?;
+        let id = format!("artifact-author-{token}-trace");
+        artifacts.push((id.clone(), "playwright-trace".into(), bytes));
+        Some(id)
+    } else {
+        None
+    };
+    for (raw_id, kind, bytes) in artifacts {
+        let id = ArtifactId::new(&raw_id).map_err(|err| BusError::Identity(err.to_string()))?;
+        store
+            .put_artifact(&id, &kind, &bytes)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+    }
+    Ok(PersistedAuthorPreview {
+        observation_handles,
+        screenshot_handles,
+        trace_handle,
+    })
 }
 
 fn obligation_kind_token(kind: ObligationKind) -> &'static str {
@@ -2092,6 +2719,19 @@ fn obligation_kind_token(kind: ObligationKind) -> &'static str {
         ObligationKind::Mutation => "mutation",
         ObligationKind::Metamorphic => "metamorphic",
         ObligationKind::SecurityPolicy => "security_policy",
+    }
+}
+
+fn evidence_kind_token(kind: EvidenceKind) -> &'static str {
+    match kind {
+        EvidenceKind::Dom => "dom",
+        EvidenceKind::Network => "network",
+        EvidenceKind::Screenshot => "screenshot",
+        EvidenceKind::Trace => "trace",
+        EvidenceKind::Har => "har",
+        EvidenceKind::Console => "console",
+        EvidenceKind::Storage => "storage",
+        EvidenceKind::Coverage => "coverage",
     }
 }
 
@@ -3191,20 +3831,15 @@ fn parse_browser_programs(
     browser: &serde_yaml::Mapping,
     obligations: &[TestObligation],
 ) -> Result<Vec<ConfiguredBrowserProgram>, BusError> {
-    let programs = yaml_get(browser, "programs")
-        .and_then(serde_yaml::Value::as_sequence)
-        .ok_or_else(|| {
-            BusError::Runtime(format!(
-                "quality policy {} browser.programs must be a non-empty list",
-                path.display()
-            ))
-        })?;
-    if programs.is_empty() {
-        return Err(BusError::Runtime(format!(
-            "quality policy {} browser.programs must be a non-empty list",
+    let Some(programs_value) = yaml_get(browser, "programs") else {
+        return Ok(Vec::new());
+    };
+    let programs = programs_value.as_sequence().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} browser.programs must be a list",
             path.display()
-        )));
-    }
+        ))
+    })?;
     let known = obligations
         .iter()
         .map(|obligation| (obligation.id.as_str(), obligation))

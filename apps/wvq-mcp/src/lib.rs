@@ -2,9 +2,11 @@
 
 #![forbid(unsafe_code)]
 
+mod authoring;
 mod protection;
 mod recovery;
 
+pub use authoring::authoring_server;
 pub use protection::{SharedProtection, protection_server};
 pub use recovery::{SharedDesk, recovery_server};
 
@@ -30,6 +32,8 @@ pub enum HostProfile {
     Recovery,
     /// Three-tool base/head protection continuity profile.
     Protection,
+    /// Three-tool Playwright `TestProgram` authoring profile.
+    Authoring,
 }
 
 /// Strict host options. These affect startup only and never become shell argv.
@@ -77,6 +81,7 @@ pub fn parse_host_args(args: &[String]) -> Result<HostOptions, String> {
         "default" => HostProfile::Default,
         "recovery" => HostProfile::Recovery,
         "protection" => HostProfile::Protection,
+        "authoring" => HostProfile::Authoring,
         other => return Err(format!("unknown MCP profile `{other}`")),
     };
     Ok(HostOptions {

@@ -8,8 +8,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
-    BusError, ChangesCommand, DebtCommand, DebtReply, EvidenceCommand, ExplainCommand,
-    ProofSummary, QualityService, StatusCommand, VerifyCommand,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, BusError, ChangesCommand,
+    DebtCommand, DebtReply, EvidenceCommand, ExplainCommand, ProofSummary, QualityService,
+    StatusCommand, VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -37,12 +38,19 @@ enum Route<'a> {
     Protection,
     ProtectionTest(&'a str),
     ProtectionFlow(&'a str),
+    AuthorDraft,
+    AuthorValidate,
+    AuthorPreview,
 }
 
 impl Route<'_> {
     fn method(self) -> &'static str {
         match self {
-            Self::HumanDecisions | Self::RecoveryDecisions => "POST",
+            Self::HumanDecisions
+            | Self::RecoveryDecisions
+            | Self::AuthorDraft
+            | Self::AuthorValidate
+            | Self::AuthorPreview => "POST",
             _ => "GET",
         }
     }
@@ -209,6 +217,9 @@ impl Studio {
                 Some(record) => ok(record),
                 None => HttpResponse::error(404, "that flow is not in the impacted surface"),
             }),
+            Route::AuthorDraft => self.author_draft(&request.body),
+            Route::AuthorValidate => self.author_validate(&request.body),
+            Route::AuthorPreview => self.author_preview(&request.body),
         }
     }
 
@@ -365,6 +376,39 @@ impl Studio {
         }
     }
 
+    fn author_draft(&self, body: &str) -> HttpResponse {
+        let command: AuthorDraftCommand = match parse_json_body(body) {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
+        match self.service.author_draft(&command) {
+            Ok(reply) => ok(&reply),
+            Err(err) => bus_error(&err),
+        }
+    }
+
+    fn author_validate(&self, body: &str) -> HttpResponse {
+        let command: AuthorValidateCommand = match parse_json_body(body) {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
+        match self.service.author_validate(&command) {
+            Ok(reply) => ok(&reply),
+            Err(err) => bus_error(&err),
+        }
+    }
+
+    fn author_preview(&self, body: &str) -> HttpResponse {
+        let command: AuthorPreviewCommand = match parse_json_body(body) {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
+        match self.service.author_preview(&command) {
+            Ok(reply) => ok(&reply),
+            Err(err) => bus_error(&err),
+        }
+    }
+
     fn record_decision(&self, body: &str) -> HttpResponse {
         let decision = match parse_decision(body) {
             Ok(value) => value,
@@ -412,6 +456,10 @@ fn parse_decision(body: &str) -> Result<HumanDecision, HttpResponse> {
     .map_err(|err| HttpResponse::error(422, &err.to_string()))
 }
 
+fn parse_json_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, HttpResponse> {
+    serde_json::from_str(body).map_err(|err| HttpResponse::error(400, &err.to_string()))
+}
+
 fn parse_route(path: &str) -> Option<Route<'_>> {
     let segments: Vec<&str> = path.split('/').collect();
     match segments.as_slice() {
@@ -431,6 +479,9 @@ fn parse_route(path: &str) -> Option<Route<'_>> {
         ["api", "v1", "runs", id] => Some(Route::Run(id)),
         ["api", "v1", "artifacts", id] => Some(Route::Artifact(id)),
         ["api", "v1", "human-decisions"] => Some(Route::HumanDecisions),
+        ["api", "v1", "authoring", "draft"] => Some(Route::AuthorDraft),
+        ["api", "v1", "authoring", "validate"] => Some(Route::AuthorValidate),
+        ["api", "v1", "authoring", "preview"] => Some(Route::AuthorPreview),
         _ => None,
     }
 }
@@ -446,7 +497,7 @@ fn bus_error(err: &BusError) -> HttpResponse {
     let status = match err {
         BusError::NotFound(_) => 404,
         BusError::Ambiguous(_) => 409,
-        BusError::Unknown { .. } | BusError::Identity(_) => 400,
+        BusError::Unknown { .. } | BusError::Identity(_) | BusError::InvalidInput(_) => 400,
         BusError::Spec(_) => 422,
         BusError::Runtime(_)
         | BusError::Intelligence(_)

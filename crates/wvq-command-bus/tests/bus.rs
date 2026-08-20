@@ -10,9 +10,10 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{
-    BusError, Command, ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT,
-    LiveService, ModelCommand, PlanCommand, QualityService, Reply, RunCommand, SelectCommand,
-    SpecCommand, VerifyCommand, dispatch, estimate_tokens,
+    AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, BusError, Command,
+    ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService,
+    ModelCommand, PlanCommand, QualityService, Reply, RunCommand, SelectCommand, SpecCommand,
+    VerifyCommand, dispatch, estimate_tokens,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -170,7 +171,7 @@ fn live_browser_repo(base_url: &str) -> TempRepo {
     std::fs::create_dir_all(root.join(".weavatrix-quality/programs")).unwrap();
     std::fs::write(
         root.join(".gitignore"),
-        "node_modules/\n.weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n.weavatrix-quality/runtime/\n.weavatrix-quality/browser-evidence/\n",
+        "node_modules/\n.weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n.weavatrix-quality/runtime/\n.weavatrix-quality/browser-evidence/\n.weavatrix-quality/authoring-evidence/\n",
     )
     .unwrap();
     std::fs::write(
@@ -1029,6 +1030,118 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         .unwrap();
     assert_eq!(contradicted.verdict, "CONTRADICTED");
     assert!(contradicted.blocking);
+}
+
+#[test]
+fn authoring_validates_and_previews_generated_playwright_program_without_persisting_it() {
+    let server = BrowserFixtureServer::start();
+    let repo = live_browser_repo(&server.url());
+    std::fs::write(
+        repo.0.join(".weavatrix-quality/config.yaml"),
+        format!(
+            "quality_policy_v: 1\n\nbrowser:\n  base_url: {}\n  engine: chromium\n  headless: true\n  timeout_ms: 30000\n  module_root: node_modules/playwright\n",
+            server.url()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join("package.json"),
+        r#"{"name":"wvq-live-browser","private":true,"dependencies":{"playwright":"1.62.1"},"description":"changed UI"}"#,
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let draft = service
+        .author_draft(&AuthorDraftCommand {
+            change: "live-browser".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            token_budget: 8_000,
+            use_model: false,
+        })
+        .unwrap();
+    assert!(!draft.revision.is_empty());
+    assert!(draft.changed_files.contains(&"package.json".into()));
+    assert_eq!(draft.obligations[0].id, "heading-visible");
+    assert!(draft.obligations[0].expected.is_some());
+    assert!(draft.candidate.is_none());
+
+    let program = serde_json::json!({
+        "schema_v": 1,
+        "id": "generated-home-heading",
+        "source": "generated",
+        "obligations": ["heading-visible"],
+        "steps": [
+            {"action": "navigate", "route": "/"},
+            {"action": "assert", "obligation": "heading-visible"}
+        ]
+    });
+    let validated = service
+        .author_validate(&AuthorValidateCommand {
+            change: "live-browser".into(),
+            program: program.clone(),
+        })
+        .unwrap();
+    assert!(validated.valid);
+    assert!(!validated.persisted);
+    assert!(validated.seal_id.starts_with("oseal-"));
+
+    let preview = service
+        .author_preview(&AuthorPreviewCommand {
+            change: "live-browser".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            program,
+            screenshot: true,
+            trace: true,
+        })
+        .unwrap();
+    assert!(preview.passed, "{:?}", preview.failure);
+    assert_eq!(preview.asserted, ["heading-visible"]);
+    assert!(!preview.program_persisted);
+    assert_eq!(preview.screenshot_handles.len(), 2);
+    assert!(preview.trace_handle.is_some());
+    for handle in preview
+        .observation_handles
+        .iter()
+        .chain(&preview.screenshot_handles)
+        .chain(preview.trace_handle.iter())
+    {
+        service
+            .evidence(&EvidenceCommand {
+                handle: handle.clone(),
+            })
+            .unwrap();
+    }
+    assert!(
+        !repo
+            .0
+            .join(".weavatrix-quality/programs/generated-home-heading.json")
+            .exists()
+    );
+}
+
+#[test]
+fn authoring_refuses_candidate_owned_oracle_fields() {
+    let server = BrowserFixtureServer::start();
+    let repo = live_browser_repo(&server.url());
+    let service = LiveService::new(&repo.0);
+    let error = service
+        .author_validate(&AuthorValidateCommand {
+            change: "live-browser".into(),
+            program: serde_json::json!({
+                "schema_v": 1,
+                "id": "tries-to-rewrite-oracle",
+                "source": "generated",
+                "obligations": ["heading-visible"],
+                "steps": [{"action": "assert", "obligation": "heading-visible"}],
+                "expected": {"kind": "hidden", "target": {"role": "heading"}}
+            }),
+        })
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("unknown field `expected`"),
+        "{error}"
+    );
 }
 
 #[test]

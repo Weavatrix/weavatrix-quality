@@ -1,15 +1,29 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: live producer completion and public-release validation
+Session: Playwright TestProgram authoring tools
 
 ## Now
 
-All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are now part of `LiveService`, shared by the CLI, default MCP server, and Studio service.
+All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are part of `LiveService`. This session adds an opt-in agent authoring path on top of that live vertical.
 
 Release state: the live-producer implementation (`ce2a9d5`) and Linux portability fix (`73edbed`) are published on `main`. GitHub Actions run [32378815119](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32378815119) passed the clean-checkout workspace tests and Clippy job.
 
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
+
+Unreleased authoring state: a command-bus draft/validate/preview API, a three-tool `--profile authoring` MCP server, and three `qualityd` POST endpoints are implemented locally. The default MCP profile remains exactly seven tools.
+
+## Playwright authoring path
+
+| Operation | Live behavior |
+| --- | --- |
+| draft | Resolves an explicit base/head range, requires changed code, queries same-revision `graph_diff` and change impact, returns bounded intent/graph context, and never truncates the sealed obligation authority |
+| optional model | `use_model: true` performs one planning call through the existing loopback-only persistent AI Cost Firewall; normal draft and verification use zero model tokens |
+| validate | Strictly decodes canonical `TestProgram` JSON, rejects candidate-owned oracle fields, unknown/duplicate obligations, XPath, unknown actions, and obligations without an executable sealed expected predicate |
+| preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and never saves or registers the candidate |
+| transports | MCP: `quality_test_draft`, `quality_test_validate`, `quality_test_preview`; HTTP: `POST /api/v1/authoring/{draft,validate,preview}` |
+
+Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
 ## Live production path
 
@@ -22,7 +36,7 @@ Local release validation: 313 tests passed with zero failures; workspace Clippy 
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | proof | Uses only the latest same-change, same-revision run; a green suite proves only obligations explicitly bound to executed tests |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
-| AI | Explicit CLI-only loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
+| AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
 
 `plan` reads existing same-revision proofs. `explain` resolves obligations, proofs, runs, selections, and debt findings with provenance. `status`, evidence handles, proofs, debt history, and AI usage survive a new process.
 
@@ -48,4 +62,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-After public CI is green, load `docs/benchmark-methodology.md` for the requested real WVQ benchmark and the TypeScript runtime-boundary sections before designing the JS distribution package. Rust remains the authority for policy and proof semantics.
+After committing the authoring slice, load `docs/benchmark-methodology.md` for the requested real WVQ benchmark and the TypeScript runtime-boundary sections before designing the JS distribution package. Rust remains the authority for policy and proof semantics.

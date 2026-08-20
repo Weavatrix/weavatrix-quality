@@ -9,7 +9,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use mcport::{ConcurrentToolServer, RuntimeConfig, json, serve_controlled_streams};
 use wvq_command_bus::{FakeService, INLINE_LIMIT, LiveService, QualityService, estimate_tokens};
-use wvq_mcp::{catalog_token_footprint, quality_server, runtime_config};
+use wvq_mcp::{
+    HostProfile, authoring_server, catalog_token_footprint, parse_host_args, quality_server,
+    runtime_config,
+};
 
 const DEFAULT_TOOLS: [&str; 7] = [
     "quality_context",
@@ -132,6 +135,14 @@ fn protocol_call(
     name: &str,
     arguments: &serde_json::Value,
 ) -> String {
+    protocol_call_server(quality_server(service), name, arguments)
+}
+
+fn protocol_call_server(
+    server: mcport::ConcurrentMcpServer,
+    name: &str,
+    arguments: &serde_json::Value,
+) -> String {
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -141,15 +152,79 @@ fn protocol_call(
     let input = Cursor::new(format!("{request}\n").into_bytes());
     let writer = SharedWriter::default();
     let captured = writer.clone();
-    serve_controlled_streams(
-        Arc::new(quality_server(service)),
-        input,
-        writer,
-        runtime_config(),
-    )
-    .unwrap();
+    serve_controlled_streams(Arc::new(server), input, writer, runtime_config()).unwrap();
     let bytes = captured.0.lock().unwrap().clone();
     String::from_utf8(bytes).unwrap()
+}
+
+#[test]
+fn authoring_profile_exposes_only_three_high_level_playwright_tools() {
+    let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
+    let built = authoring_server(&service, "live", "HEAD", "WORKTREE");
+    let catalog = built.catalog();
+    let names = catalog
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "quality_test_draft",
+            "quality_test_validate",
+            "quality_test_preview"
+        ]
+    );
+    assert!(built.schema_defects().is_empty());
+    for banned in [
+        "browser_click",
+        "browser_navigate",
+        "javascript_eval",
+        "shell",
+    ] {
+        assert!(!names.contains(&banned));
+    }
+}
+
+#[test]
+fn host_selects_the_authoring_profile_and_fixed_revision_range() {
+    let options = parse_host_args(&[
+        "--profile".into(),
+        "authoring".into(),
+        "--change".into(),
+        "live".into(),
+        "--base".into(),
+        "origin/main".into(),
+        "--head".into(),
+        "WORKTREE".into(),
+    ])
+    .unwrap();
+    assert_eq!(options.profile, HostProfile::Authoring);
+    assert_eq!(options.change, "live");
+    assert_eq!(options.base, "origin/main");
+    assert_eq!(options.head, "WORKTREE");
+}
+
+#[test]
+fn authoring_profile_runs_the_shared_command_bus_with_fixed_scope() {
+    let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
+    let draft = protocol_call_server(
+        authoring_server(&service, "live", "BASE", "HEAD"),
+        "quality_test_draft",
+        &serde_json::json!({"token_budget": 8000}),
+    );
+    assert!(draft.contains("\"change\":\"live\""), "{draft}");
+    assert!(draft.contains("\"base\":\"BASE\""), "{draft}");
+    assert!(draft.contains("\"candidate\":null"), "{draft}");
+
+    let validated = protocol_call_server(
+        authoring_server(&service, "live", "BASE", "HEAD"),
+        "quality_test_validate",
+        &serde_json::json!({"program": {"id": "generated-program"}}),
+    );
+    assert!(validated.contains("\"valid\":true"), "{validated}");
+    assert!(validated.contains("\"persisted\":false"), "{validated}");
 }
 
 #[test]

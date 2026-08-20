@@ -19,14 +19,11 @@ path = "src/main.rs"
 [dependencies]
 mcport = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 wvq-command-bus = { workspace = true }
 wvq-domain = { workspace = true }
 wvq-proof = { workspace = true }
 wvq-spec-recovery = { workspace = true }
 
-[dev-dependencies]
-serde_json = { workspace = true }
-
 [lints]
 workspace = true
-

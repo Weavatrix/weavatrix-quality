@@ -1,6 +1,7 @@
 //! Bounded replies. Large artifacts are handles, never dumped into context.
 
 use serde::Serialize;
+use serde_json::Value;
 
 /// Maximum UTF-8 bytes allowed inline in [`EvidenceReply`]. Larger stays a handle.
 pub const INLINE_LIMIT: usize = 4_096;
@@ -313,6 +314,115 @@ pub struct ModelReply {
     pub cost_micros: u64,
 }
 
+/// One sealed obligation exposed to the authoring agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthoringObligation {
+    /// Obligation identity accepted by `assert` actions.
+    pub id: String,
+    /// Requirement identity.
+    pub requirement: String,
+    /// Scenario identity.
+    pub scenario: String,
+    /// Obligation kind.
+    pub kind: String,
+    /// Consequence weight.
+    pub risk: String,
+    /// Optional sealed precondition.
+    pub condition: Option<Value>,
+    /// Sealed expected predicate. `None` means this obligation is not browser-previewable.
+    pub expected: Option<Value>,
+    /// Evidence required by policy.
+    pub required_evidence: Vec<String>,
+}
+
+/// Revision-bound inputs for producing a Playwright-backed `TestProgram`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorDraftReply {
+    /// Resolved change.
+    pub change: String,
+    /// Exact Weavatrix revision.
+    pub revision: String,
+    /// Immutable Git base.
+    pub base: String,
+    /// Requested head.
+    pub head: String,
+    /// Changed paths, including removed paths.
+    pub changed_files: Vec<String>,
+    /// Bounded requirement and graph context.
+    pub context: Vec<String>,
+    /// Complete sealed authority; never truncated.
+    pub obligations: Vec<AuthoringObligation>,
+    /// True only when non-authoritative context was dropped.
+    pub truncated: bool,
+    /// Approximate inline tokens used.
+    pub tokens_used: u64,
+    /// Requested packet budget.
+    pub token_budget: u64,
+    /// Optional model-proposed candidate. Never persisted or sealed.
+    pub candidate: Option<Value>,
+    /// Usage for the explicit model call, when requested.
+    pub model_usage: Option<AuthorModelUsage>,
+}
+
+/// Compact, measured usage for an explicit authoring model call.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorModelUsage {
+    /// Local model identity.
+    pub model: String,
+    /// Measured input tokens.
+    pub input_tokens: u64,
+    /// Measured output tokens.
+    pub output_tokens: u64,
+    /// Calculated cost in micros.
+    pub cost_micros: u64,
+}
+
+/// Strict validation result for an authoring candidate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorValidateReply {
+    /// Resolved change.
+    pub change: String,
+    /// Existing `OracleSeal` that supplied the predicates.
+    pub seal_id: String,
+    /// Candidate program id.
+    pub program_id: String,
+    /// Validated canonical program.
+    pub program: Value,
+    /// Obligations the program asserts.
+    pub obligations: Vec<String>,
+    /// Always true on success.
+    pub valid: bool,
+    /// Always false; validation never writes source or intent.
+    pub persisted: bool,
+}
+
+/// Evidence handles from one explicit Playwright preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorPreviewReply {
+    /// Resolved change.
+    pub change: String,
+    /// Exact Weavatrix revision checked before and after execution.
+    pub revision: String,
+    /// Candidate program id.
+    pub program_id: String,
+    /// All actions and sealed assertions passed.
+    pub passed: bool,
+    /// Successfully asserted obligations.
+    pub asserted: Vec<String>,
+    /// Contradicted sealed obligations.
+    pub contradicted: Vec<String>,
+    /// Stable browser failure, if any.
+    pub failure: Option<String>,
+    /// CAS handles for structured observations.
+    pub observation_handles: Vec<String>,
+    /// CAS handles for screenshots.
+    pub screenshot_handles: Vec<String>,
+    /// CAS handle for the trace, when requested and produced.
+    pub trace_handle: Option<String>,
+    /// Always false; the candidate itself is not saved or registered.
+    pub program_persisted: bool,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -356,6 +466,15 @@ pub enum Reply {
     /// [`ModelReply`].
     #[serde(rename = "model")]
     Model(ModelReply),
+    /// [`AuthorDraftReply`].
+    #[serde(rename = "author_draft")]
+    AuthorDraft(AuthorDraftReply),
+    /// [`AuthorValidateReply`].
+    #[serde(rename = "author_validate")]
+    AuthorValidate(AuthorValidateReply),
+    /// [`AuthorPreviewReply`].
+    #[serde(rename = "author_preview")]
+    AuthorPreview(AuthorPreviewReply),
     /// [`ChangesReply`].
     #[serde(rename = "changes")]
     Changes(ChangesReply),

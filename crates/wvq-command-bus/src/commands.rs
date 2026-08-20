@@ -30,6 +30,14 @@ fn default_head() -> String {
     "WORKTREE".to_owned()
 }
 
+fn default_authoring_token_budget() -> u64 {
+    8_000
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Bounded context packet for an agent or CLI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextCommand {
@@ -153,6 +161,61 @@ pub struct ModelCommand {
     pub prompt: String,
 }
 
+/// Build a bounded, revision-bound packet for authoring a Playwright-backed `TestProgram`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorDraftCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Approximate token budget for intent and graph context.
+    #[serde(default = "default_authoring_token_budget")]
+    pub token_budget: u64,
+    /// Explicitly spend the configured planning-model budget to propose a candidate.
+    #[serde(default)]
+    pub use_model: bool,
+}
+
+/// Strictly validate an agent-authored `TestProgram` against sealed obligations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorValidateCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Candidate canonical `TestProgram` JSON object.
+    pub program: serde_json::Value,
+}
+
+/// Execute a validated candidate through the configured Playwright runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorPreviewCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Candidate canonical `TestProgram` JSON object.
+    pub program: serde_json::Value,
+    /// Capture screenshots on every attempted step.
+    #[serde(default = "default_true")]
+    pub screenshot: bool,
+    /// Capture a Playwright trace for the preview.
+    #[serde(default)]
+    pub trace: bool,
+}
+
 /// List known `OpenSpec` changes. Studio uses this for its Changes screen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesCommand {}
@@ -186,6 +249,12 @@ pub enum Command {
     Select(SelectCommand),
     /// [`ModelCommand`].
     Model(ModelCommand),
+    /// [`AuthorDraftCommand`].
+    AuthorDraft(AuthorDraftCommand),
+    /// [`AuthorValidateCommand`].
+    AuthorValidate(AuthorValidateCommand),
+    /// [`AuthorPreviewCommand`].
+    AuthorPreview(AuthorPreviewCommand),
     /// [`ChangesCommand`].
     Changes(ChangesCommand),
 }
@@ -208,6 +277,9 @@ impl Command {
             Self::Debt(_) => "debt",
             Self::Select(_) => "select",
             Self::Model(_) => "model",
+            Self::AuthorDraft(_) => "author_draft",
+            Self::AuthorValidate(_) => "author_validate",
+            Self::AuthorPreview(_) => "author_preview",
             Self::Changes(_) => "changes",
         }
     }
