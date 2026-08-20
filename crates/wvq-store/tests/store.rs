@@ -7,7 +7,8 @@ use wvq_domain::{
     ProofId, RevisionId, VerificationDecision,
 };
 use wvq_store::{
-    Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem, StoredTestCaseResult,
+    Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem, StoredSelectionAudit,
+    StoredTestCaseResult,
 };
 
 fn open_temp() -> Store {
@@ -23,7 +24,57 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 9);
+    assert_eq!(store.schema_version().unwrap(), 10);
+}
+
+#[test]
+fn defensive_selection_miss_is_queryable_and_idempotent() {
+    let store = open_temp();
+    let revision = RevisionId::new("rev-selection-audit").unwrap();
+    let impacted_run = wvq_domain::RunId::new("run-selection-impacted").unwrap();
+    let full_run = wvq_domain::RunId::new("run-selection-full").unwrap();
+    for (run_id, outcome) in [(&impacted_run, "passed"), (&full_run, "failed")] {
+        store
+            .put_run(&StoredRun {
+                id: run_id.clone(),
+                change_id: "selection-audit".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: outcome == "passed",
+                outcome: outcome.into(),
+            })
+            .unwrap();
+    }
+    store
+        .put_selection_audit(&StoredSelectionAudit {
+            id: "selection-audit-1".into(),
+            impacted_run: impacted_run.clone(),
+            full_run,
+            change_id: "selection-audit".into(),
+            revision: revision.clone(),
+            status: "contradicted".into(),
+            missed_failures: 1,
+            learned_tests: 1,
+        })
+        .unwrap();
+    for _ in 0..2 {
+        store
+            .observe_selection_miss(
+                "selection-audit-1",
+                "tests/cart.test.ts",
+                &["symbol:cart".into()],
+                &revision,
+            )
+            .unwrap();
+    }
+
+    let learned = store
+        .historical_tests_for_nodes(&["symbol:cart".into()], 2, 100)
+        .unwrap();
+    assert_eq!(learned.len(), 1);
+    assert_eq!(learned[0].test_path, "tests/cart.test.ts");
+    assert_eq!(learned[0].minimum_observations, 0);
+    assert_eq!(learned[0].defensive_misses, 1);
 }
 
 #[test]

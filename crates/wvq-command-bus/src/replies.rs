@@ -140,6 +140,21 @@ pub struct RunReply {
     pub artifact_handles: Vec<String>,
 }
 
+/// Result of one defensive impacted-vs-full selection audit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SelectionAuditReply {
+    /// Stable audit identity.
+    pub audit_id: String,
+    /// `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`.
+    pub status: String,
+    /// Fail/error identities present only in the full run.
+    pub missed_failure_count: u64,
+    /// Safely resolved missed test paths fed back into future selection.
+    pub learned_test_count: u64,
+    /// CAS-backed audit artifact attached to the full run, when persisted.
+    pub evidence_handle: Option<String>,
+}
+
 /// Compact progress.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StatusReply {

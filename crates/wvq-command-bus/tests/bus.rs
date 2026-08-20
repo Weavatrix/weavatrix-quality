@@ -4,8 +4,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -28,6 +28,7 @@ fn fixture_repo() -> PathBuf {
 struct TempRepo(PathBuf);
 
 static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
+static BROWSER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn unique_temp_repo(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -971,6 +972,7 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
 
 #[test]
 fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
+    let _browser_guard = BROWSER_TEST_LOCK.lock().unwrap();
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     let service = LiveService::new(&repo.0);
@@ -1036,6 +1038,7 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
 
 #[test]
 fn authoring_validates_and_previews_generated_playwright_program_without_persisting_it() {
+    let _browser_guard = BROWSER_TEST_LOCK.lock().unwrap();
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     std::fs::write(

@@ -5,7 +5,9 @@ use std::time::Instant;
 use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
-use wvq_command_bus::{BusError, EvidenceCommand, QualityService, RunCommand, RunReply};
+use wvq_command_bus::{
+    BusError, EvidenceCommand, QualityService, RunCommand, RunReply, SelectionAuditReply,
+};
 
 /// A measured production run, not a declared candidate cost.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -44,6 +46,14 @@ pub struct MeasuredRun {
     pub executor_invocations: Option<u64>,
     /// Browser programs recorded in the execution summary, when it was inline.
     pub browser_programs: Option<u64>,
+    /// Normalized test-case occurrences recorded by the production run.
+    pub recorded_test_count: u64,
+    /// Failed/error test-case occurrences recorded by the production run.
+    pub failed_test_count: u64,
+    /// Current test identities with mixed pass and failure history.
+    pub flaky_test_count: u64,
+    /// Failures without a deterministic classifier.
+    pub unknown_failure_count: u64,
 }
 
 /// Live shadow comparison of impacted selection against the full registered suite.
@@ -67,6 +77,8 @@ pub struct LiveShadowReport {
     pub comparable: bool,
     /// Whether an impacted run executed fewer repository test paths than were available.
     pub selection_reduced: bool,
+    /// Persisted defensive comparison and any feedback learned from a miss.
+    pub selection_audit: SelectionAuditReply,
 }
 
 /// Why a live shadow measurement could not complete.
@@ -122,6 +134,7 @@ pub fn run_live_shadow(
             head: head.to_owned(),
         },
     )?;
+    let selection_audit = service.audit_selection(&impacted.run_id, &full.run_id)?;
     let comparable = comparable_run(&impacted, base, head) && comparable_run(&full, base, head);
     let selection_reduced = impacted.effective_scope == "impacted"
         && impacted.selected_test_count < impacted.available_test_count;
@@ -135,6 +148,7 @@ pub fn run_live_shadow(
         runtime_llm_tokens: 0,
         comparable,
         selection_reduced,
+        selection_audit,
     })
 }
 
@@ -174,6 +188,10 @@ fn measure(
         artifact_bytes: evidence.bytes,
         executor_invocations: evidence.executors.or(Some(reply.executor_invocations)),
         browser_programs: evidence.browser_programs.or(Some(reply.browser_programs)),
+        recorded_test_count: reply.recorded_test_count,
+        failed_test_count: reply.failed_test_count,
+        flaky_test_count: reply.flaky_test_count,
+        unknown_failure_count: reply.unknown_failure_count,
     })
 }
 

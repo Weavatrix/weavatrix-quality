@@ -17,7 +17,8 @@ pub use commands::{
 pub use replies::{
     AnalyzeReply, AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorValidateReply,
     AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply,
-    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply, SpecSealReply,
-    SpecValidateReply, StatusReply, VerifyReply, estimate_tokens,
+    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
+    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
+    estimate_tokens,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};

@@ -169,9 +169,47 @@ pub struct HistoricalTestCandidate {
     pub matched_nodes: Vec<String>,
     /// Weakest observation count among the matched nodes.
     pub minimum_observations: u64,
+    /// Defensive full-run audits that found this test outside the impacted set.
+    pub defensive_misses: u64,
     /// Deterministically selected exact revision from the matching observations.
     pub last_revision: RevisionId,
 }
+
+/// One persisted impacted-vs-full selection audit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredSelectionAudit {
+    /// Stable audit identity.
+    pub id: String,
+    /// Impacted run under evaluation.
+    pub impacted_run: RunId,
+    /// Defensive full run.
+    pub full_run: RunId,
+    /// Shared change identity.
+    pub change_id: String,
+    /// Shared exact revision.
+    pub revision: RevisionId,
+    /// `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`.
+    pub status: String,
+    /// Fail/error identities present only in the full run.
+    pub missed_failures: u64,
+    /// Missed test paths safely resolved and fed back into selection history.
+    pub learned_tests: u64,
+}
+
+/// One normalized test identity read from a stored run.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StoredTestCaseIdentity {
+    /// Executor registry id.
+    pub executor: String,
+    /// Suite, package, or file.
+    pub suite: String,
+    /// Test case name.
+    pub name: String,
+    /// `pass`, `fail`, `skip`, or `error`.
+    pub status: String,
+}
+
+type SelectionHistoryAggregate = (BTreeSet<String>, u64, String, u64);
 
 impl Store {
     /// Open `<repo>/.weavatrix-quality/quality.db` and the CAS.
@@ -527,7 +565,7 @@ impl Store {
             .filter(|node| !node.trim().is_empty())
             .cloned()
             .collect::<BTreeSet<_>>();
-        let mut merged = BTreeMap::<String, (BTreeSet<String>, u64, String)>::new();
+        let mut merged = BTreeMap::<String, SelectionHistoryAggregate>::new();
         let threshold = to_i64(minimum_observations)?;
         let mut matched_rows = 0_usize;
         for chunk in requested.iter().collect::<Vec<_>>().chunks(250) {
@@ -572,7 +610,7 @@ impl Store {
                 let observations = to_u64(observations);
                 let entry = merged
                     .entry(path)
-                    .or_insert_with(|| (BTreeSet::new(), observations, revision.clone()));
+                    .or_insert_with(|| (BTreeSet::new(), observations, revision.clone(), 0));
                 entry.0.insert(node);
                 entry.1 = entry.1.min(observations);
                 if revision > entry.2 {
@@ -580,19 +618,232 @@ impl Store {
                 }
             }
         }
+        self.merge_selection_misses(&requested, max_rows, &mut matched_rows, &mut merged)?;
         merged
             .into_iter()
             .map(
-                |(test_path, (matched_nodes, minimum_observations, revision))| {
+                |(test_path, (matched_nodes, minimum_observations, revision, defensive_misses))| {
                     Ok(HistoricalTestCandidate {
                         test_path,
                         matched_nodes: matched_nodes.into_iter().collect(),
                         minimum_observations,
+                        defensive_misses,
                         last_revision: RevisionId::new(revision)
                             .map_err(|err| StoreError::Invalid(err.to_string()))?,
                     })
                 },
             )
+            .collect()
+    }
+
+    fn merge_selection_misses(
+        &self,
+        requested: &BTreeSet<String>,
+        max_rows: usize,
+        matched_rows: &mut usize,
+        merged: &mut BTreeMap<String, SelectionHistoryAggregate>,
+    ) -> Result<(), StoreError> {
+        for chunk in requested.iter().collect::<Vec<_>>().chunks(250) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT test_path, node_id, COUNT(*), MAX(revision) \
+                 FROM selection_miss_observations WHERE node_id IN ({placeholders}) \
+                 GROUP BY test_path, node_id ORDER BY test_path, node_id"
+            );
+            let values = chunk
+                .iter()
+                .map(|node| rusqlite::types::Value::Text((*node).clone()))
+                .collect::<Vec<_>>();
+            let mut statement = self
+                .conn
+                .prepare(&sql)
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(values), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            for row in rows {
+                let (path, node, misses, revision) =
+                    row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+                *matched_rows = matched_rows.saturating_add(1);
+                if *matched_rows > max_rows {
+                    return Err(StoreError::Invalid(format!(
+                        "selection history exceeds {max_rows} matching rows"
+                    )));
+                }
+                let misses = to_u64(misses);
+                let entry = merged
+                    .entry(path)
+                    .or_insert_with(|| (BTreeSet::new(), 0, revision.clone(), 0));
+                entry.0.insert(node);
+                entry.3 = entry.3.saturating_add(misses);
+                if revision > entry.2 {
+                    entry.2 = revision;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Persist one idempotent impacted-vs-full audit.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown status tokens, conflicting duplicate identities, and SQL failures.
+    pub fn put_selection_audit(&self, audit: &StoredSelectionAudit) -> Result<(), StoreError> {
+        if !matches!(
+            audit.status.as_str(),
+            "corroborated" | "contradicted" | "unmeasured" | "not_reduced"
+        ) {
+            return Err(StoreError::Invalid(format!(
+                "unknown selection audit status `{}`",
+                audit.status
+            )));
+        }
+        self.conn
+            .execute(
+                "INSERT OR IGNORE INTO selection_audits \
+                 (id, impacted_run, full_run, change_id, revision, status, missed_failures, learned_tests) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    audit.id,
+                    audit.impacted_run.as_str(),
+                    audit.full_run.as_str(),
+                    audit.change_id,
+                    audit.revision.as_str(),
+                    audit.status,
+                    to_i64(audit.missed_failures)?,
+                    to_i64(audit.learned_tests)?,
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let stored = self
+            .selection_audit_for_runs(&audit.impacted_run, &audit.full_run)?
+            .ok_or_else(|| StoreError::Invalid("selection audit was not persisted".into()))?;
+        if &stored != audit {
+            return Err(StoreError::Invalid(format!(
+                "selection audit {} conflicts with existing evidence",
+                audit.id
+            )));
+        }
+        Ok(())
+    }
+
+    /// Read the unique audit for an impacted/full run pair.
+    ///
+    /// # Errors
+    ///
+    /// Returns SQL or identity failures.
+    pub fn selection_audit_for_runs(
+        &self,
+        impacted_run: &RunId,
+        full_run: &RunId,
+    ) -> Result<Option<StoredSelectionAudit>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, impacted_run, full_run, change_id, revision, status, \
+                 missed_failures, learned_tests FROM selection_audits \
+                 WHERE impacted_run = ?1 AND full_run = ?2",
+                params![impacted_run.as_str(), full_run.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        row.map(|row| {
+            Ok(StoredSelectionAudit {
+                id: row.0,
+                impacted_run: RunId::new(row.1)
+                    .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                full_run: RunId::new(row.2).map_err(|err| StoreError::Invalid(err.to_string()))?,
+                change_id: row.3,
+                revision: RevisionId::new(row.4)
+                    .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                status: row.5,
+                missed_failures: to_u64(row.6),
+                learned_tests: to_u64(row.7),
+            })
+        })
+        .transpose()
+    }
+
+    /// Persist selection-miss associations from one defensive audit.
+    ///
+    /// # Errors
+    ///
+    /// Returns SQL failures; unknown audit ids fail through the foreign key.
+    pub fn observe_selection_miss(
+        &self,
+        audit_id: &str,
+        test_path: &str,
+        node_ids: &[String],
+        revision: &RevisionId,
+    ) -> Result<(), StoreError> {
+        if test_path.trim().is_empty() {
+            return Err(StoreError::Invalid("test path cannot be empty".into()));
+        }
+        for node in node_ids
+            .iter()
+            .filter(|node| !node.trim().is_empty())
+            .collect::<BTreeSet<_>>()
+        {
+            self.conn
+                .execute(
+                    "INSERT OR IGNORE INTO selection_miss_observations \
+                     (test_path, node_id, audit_id, revision) VALUES (?1, ?2, ?3, ?4)",
+                    params![test_path, node, audit_id, revision.as_str()],
+                )
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Read normalized test identities for one run.
+    ///
+    /// # Errors
+    ///
+    /// Returns SQL failures.
+    pub fn test_case_results_for_run(
+        &self,
+        run_id: &RunId,
+    ) -> Result<Vec<StoredTestCaseIdentity>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT executor, suite, name, status FROM test_case_results \
+                 WHERE run_id = ?1 ORDER BY executor, suite, name, status",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([run_id.as_str()], |row| {
+                Ok(StoredTestCaseIdentity {
+                    executor: row.get(0)?,
+                    suite: row.get(1)?,
+                    name: row.get(2)?,
+                    status: row.get(3)?,
+                })
+            })
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        rows.map(|row| row.map_err(|err| StoreError::Sqlite(err.to_string())))
             .collect()
     }
 

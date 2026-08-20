@@ -43,6 +43,8 @@ fn live_shadow_executes_impacted_and_all_and_measures_stored_evidence() {
     assert_eq!(report.runtime_llm_tokens, 0);
     assert!(report.comparable);
     assert!(report.selection_reduced);
+    assert_eq!(report.selection_audit.status, "unmeasured");
+    assert_eq!(report.selection_audit.missed_failure_count, 0);
 }
 
 #[test]

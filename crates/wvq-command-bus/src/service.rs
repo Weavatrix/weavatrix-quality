@@ -41,7 +41,7 @@ use wvq_spec_recovery::{
 };
 use wvq_store::{
     HistoricalTestCandidate, Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem,
-    StoredTestCaseResult,
+    StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult,
 };
 
 use crate::commands::{
@@ -52,8 +52,9 @@ use crate::commands::{
 use crate::replies::{
     AuthorDraftReply, AuthorModelUsage, AuthorPreviewReply, AuthorValidateReply,
     AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply,
-    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply, SpecSealReply,
-    SpecValidateReply, StatusReply, VerifyReply, bound_items, estimate_tokens,
+    INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
+    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, bound_items,
+    estimate_tokens,
 };
 
 /// Command-bus failure. Unknown values fail closed.
@@ -133,6 +134,16 @@ pub trait QualityService: Send + Sync {
         let _ = cancel;
         self.run(cmd)
     }
+    /// Compare an impacted run with its defensive full run and persist learning.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when runs are missing, incomparable, or evidence is malformed.
+    fn audit_selection(
+        &self,
+        impacted_run: &str,
+        full_run: &str,
+    ) -> Result<SelectionAuditReply, BusError>;
     /// Compact run progress and handles.
     ///
     /// # Errors
@@ -414,6 +425,23 @@ impl QualityService for FakeService {
             flaky_test_count: 0,
             unknown_failure_count: 0,
             artifact_handles: state.handles,
+        })
+    }
+
+    fn audit_selection(
+        &self,
+        impacted_run: &str,
+        full_run: &str,
+    ) -> Result<SelectionAuditReply, BusError> {
+        if impacted_run.is_empty() || full_run.is_empty() {
+            return Err(BusError::Identity("selection audit run id is empty".into()));
+        }
+        Ok(SelectionAuditReply {
+            audit_id: format!("audit-{impacted_run}-{full_run}"),
+            status: "unmeasured".into(),
+            missed_failure_count: 0,
+            learned_test_count: 0,
+            evidence_handle: None,
         })
     }
 
@@ -1745,6 +1773,14 @@ impl QualityService for LiveService {
             unknown_failure_count: test_analytics.unknown_failure_count,
             artifact_handles: handles,
         })
+    }
+
+    fn audit_selection(
+        &self,
+        impacted_run: &str,
+        full_run: &str,
+    ) -> Result<SelectionAuditReply, BusError> {
+        audit_live_selection(&self.repo, &self.store()?, impacted_run, full_run)
     }
 
     fn status(&self, cmd: &StatusCommand) -> Result<StatusReply, BusError> {
@@ -4441,9 +4477,9 @@ fn historical_selection_candidates(
         .map_err(|err| BusError::Store(err.to_string()))?;
     candidates.sort_by(|left, right| {
         right
-            .matched_nodes
-            .len()
-            .cmp(&left.matched_nodes.len())
+            .defensive_misses
+            .cmp(&left.defensive_misses)
+            .then_with(|| right.matched_nodes.len().cmp(&left.matched_nodes.len()))
             .then_with(|| right.minimum_observations.cmp(&left.minimum_observations))
             .then_with(|| left.test_path.cmp(&right.test_path))
     });
@@ -4461,15 +4497,23 @@ fn merge_historical_selection(
         repo.join(&candidate.test_path).is_file() && is_test_path(&candidate.test_path)
     }) {
         let path = normalize_path(&candidate.test_path);
-        explanations
-            .entry(path.clone())
-            .or_default()
-            .insert(format!(
+        let reasons = explanations.entry(path.clone()).or_default();
+        if candidate.minimum_observations > 0 {
+            reasons.insert(format!(
                 "selected by repeated measured coverage of {} impacted graph node(s), minimum {} observations, evidence revision {}",
                 candidate.matched_nodes.len(),
                 candidate.minimum_observations,
                 candidate.last_revision
             ));
+        }
+        if candidate.defensive_misses > 0 {
+            reasons.insert(format!(
+                "selected after {} defensive full-run miss(es) across {} impacted graph node(s), evidence revision {}",
+                candidate.defensive_misses,
+                candidate.matched_nodes.len(),
+                candidate.last_revision
+            ));
+        }
         selected.push(path);
     }
 }
@@ -4599,6 +4643,279 @@ fn live_selection_report(selection: &LiveSelection, historical_candidates: usize
         "uncovered_mandatory": selection.uncovered_mandatory,
         "uncovered_obligations": selection.uncovered_all,
     })
+}
+
+struct SelectionAuditArtifactInput<'a> {
+    missed: &'a [StoredTestCaseIdentity],
+    learned_paths: &'a BTreeSet<String>,
+    impact_nodes_total: usize,
+    impact_nodes_considered: usize,
+    learning_truncated: bool,
+}
+
+fn audit_live_selection(
+    repo: &Path,
+    store: &Store,
+    impacted_raw: &str,
+    full_raw: &str,
+) -> Result<SelectionAuditReply, BusError> {
+    let impacted_id =
+        RunId::new(impacted_raw).map_err(|err| BusError::Identity(err.to_string()))?;
+    let full_id = RunId::new(full_raw).map_err(|err| BusError::Identity(err.to_string()))?;
+    if impacted_id == full_id {
+        return Err(BusError::InvalidInput(
+            "selection audit requires two distinct runs".into(),
+        ));
+    }
+    if let Some(existing) = store
+        .selection_audit_for_runs(&impacted_id, &full_id)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    {
+        return stored_selection_audit_reply(store, &existing);
+    }
+    let (impacted, _full) = load_shadow_runs(store, &impacted_id, &full_id)?;
+    let impacted_summary = read_single_run_json(store, &impacted_id, "execution-summary")?;
+    let full_summary = read_single_run_json(store, &full_id, "execution-summary")?;
+    validate_shadow_scopes(&impacted_summary, &full_summary)?;
+    let reduced = impacted_summary
+        .get("effective_scope")
+        .and_then(Value::as_str)
+        == Some("impacted");
+    let impacted_cases = store
+        .test_case_results_for_run(&impacted_id)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    let full_cases = store
+        .test_case_results_for_run(&full_id)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    let missed = if reduced {
+        missed_failure_identities(&impacted_cases, &full_cases)
+    } else {
+        Vec::new()
+    };
+    let status = if !reduced {
+        "not_reduced"
+    } else if full_cases.is_empty() {
+        "unmeasured"
+    } else if missed.is_empty() {
+        "corroborated"
+    } else {
+        "contradicted"
+    };
+    let impact = read_single_run_json(store, &impacted_id, "impacted-surface")?;
+    let all_nodes = impact_nodes_from_artifact(&impact)?;
+    let mut learned_paths = missed
+        .iter()
+        .filter_map(|case| resolve_observed_test_path(repo, &case.suite))
+        .collect::<BTreeSet<_>>();
+    let missed_count = u64::try_from(missed.len()).unwrap_or(u64::MAX);
+    let all_node_count = all_nodes.len();
+    let learning_truncated = learned_paths.len() > 500 || all_nodes.len() > 2_000;
+    learned_paths = learned_paths.into_iter().take(500).collect();
+    let learning_nodes = all_nodes.into_iter().take(2_000).collect::<Vec<_>>();
+    let learned_count = u64::try_from(learned_paths.len()).unwrap_or(u64::MAX);
+    let audit_id = format!(
+        "selection-audit-{}",
+        &sha256_hex(format!("{impacted_id}\0{full_id}").as_bytes())[..16]
+    );
+    let audit = StoredSelectionAudit {
+        id: audit_id.clone(),
+        impacted_run: impacted_id,
+        full_run: full_id.clone(),
+        change_id: impacted.change_id,
+        revision: impacted.revision.clone(),
+        status: status.into(),
+        missed_failures: missed_count,
+        learned_tests: learned_count,
+    };
+    store
+        .put_selection_audit(&audit)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    for path in &learned_paths {
+        store
+            .observe_selection_miss(&audit_id, path, &learning_nodes, &impacted.revision)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+    }
+    let artifact = SelectionAuditArtifactInput {
+        missed: &missed,
+        learned_paths: &learned_paths,
+        impact_nodes_total: all_node_count,
+        impact_nodes_considered: learning_nodes.len(),
+        learning_truncated,
+    };
+    let handle = persist_selection_audit_artifact(store, &full_id, &audit, &artifact)?;
+    Ok(SelectionAuditReply {
+        audit_id,
+        status: status.into(),
+        missed_failure_count: missed_count,
+        learned_test_count: learned_count,
+        evidence_handle: Some(handle),
+    })
+}
+
+fn load_shadow_runs(
+    store: &Store,
+    impacted_id: &RunId,
+    full_id: &RunId,
+) -> Result<(StoredRun, StoredRun), BusError> {
+    let impacted = store
+        .get_run(impacted_id)
+        .map_err(|err| BusError::Store(err.to_string()))?
+        .ok_or_else(|| BusError::NotFound(format!("run {impacted_id}")))?;
+    let full = store
+        .get_run(full_id)
+        .map_err(|err| BusError::Store(err.to_string()))?
+        .ok_or_else(|| BusError::NotFound(format!("run {full_id}")))?;
+    if impacted.change_id != full.change_id || impacted.revision != full.revision {
+        return Err(BusError::Ambiguous(
+            "selection audit runs do not share one change and revision".into(),
+        ));
+    }
+    Ok((impacted, full))
+}
+
+fn persist_selection_audit_artifact(
+    store: &Store,
+    full_run: &RunId,
+    audit: &StoredSelectionAudit,
+    input: &SelectionAuditArtifactInput<'_>,
+) -> Result<String, BusError> {
+    let handle = format!("artifact-{}", audit.id);
+    put_json_run_artifact(
+        store,
+        full_run,
+        &handle,
+        "selection-audit",
+        &json!({
+            "schema_v": 1,
+            "audit_id": audit.id,
+            "impacted_run": audit.impacted_run.as_str(),
+            "full_run": audit.full_run.as_str(),
+            "change": audit.change_id,
+            "revision": audit.revision.as_str(),
+            "status": audit.status,
+            "missed_failure_count": audit.missed_failures,
+            "missed_failures": input.missed.iter().take(500).map(|case| json!({
+                "executor": case.executor,
+                "suite": case.suite,
+                "name": case.name,
+                "status": case.status,
+            })).collect::<Vec<_>>(),
+            "learned_test_paths": input.learned_paths,
+            "impact_nodes_total": input.impact_nodes_total,
+            "impact_nodes_considered": input.impact_nodes_considered,
+            "learning_truncated": input.learning_truncated,
+            "runtime_llm_tokens": 0,
+        }),
+        &mut Vec::new(),
+    )?;
+    Ok(handle)
+}
+
+fn stored_selection_audit_reply(
+    store: &Store,
+    audit: &StoredSelectionAudit,
+) -> Result<SelectionAuditReply, BusError> {
+    let handle = format!("artifact-{}", audit.id);
+    let artifact = ArtifactId::new(&handle).map_err(|err| BusError::Identity(err.to_string()))?;
+    let present = store
+        .get_artifact(&artifact)
+        .map_err(|err| BusError::Store(err.to_string()))?
+        .is_some();
+    Ok(SelectionAuditReply {
+        audit_id: audit.id.clone(),
+        status: audit.status.clone(),
+        missed_failure_count: audit.missed_failures,
+        learned_test_count: audit.learned_tests,
+        evidence_handle: present.then_some(handle),
+    })
+}
+
+fn validate_shadow_scopes(impacted: &Value, full: &Value) -> Result<(), BusError> {
+    let impacted_requested = impacted.get("requested_scope").and_then(Value::as_str);
+    let full_requested = full.get("requested_scope").and_then(Value::as_str);
+    let full_effective = full.get("effective_scope").and_then(Value::as_str);
+    if impacted_requested != Some("impacted")
+        || full_requested != Some("all")
+        || full_effective != Some("all")
+    {
+        return Err(BusError::InvalidInput(
+            "selection audit requires an impacted run followed by an effective full run".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn missed_failure_identities(
+    impacted: &[StoredTestCaseIdentity],
+    full: &[StoredTestCaseIdentity],
+) -> Vec<StoredTestCaseIdentity> {
+    let impacted_failures = impacted
+        .iter()
+        .filter(|case| matches!(case.status.as_str(), "fail" | "error"))
+        .map(|case| (&case.executor, &case.suite, &case.name))
+        .collect::<BTreeSet<_>>();
+    full.iter()
+        .filter(|case| matches!(case.status.as_str(), "fail" | "error"))
+        .filter(|case| !impacted_failures.contains(&(&case.executor, &case.suite, &case.name)))
+        .cloned()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn impact_nodes_from_artifact(impact: &Value) -> Result<Vec<String>, BusError> {
+    let mut nodes = BTreeSet::new();
+    for field in ["base_only", "head_only", "shared", "removed_nodes"] {
+        let values = impact
+            .get(field)
+            .and_then(Value::as_array)
+            .ok_or_else(|| BusError::Store(format!("impacted-surface omitted {field}")))?;
+        for value in values {
+            let node = value.as_str().ok_or_else(|| {
+                BusError::Store(format!("impacted-surface {field} contains a non-string"))
+            })?;
+            nodes.insert(node.to_owned());
+        }
+    }
+    Ok(nodes.into_iter().collect())
+}
+
+fn resolve_observed_test_path(repo: &Path, suite: &str) -> Option<String> {
+    let normalized = normalize_path(suite);
+    if !is_test_path(&normalized) {
+        return None;
+    }
+    let root = std::fs::canonicalize(repo).ok()?;
+    let absolute = std::fs::canonicalize(repo.join(&normalized)).ok()?;
+    let relative = absolute.strip_prefix(root).ok()?;
+    absolute
+        .is_file()
+        .then(|| normalize_path(&relative.to_string_lossy()))
+}
+
+fn read_single_run_json(store: &Store, run: &RunId, kind: &str) -> Result<Value, BusError> {
+    let mut found = None;
+    for artifact in store
+        .run_artifacts(run)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    {
+        let (record, bytes) = store
+            .read_artifact(&artifact)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        if record.kind != kind {
+            continue;
+        }
+        if found.is_some() {
+            return Err(BusError::Store(format!(
+                "run {run} has more than one {kind} artifact"
+            )));
+        }
+        found =
+            Some(serde_json::from_slice(&bytes).map_err(|err| {
+                BusError::Store(format!("run {run} has malformed {kind}: {err}"))
+            })?);
+    }
+    found.ok_or_else(|| BusError::Store(format!("run {run} has no {kind} artifact")))
 }
 
 fn build_execution_requests(
@@ -6772,12 +7089,102 @@ mod tests {
                 test_path: "tests/history.test.ts".into(),
                 matched_nodes: vec!["symbol:history".into()],
                 minimum_observations: 2,
+                defensive_misses: 0,
                 last_revision: RevisionId::new("revision-history").unwrap(),
             }],
         )
         .unwrap();
         assert_eq!(selection.selected, ["tests/history.test.ts"]);
         assert!(selection.explanations[0][0].contains("repeated measured coverage"));
+    }
+
+    #[test]
+    fn defensive_full_run_miss_is_persisted_and_teaches_future_selection() {
+        let root = TempDir::new("defensive-selection-audit");
+        std::fs::create_dir_all(root.0.join("tests")).unwrap();
+        std::fs::write(root.0.join("tests/missed.test.ts"), "test").unwrap();
+        let store = Store::open(&root.0).unwrap();
+        let revision = RevisionId::new("revision-selection-audit").unwrap();
+        let impacted = RunId::new("run-selection-audit-impacted").unwrap();
+        let full = RunId::new("run-selection-audit-full").unwrap();
+        for (run, passed, outcome) in [(&impacted, true, "passed"), (&full, false, "failed")] {
+            store
+                .put_run(&StoredRun {
+                    id: run.clone(),
+                    change_id: "selection-audit".into(),
+                    revision: revision.clone(),
+                    status: "complete".into(),
+                    passed,
+                    outcome: outcome.into(),
+                })
+                .unwrap();
+        }
+        let mut handles = Vec::new();
+        put_json_run_artifact(
+            &store,
+            &impacted,
+            "artifact-selection-audit-impacted-summary",
+            "execution-summary",
+            &json!({"requested_scope": "impacted", "effective_scope": "impacted"}),
+            &mut handles,
+        )
+        .unwrap();
+        put_json_run_artifact(
+            &store,
+            &impacted,
+            "artifact-selection-audit-impact",
+            "impacted-surface",
+            &json!({
+                "base_only": [],
+                "head_only": ["symbol:cart"],
+                "shared": [],
+                "removed_nodes": [],
+                "removed_edges": [],
+                "removed_surfaces": []
+            }),
+            &mut handles,
+        )
+        .unwrap();
+        put_json_run_artifact(
+            &store,
+            &full,
+            "artifact-selection-audit-full-summary",
+            "execution-summary",
+            &json!({"requested_scope": "all", "effective_scope": "all"}),
+            &mut handles,
+        )
+        .unwrap();
+        store
+            .put_test_case_result(&StoredTestCaseResult {
+                id: "selection-audit-missed-case".into(),
+                run_id: full.clone(),
+                revision: revision.clone(),
+                executor: "vitest".into(),
+                suite: "tests/missed.test.ts".into(),
+                name: "detects the regression".into(),
+                status: "fail".into(),
+                duration_ms: Some(10),
+                fingerprint: None,
+            })
+            .unwrap();
+
+        let audit =
+            audit_live_selection(&root.0, &store, impacted.as_str(), full.as_str()).unwrap();
+        assert_eq!(audit.status, "contradicted");
+        assert_eq!(audit.missed_failure_count, 1);
+        assert_eq!(audit.learned_test_count, 1);
+        assert!(audit.evidence_handle.is_some());
+        assert_eq!(
+            audit_live_selection(&root.0, &store, impacted.as_str(), full.as_str(),).unwrap(),
+            audit,
+            "replaying the same audit is idempotent"
+        );
+        let learned = store
+            .historical_tests_for_nodes(&["symbol:cart".into()], 2, 100)
+            .unwrap();
+        assert_eq!(learned.len(), 1);
+        assert_eq!(learned[0].test_path, "tests/missed.test.ts");
+        assert_eq!(learned[0].defensive_misses, 1);
     }
 
     #[test]

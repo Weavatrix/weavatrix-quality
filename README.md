@@ -62,6 +62,8 @@ Fresh normalized JUnit, Go, and typed browser results also feed persistent test 
 
 Measured coverage can teach later selections without replacing Weavatrix. WVQ attributes graph nodes to a test only when a successful executor invocation ran exactly one test path; aggregate coverage from multi-test batches is never guessed onto each member. A historical test enters the base/head candidate union only after the same test-node relation was observed in two distinct runs. The bounded `selection-decision` artifact shows every chosen path, its evidence chain, the observation floor, and uncovered obligations.
 
+`wvq-bench` is also a defensive learning run, not just a timer. After the impacted and full scopes finish at the same change/revision, WVQ compares normalized failing test identities. The audit is `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`; a failure found only by the full run is persisted as a `selection-audit` artifact and its safely resolved test path is fed into future selection for that impacted graph surface. Replaying the same run pair is idempotent, and bounded samples never hide the total miss count.
+
 ## CLI
 
 ```text
