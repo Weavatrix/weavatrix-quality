@@ -35,17 +35,18 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 | preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and records a passed/failed admission identity without registering the candidate |
 | promote | Revalidates the exact previewed program, current repository revision, change, and existing `OracleSeal`; only a passing preview atomically becomes CAS-backed program revision 1, and repeated promotion is idempotent |
 | reuse | `select` and `run` automatically load the latest promoted revision whose seal still matches; stale-seal programs are not executed, and a repository-configured program cannot silently shadow the same id |
-| transports | MCP: `quality_test_{draft,validate,preview,promote}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote}` |
+| heal | Accepts only semantic retargeting or typed deterministic waits, requires the caller's latest program revision and the same `OracleSeal`, runs real Playwright with the original assertions, and atomically appends a CAS-backed revision only on pass; failed repairs retain evidence but do not replace the active program |
+| transports | MCP: `quality_test_{draft,validate,preview,promote,heal}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote,heal}` |
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 357 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 358 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 
 - Package name: `wvq`; the JS API is a typed, no-shell boundary over Rust rather than a second policy implementation.
 - `npx wvq`, `npx wvq mcp`, and `npx wvq bench` select only the three fixed native programs. Direct `wvq-mcp` and `wvq-bench` bins are also present after installation.
-- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, `preview`, and `promote` helpers.
+- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, `preview`, `promote`, and `heal` helpers.
 - The package resolves bundled Windows/macOS/Linux x64/arm64 programs, verified platform packages, explicit binary overrides, or the local workspace binaries. It never falls back through a shell or recursively launches itself from `PATH`.
 - The tag workflow builds and smoke-tests all three programs on six platform runners, assembles the universal package, installs it into a clean prefix, exercises a real MCP call, publishes npm with provenance, validates/publishes official MCP metadata, verifies both registries, and then creates an immutable GitHub release.
 - `server.json` and npm `mcpName` are version-locked. The official MCP Registry publisher accepted the current metadata locally.
@@ -92,4 +93,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Finish the remaining reproduced competitor gaps: live safe-healing transport, live mutation/behavior producers, and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.
+Finish the remaining reproduced competitor gaps: live mutation/behavior producers and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.

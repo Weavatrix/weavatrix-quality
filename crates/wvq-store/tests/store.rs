@@ -422,6 +422,81 @@ fn passing_authoring_preview_promotes_once_with_canonical_body() {
 }
 
 #[test]
+fn passing_healing_preview_appends_one_same_seal_revision() {
+    let mut store = open_temp();
+    let original = br#"{"schema_v":1,"id":"heal-browser","steps":[]}"#;
+    store
+        .put_authoring_preview(
+            "preview-heal-original",
+            "heal-browser",
+            "live-change",
+            "rev-one",
+            "oseal-abc",
+            true,
+            original,
+        )
+        .unwrap();
+    store
+        .promote_authoring_preview(
+            "preview-heal-original",
+            "heal-browser",
+            "live-change",
+            "rev-one",
+            "oseal-abc",
+            original,
+        )
+        .unwrap();
+
+    let healed = br#"{"schema_v":1,"id":"heal-browser","steps":[{"action":"wait"}]}"#;
+    store
+        .put_authoring_preview(
+            "preview-heal-two",
+            "heal-browser",
+            "live-change",
+            "rev-two",
+            "oseal-abc",
+            true,
+            healed,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .heal_authoring_preview(
+                "preview-heal-two",
+                "heal-browser",
+                1,
+                "live-change",
+                "rev-two",
+                "oseal-abc",
+                healed,
+            )
+            .unwrap(),
+        (2, true)
+    );
+    assert_eq!(
+        store
+            .heal_authoring_preview(
+                "preview-heal-two",
+                "heal-browser",
+                1,
+                "live-change",
+                "rev-two",
+                "oseal-abc",
+                healed,
+            )
+            .unwrap(),
+        (2, false)
+    );
+    let (record, body) = store
+        .read_program_revision("heal-browser", 2)
+        .unwrap()
+        .expect("healed revision");
+    assert_eq!(record.source, "healed");
+    assert_eq!(record.seal, "oseal-abc");
+    assert_eq!(body, healed);
+}
+
+#[test]
 fn mutation_results_persist() {
     let store = open_temp();
     store

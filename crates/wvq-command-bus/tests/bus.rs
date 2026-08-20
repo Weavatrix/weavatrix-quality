@@ -10,10 +10,11 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand, BusError,
-    Command, ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT,
-    LiveService, ModelCommand, PlanCommand, QualityService, Reply, RunCommand, SelectCommand,
-    SpecCommand, VerifyCommand, dispatch, estimate_tokens,
+    AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
+    EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
+    PlanCommand, QualityService, Reply, RunCommand, SelectCommand, SpecCommand, VerifyCommand,
+    dispatch, estimate_tokens,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -1082,6 +1083,7 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
         "obligations": ["heading-visible"],
         "steps": [
             {"action": "navigate", "route": "/"},
+            {"action": "activate", "target": {"role": "heading", "accessible_name": "WVQ live browser"}},
             {"action": "assert", "obligation": "heading-visible"}
         ]
     });
@@ -1109,7 +1111,7 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
     assert!(!preview.preview_id.is_empty());
     assert_eq!(preview.asserted, ["heading-visible"]);
     assert!(!preview.program_persisted);
-    assert_eq!(preview.screenshot_handles.len(), 2);
+    assert_eq!(preview.screenshot_handles.len(), 3);
     assert!(preview.trace_handle.is_some());
     for handle in preview
         .observation_handles
@@ -1182,6 +1184,64 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
     assert_eq!(replay.outcome, "passed");
     assert_eq!(replay.browser_programs, 1);
     assert_eq!(replay.recorded_test_count, 1);
+
+    let healed = service
+        .author_heal(&AuthorHealCommand {
+            change: "live-browser".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            program_id: "generated-home-heading".into(),
+            expected_program_revision: 1,
+            edits: vec![AuthorHealEdit::Retarget {
+                step: 1,
+                target: wvq_runtime::Target {
+                    role: Some("heading".into()),
+                    accessible_name: Some("WVQ live browser".into()),
+                    component_hint: Some("PageHeading".into()),
+                    ..wvq_runtime::Target::default()
+                },
+            }],
+            screenshot: false,
+            trace: false,
+        })
+        .unwrap();
+    assert!(healed.passed, "{:?}", healed.failure);
+    assert!(healed.persisted);
+    assert_eq!(healed.previous_program_revision, 1);
+    assert_eq!(healed.program_revision, Some(2));
+    let store = wvq_store::Store::open(&repo.0).unwrap();
+    let (_, healed_body) = store
+        .read_program_revision("generated-home-heading", 2)
+        .unwrap()
+        .expect("healed program revision");
+    let healed_program: serde_json::Value = serde_json::from_slice(&healed_body).unwrap();
+    assert_eq!(healed_program["steps"][1]["target"]["component_hint"], "PageHeading");
+
+    let forbidden = service
+        .author_heal(&AuthorHealCommand {
+            change: "live-browser".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            program_id: "generated-home-heading".into(),
+            expected_program_revision: 2,
+            edits: vec![AuthorHealEdit::Retarget {
+                step: 2,
+                target: wvq_runtime::Target {
+                    role: Some("heading".into()),
+                    ..wvq_runtime::Target::default()
+                },
+            }],
+            screenshot: false,
+            trace: false,
+        })
+        .unwrap_err();
+    assert!(forbidden.to_string().contains("semantic assertions"), "{forbidden}");
+    assert_eq!(
+        store
+            .latest_program_revision("generated-home-heading")
+            .unwrap(),
+        Some(2)
+    );
 }
 
 #[test]

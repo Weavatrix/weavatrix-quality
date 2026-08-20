@@ -1,6 +1,7 @@
 //! Transport-agnostic commands. MCP and CLI map onto these types.
 
 use serde::{Deserialize, Serialize};
+use wvq_runtime::{Target, WaitCondition};
 
 fn default_change() -> String {
     "current".to_owned()
@@ -229,6 +230,53 @@ pub struct AuthorPromoteCommand {
     pub program: serde_json::Value,
 }
 
+/// One strictly bounded repair proposed for a persisted browser program.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "edit", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AuthorHealEdit {
+    /// Add a semantic alias to an activate/fill/select target.
+    Retarget {
+        /// Zero-based step index.
+        step: usize,
+        /// Recovered semantic target. `XPath` is not representable.
+        target: Target,
+    },
+    /// Insert a deterministic typed wait after one existing step.
+    InsertWait {
+        /// Zero-based step index.
+        after: usize,
+        /// Typed wait predicate.
+        condition: WaitCondition,
+    },
+}
+
+/// Repair and replay the latest persisted browser program under the same seal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthorHealCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Persisted program identity.
+    pub program_id: String,
+    /// Optimistic-concurrency version expected by the caller.
+    pub expected_program_revision: u32,
+    /// Locator/wait edits only.
+    pub edits: Vec<AuthorHealEdit>,
+    /// Capture screenshots during the proving replay.
+    #[serde(default = "default_true")]
+    pub screenshot: bool,
+    /// Capture a Playwright trace during the proving replay.
+    #[serde(default)]
+    pub trace: bool,
+}
+
 /// List known `OpenSpec` changes. Studio uses this for its Changes screen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesCommand {}
@@ -270,6 +318,8 @@ pub enum Command {
     AuthorPreview(AuthorPreviewCommand),
     /// [`AuthorPromoteCommand`].
     AuthorPromote(AuthorPromoteCommand),
+    /// [`AuthorHealCommand`].
+    AuthorHeal(AuthorHealCommand),
     /// [`ChangesCommand`].
     Changes(ChangesCommand),
 }
@@ -296,6 +346,7 @@ impl Command {
             Self::AuthorValidate(_) => "author_validate",
             Self::AuthorPreview(_) => "author_preview",
             Self::AuthorPromote(_) => "author_promote",
+            Self::AuthorHeal(_) => "author_heal",
             Self::Changes(_) => "changes",
         }
     }

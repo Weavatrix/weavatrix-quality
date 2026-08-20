@@ -120,4 +120,27 @@ test('MCP client fixes authoring scope at process startup', async () => {
             program: { schema_v: 1, id: 'generated' },
         },
     })
+    assert.deepEqual(
+        await client.heal('generated', 1, [{
+            edit: 'insert_wait', after: 0, condition: { kind: 'url', route: '/ready' },
+        }], { screenshot: false }),
+        { valid: true },
+    )
+    assert.deepEqual(calls[2], {
+        binary: 'wvq-mcp-test',
+        args: [
+            '--repo', '/repo', '--profile', 'authoring', '--change', 'live',
+            '--base', 'base-sha', '--head', 'WORKTREE',
+        ],
+        tool: 'quality_test_heal',
+        input: {
+            program_id: 'generated',
+            expected_program_revision: 1,
+            edits: [{
+                edit: 'insert_wait', after: 0, condition: { kind: 'url', route: '/ready' },
+            }],
+            screenshot: false,
+            trace: false,
+        },
+    })
 })

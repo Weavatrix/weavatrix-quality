@@ -477,6 +477,43 @@ pub struct AuthorPromoteReply {
     pub created: bool,
 }
 
+/// Result of a safe-healing replay and optional versioned persistence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AuthorHealReply {
+    /// Admission preview created for the repaired candidate.
+    pub preview_id: String,
+    /// Resolved change.
+    pub change: String,
+    /// Exact repository revision checked before and after replay.
+    pub revision: String,
+    /// Unchanged existing `OracleSeal`.
+    pub seal_id: String,
+    /// Stable program identity.
+    pub program_id: String,
+    /// Revision the repair started from.
+    pub previous_program_revision: u32,
+    /// New revision, only when the proving replay passed and persistence succeeded.
+    pub program_revision: Option<u32>,
+    /// Whether every original sealed assertion passed.
+    pub passed: bool,
+    /// Successfully asserted obligations.
+    pub asserted: Vec<String>,
+    /// Contradicted sealed obligations.
+    pub contradicted: Vec<String>,
+    /// Stable runtime failure, if any.
+    pub failure: Option<String>,
+    /// CAS handles for structured observations.
+    pub observation_handles: Vec<String>,
+    /// CAS handles for screenshots.
+    pub screenshot_handles: Vec<String>,
+    /// CAS handle for the trace, when requested and produced.
+    pub trace_handle: Option<String>,
+    /// True only when the repaired program became a new version.
+    pub persisted: bool,
+    /// False when the exact healing preview had already produced that version.
+    pub created: bool,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -532,6 +569,9 @@ pub enum Reply {
     /// [`AuthorPromoteReply`].
     #[serde(rename = "author_promote")]
     AuthorPromote(AuthorPromoteReply),
+    /// [`AuthorHealReply`].
+    #[serde(rename = "author_heal")]
+    AuthorHeal(AuthorHealReply),
     /// [`ChangesReply`].
     #[serde(rename = "changes")]
     Changes(ChangesReply),

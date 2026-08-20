@@ -12,8 +12,8 @@ use mcport::{ConcurrentMcpServer, ToolReply, Value, json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorPreviewCommand, AuthorPromoteCommand, AuthorValidateCommand, BusError,
-    QualityService,
+    AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, QualityService,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -48,6 +48,18 @@ struct PromoteInput {
     program: JsonValue,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HealInput {
+    program_id: String,
+    expected_program_revision: u32,
+    edits: Vec<AuthorHealEdit>,
+    #[serde(default = "default_true")]
+    screenshot: bool,
+    #[serde(default)]
+    trace: bool,
+}
+
 fn default_token_budget() -> u64 {
     8_000
 }
@@ -56,8 +68,9 @@ fn default_true() -> bool {
     true
 }
 
-/// Four high-level tools, fixed to one startup-selected change and Git range.
+/// Five high-level tools, fixed to one startup-selected change and Git range.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn authoring_server(
     service: &Arc<dyn QualityService>,
     change: &str,
@@ -68,14 +81,18 @@ pub fn authoring_server(
     let validate_service = Arc::clone(service);
     let preview_service = Arc::clone(service);
     let promote_service = Arc::clone(service);
+    let heal_service = Arc::clone(service);
     let draft_change = change.to_owned();
     let validate_change = change.to_owned();
     let preview_change = change.to_owned();
     let promote_change = change.to_owned();
+    let heal_change = change.to_owned();
     let draft_base = base.to_owned();
     let preview_base = base.to_owned();
+    let heal_base = base.to_owned();
     let draft_head = head.to_owned();
     let preview_head = head.to_owned();
+    let heal_head = head.to_owned();
     ConcurrentMcpServer::new("weavatrix-quality-authoring", env!("CARGO_PKG_VERSION"))
         .instructions(
             "Author Playwright-backed TestPrograms against changed code and sealed obligations. Candidates never rewrite or seal intent. Preview is the only browser side effect.",
@@ -151,6 +168,43 @@ pub fn authoring_server(
                     preview_id: input.preview_id,
                     program: input.program,
                 }))
+            },
+        )
+        .typed_tool(
+            "quality_test_heal",
+            "Apply locator-alias or deterministic-wait edits to one persisted TestProgram, replay the original sealed assertions, and append a version only on pass.",
+            schema_heal(),
+            move |ctx, input: HealInput| {
+                let cancel = Arc::new(AtomicBool::new(false));
+                let completed = Arc::new(AtomicBool::new(false));
+                let watcher_cancel = Arc::clone(&cancel);
+                let watcher_completed = Arc::clone(&completed);
+                let watcher_context = ctx.clone();
+                let watcher = thread::spawn(move || {
+                    while !watcher_completed.load(Ordering::Acquire) {
+                        if watcher_context.is_cancelled() {
+                            watcher_cancel.store(true, Ordering::Release);
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                });
+                let reply = heal_service.author_heal_controlled(
+                    &AuthorHealCommand {
+                        change: heal_change.clone(),
+                        base: heal_base.clone(),
+                        head: heal_head.clone(),
+                        program_id: input.program_id,
+                        expected_program_revision: input.expected_program_revision,
+                        edits: input.edits,
+                        screenshot: input.screenshot,
+                        trace: input.trace,
+                    },
+                    cancel,
+                );
+                completed.store(true, Ordering::Release);
+                let _ = watcher.join();
+                tool_result(reply)
             },
         )
 }
@@ -235,6 +289,57 @@ fn schema_promote() -> Value {
             }
         },
         "required": ["preview_id", "program"],
+        "additionalProperties": false
+    })
+}
+
+fn schema_heal() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "program_id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Persisted TestProgram identity."
+            },
+            "expected_program_revision": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Latest version observed by the caller; stale writes fail."
+            },
+            "edits": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 64,
+                "items": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "edit": {"type": "string", "const": "retarget"},
+                                "step": {"type": "integer", "minimum": 0},
+                                "target": {"type": "object", "additionalProperties": true}
+                            },
+                            "required": ["edit", "step", "target"],
+                            "additionalProperties": false
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "edit": {"type": "string", "const": "insert_wait"},
+                                "after": {"type": "integer", "minimum": 0},
+                                "condition": {"type": "object", "additionalProperties": true}
+                            },
+                            "required": ["edit", "after", "condition"],
+                            "additionalProperties": false
+                        }
+                    ]
+                }
+            },
+            "screenshot": {"type": "boolean"},
+            "trace": {"type": "boolean"}
+        },
+        "required": ["program_id", "expected_program_revision", "edits"],
         "additionalProperties": false
     })
 }

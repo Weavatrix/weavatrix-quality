@@ -197,6 +197,29 @@ export interface AuthorPromoteReply {
     created: boolean
 }
 
+export type AuthorHealEdit =
+    | { edit: 'retarget'; step: number; target: Record<string, JsonValue> }
+    | { edit: 'insert_wait'; after: number; condition: Record<string, JsonValue> }
+
+export interface AuthorHealReply {
+    preview_id: string
+    change: string
+    revision: string
+    seal_id: string
+    program_id: string
+    previous_program_revision: number
+    program_revision: number | null
+    passed: boolean
+    asserted: string[]
+    contradicted: string[]
+    failure: string | null
+    observation_handles: string[]
+    screenshot_handles: string[]
+    trace_handle: string | null
+    persisted: boolean
+    created: boolean
+}
+
 export interface WvqClientOptions {
     repo?: string
     binary?: string
@@ -250,6 +273,12 @@ export class WvqMcpClient {
         program: Record<string, JsonValue>,
         options?: CallOptions,
     ): Promise<AuthorPromoteReply>
+    heal(
+        programId: string,
+        expectedProgramRevision: number,
+        edits: AuthorHealEdit[],
+        options?: { screenshot?: boolean; trace?: boolean; signal?: AbortSignal; timeoutMs?: number },
+    ): Promise<AuthorHealReply>
 }
 
 export function resolveBinary(kind?: 'wvq' | 'mcp' | 'bench'): string

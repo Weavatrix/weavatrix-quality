@@ -72,6 +72,27 @@ export class WvqMcpClient {
             program: requireObject('program', program),
         }, { signal })
     }
+
+    heal(programId, expectedProgramRevision, edits, {
+        screenshot = true, trace = false, signal, timeoutMs,
+    } = {}) {
+        if (!Number.isSafeInteger(expectedProgramRevision) || expectedProgramRevision <= 0) {
+            throw new TypeError('expectedProgramRevision must be a positive integer')
+        }
+        if (!Array.isArray(edits) || edits.length === 0 || edits.length > 64) {
+            throw new TypeError('edits must contain between 1 and 64 entries')
+        }
+        if (typeof screenshot !== 'boolean' || typeof trace !== 'boolean') {
+            throw new TypeError('screenshot and trace must be boolean')
+        }
+        return this.call('quality_test_heal', {
+            program_id: requireText('programId', programId),
+            expected_program_revision: expectedProgramRevision,
+            edits: edits.map((edit) => requireObject('edit', edit)),
+            screenshot,
+            trace,
+        }, { signal, timeoutMs })
+    }
 }
 
 function requireText(name, value) {

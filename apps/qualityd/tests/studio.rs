@@ -87,7 +87,7 @@ fn changes_are_listed() {
 }
 
 #[test]
-fn authoring_http_projects_draft_validate_preview_and_promote_from_the_shared_bus() {
+fn authoring_http_projects_the_complete_browser_program_lifecycle() {
     let studio = default_studio();
     let draft = post(
         &studio,
@@ -139,6 +139,26 @@ fn authoring_http_projects_draft_validate_preview_and_promote_from_the_shared_bu
     );
     assert_eq!(promoted.status, 200, "{}", promoted.body);
     assert_eq!(json(&promoted)["persisted"], true);
+
+    let healed = post(
+        &studio,
+        "/api/v1/authoring/heal",
+        &serde_json::json!({
+            "change": "live",
+            "base": "BASE",
+            "head": "HEAD",
+            "program_id": "generated-http-program",
+            "expected_program_revision": 1,
+            "edits": [{
+                "edit": "insert_wait",
+                "after": 0,
+                "condition": {"kind": "url", "route": "/ready"}
+            }]
+        })
+        .to_string(),
+    );
+    assert_eq!(healed.status, 200, "{}", healed.body);
+    assert_eq!(json(&healed)["program_revision"], 2);
 
     assert_eq!(get(&studio, "/api/v1/authoring/draft").status, 405);
     assert_eq!(
