@@ -115,6 +115,18 @@ pub struct SelectCommand {
     pub change: String,
 }
 
+/// Explicit opt-in local model escape. Never used by normal verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCommand {
+    /// Change whose AI budget is charged.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// `planning`, `runtime`, `browser_escape`, or `vision`.
+    pub kind: String,
+    /// Bounded packet sent to the configured loopback model.
+    pub prompt: String,
+}
+
 /// List known `OpenSpec` changes. Studio uses this for its Changes screen.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesCommand {}
@@ -146,6 +158,8 @@ pub enum Command {
     Debt(DebtCommand),
     /// `wvq select`.
     Select(SelectCommand),
+    /// [`ModelCommand`].
+    Model(ModelCommand),
     /// [`ChangesCommand`].
     Changes(ChangesCommand),
 }
@@ -167,6 +181,7 @@ impl Command {
             Self::Analyze(_) => "analyze",
             Self::Debt(_) => "debt",
             Self::Select(_) => "select",
+            Self::Model(_) => "model",
             Self::Changes(_) => "changes",
         }
     }

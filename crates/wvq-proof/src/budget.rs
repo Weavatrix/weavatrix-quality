@@ -168,6 +168,23 @@ impl AiCostFirewall {
         }
     }
 
+    /// Resume a per-change firewall from usage persisted by an earlier call.
+    #[must_use]
+    pub fn with_usage(budget: AiBudget, usage: AiUsage) -> Self {
+        let exhausted = usage.planning_tokens > budget.planning_tokens
+            || usage.runtime_tokens > budget.runtime_tokens
+            || usage.browser_escape_calls > budget.browser_escape_calls
+            || usage.vision_calls > budget.vision_calls
+            || budget
+                .max_cost_micros
+                .is_some_and(|limit| usage.cost_micros > limit);
+        Self {
+            budget,
+            usage,
+            exhausted,
+        }
+    }
+
     /// Configured ceiling.
     #[must_use]
     pub fn budget(&self) -> AiBudget {

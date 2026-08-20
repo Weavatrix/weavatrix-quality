@@ -1,9 +1,10 @@
 //! Normalized runner evidence types.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// One normalized runner invocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NormalizedTestRun {
     /// Test cases in source order.
     pub cases: Vec<TestCaseResult>,
@@ -14,7 +15,7 @@ pub struct NormalizedTestRun {
 }
 
 /// One test case after runner-specific parsing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TestCaseResult {
     /// Case name.
     pub name: String,
@@ -29,7 +30,8 @@ pub struct TestCaseResult {
 }
 
 /// Normalized case status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TestStatus {
     /// Passed.
     Pass,
@@ -42,14 +44,14 @@ pub enum TestStatus {
 }
 
 /// Coverage mapped to source line ranges.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoverageArtifact {
     /// Per-file ranges.
     pub files: Vec<FileCoverage>,
 }
 
 /// Coverage of one source file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileCoverage {
     /// Repository-relative path.
     pub path: String,
@@ -60,7 +62,7 @@ pub struct FileCoverage {
 }
 
 /// Inclusive 1-based line range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LineRange {
     /// First line.
     pub start: u32,
@@ -69,7 +71,7 @@ pub struct LineRange {
 }
 
 /// Handle for a raw runner artifact.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactDescriptor {
     /// `junit`, `lcov`, or `go-json`.
     pub kind: String,

@@ -1,4 +1,4 @@
-﻿//! Revision-bound Proof assembly. Never a single quality percentage.
+//! Revision-bound Proof assembly. Never a single quality percentage.
 
 #![forbid(unsafe_code)]
 
@@ -9,6 +9,7 @@ mod explorer;
 mod flake;
 mod heal;
 mod metamorphic;
+mod model;
 mod mutation;
 mod protection;
 mod protection_checks;
@@ -35,6 +36,9 @@ pub use metamorphic::{
     MetaError, MetaExpectation, MetaSample, MetaTransform, MetamorphicRelation, RelationOrigin,
     builtins, execute, propose, seal_relation,
 };
+pub use model::{
+    LocalModelConfig, LocalModelReply, LocalModelRequest, ModelError, call_local_model,
+};
 pub use mutation::{
     Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationSummary, go_mutants,
     run_selected_mutants, ts_js_mutants,
@@ -51,7 +55,5 @@ pub use protection_delta::{
     DeltaContext, ProtectionDelta, ProtectionDeltaState, ProtectionSummary, protection_delta,
     summarise,
 };
-pub use protection_view::{
-    FlowView, ProtectionReport, ProtectionView, TestLineageView,
-};
+pub use protection_view::{FlowView, ProtectionReport, ProtectionView, TestLineageView};
 pub use verdict::{ProofVerdict, VerdictInput, decide_verdict};

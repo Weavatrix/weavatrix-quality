@@ -446,6 +446,10 @@ fn bus_error(err: &BusError) -> HttpResponse {
         BusError::Ambiguous(_) => 409,
         BusError::Unknown { .. } | BusError::Identity(_) => 400,
         BusError::Spec(_) => 422,
+        BusError::Runtime(_)
+        | BusError::Intelligence(_)
+        | BusError::Store(_)
+        | BusError::Model(_) => 503,
     };
     HttpResponse::error(status, &err.to_string())
 }

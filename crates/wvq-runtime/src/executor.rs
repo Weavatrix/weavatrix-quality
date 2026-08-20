@@ -127,10 +127,37 @@ impl ExecutorRegistry {
     /// Returns [`RuntimeError::InvalidArg`] if a built-in id is illegal.
     pub fn production() -> Result<Self, RuntimeError> {
         let mut registry = Self::new();
-        registry.register(spec("vitest", "vitest", &["run"], Some("--testNamePattern"))?)?;
+        registry.register(spec(
+            "cargo-test",
+            "cargo",
+            &["test", "--workspace", "--all-targets"],
+            None,
+        )?)?;
+        registry.register(spec(
+            "npm-test",
+            if cfg!(windows) { "npm.cmd" } else { "npm" },
+            &["test", "--"],
+            None,
+        )?)?;
+        registry.register(spec(
+            "vitest",
+            "vitest",
+            &["run"],
+            Some("--testNamePattern"),
+        )?)?;
         registry.register(spec("jest", "jest", &["--runInBand"], Some("-t"))?)?;
         registry.register(spec("bun-test", "bun", &["test"], Some("-t"))?)?;
-        registry.register(spec("go-test", "go", &["test", "-json"], Some("-run"))?)?;
+        registry.register(spec(
+            "go-test",
+            "go",
+            &[
+                "test",
+                "-json",
+                "-coverprofile=.weavatrix-quality/go-cover.out",
+                "./...",
+            ],
+            Some("-run"),
+        )?)?;
         registry.register(spec("playwright", "playwright", &["test"], Some("-g"))?)?;
         Ok(registry)
     }
@@ -191,13 +218,8 @@ impl ExecutorRegistry {
         if run.cancel.load(Ordering::SeqCst) {
             return Err(RuntimeError::Cancelled);
         }
-        let raw: RawExecution = process::run_bounded(
-            &run.program,
-            &run.args,
-            &run.cwd,
-            &run.limits,
-            &run.cancel,
-        )?;
+        let raw: RawExecution =
+            process::run_bounded(&run.program, &run.args, &run.cwd, &run.limits, &run.cancel)?;
         Ok(ExecutionResult {
             status_code: raw.status_code,
             stdout: raw.stdout,
@@ -300,7 +322,9 @@ fn reject_injected_command(extra: &BTreeMap<String, String>) -> Result<(), Runti
 fn sanitize_filter(filter: &str) -> Result<String, RuntimeError> {
     if filter.is_empty()
         || filter.contains('\0')
-        || filter.chars().any(|ch| matches!(ch, '\n' | '\r' | '|' | '&' | ';' | '`' ))
+        || filter
+            .chars()
+            .any(|ch| matches!(ch, '\n' | '\r' | '|' | '&' | ';' | '`'))
     {
         return Err(RuntimeError::InvalidArg(
             "filter must be a single argv value without shell metacharacters".into(),

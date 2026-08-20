@@ -19,11 +19,11 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M5 | Browser TestProgram bridge | 18 | **done** |
 | M6 | Recorder + BehaviorGraph + base/head diff | 19–20 | **done** |
 | M7 | Flake + safe healing | 21 | **done** |
-| M8 | Mutation + metamorphic + cheap explorer | 22 | not started |
-| M9 | AI Cost Firewall | 23 (firewall half) | not started |
-| M10 | Quality Studio | 23 (studio half) | not started |
-| M11 | Spec Recovery + Protection Continuity | 24–35 | not started |
-| later | Figma / advanced visual / cross-repo | spec M11 extras | not started |
+| M8 | Mutation + metamorphic + cheap explorer | 22 | **done** |
+| M9 | AI Cost Firewall | 23 (firewall half) | **done** |
+| M10 | Quality Studio | 23 (studio half) | **done** |
+| M11 | Spec Recovery + Protection Continuity | 24–35 | **done** |
+| later | Figma / advanced visual / cross-repo | spec M11 extras | outside the 35-task plan |
 
 M11 items are first-class, not polish. Dual-revision impact (Task 29) should inform selection as soon as M3 exists — do not “forget” base-only removals while waiting for Studio.
 
@@ -74,23 +74,23 @@ M11 items are first-class, not polish. Dual-revision impact (Task 29) should inf
 - [x] **Task 19** — record/replay + BehaviorGraph → `feat(behavior): turn manual QA into replayable knowledge` — §54
 - [x] **Task 20** — Delta Triangle → `feat(diff): add Delta Triangle verification` — §55
 - [x] **Task 21** — flake + safe healing → `feat(triage): diagnose and safely heal tests` — §56
-- [ ] **Task 22** — mutation, metamorphic, explorer → `feat(advanced): add proof strength and cheap exploration` — §57
-- [ ] **Task 23** — AI Cost Firewall + Quality Studio → `feat(studio): add exception-only QA cockpit` — §58
+- [x] **Task 22** — mutation, metamorphic, explorer → `feat(advanced): add proof strength and cheap exploration` — §57
+- [x] **Task 23** — AI Cost Firewall + Quality Studio → `feat(studio): add exception-only QA cockpit` — §58
 
 ### M11 — brownfield and protection
 
-- [ ] **Task 24** — recovery evidence model → `feat(spec-recovery): model intent evidence` — §89
-- [ ] **Task 25** — PR/commit clustering → `feat(spec-recovery): cluster implementation into capability changes`
-- [ ] **Task 26** — candidate verifier → `feat(spec-recovery): verify candidate acceptance criteria`
-- [ ] **Task 27** — QA review state machine → `feat(spec-recovery): require QA verification`
-- [ ] **Task 28** — spec-recovery MCP + Studio → `feat(spec-recovery): add reviewed recovery workflow`
-- [ ] **Task 29** — dual-revision impacted surface → `feat(impact): preserve base and head affected flows` — §90
-- [ ] **Task 30** — test lineage → `feat(protection): track test lineage across revisions`
-- [ ] **Task 31** — ProtectionSnapshot → `feat(protection): snapshot runtime protection by revision`
-- [ ] **Task 32** — ProtectionDelta → `feat(protection): compare base and head safety nets`
-- [ ] **Task 33** — flow-aware selection → `feat(selection): preserve historical regression protection`
-- [ ] **Task 34** — WVQ-PROTECT-001…012 → `feat(checks): gate protection continuity regressions`
-- [ ] **Task 35** — protection MCP + UI → `feat(studio): explain test protection continuity`
+- [x] **Task 24** — recovery evidence model → `feat(spec-recovery): model intent evidence` — §89
+- [x] **Task 25** — PR/commit clustering → `feat(spec-recovery): cluster implementation into capability changes`
+- [x] **Task 26** — candidate verifier → `feat(spec-recovery): verify candidate acceptance criteria`
+- [x] **Task 27** — QA review state machine → `feat(spec-recovery): require QA verification`
+- [x] **Task 28** — spec-recovery MCP + Studio → `feat(spec-recovery): add reviewed recovery workflow`
+- [x] **Task 29** — dual-revision impacted surface → `feat(impact): preserve base and head affected flows` — §90
+- [x] **Task 30** — test lineage → `feat(protection): track test lineage across revisions`
+- [x] **Task 31** — ProtectionSnapshot → `feat(protection): snapshot runtime protection by revision`
+- [x] **Task 32** — ProtectionDelta → `feat(protection): compare base and head safety nets`
+- [x] **Task 33** — flow-aware selection → `feat(selection): preserve historical regression protection`
+- [x] **Task 34** — WVQ-PROTECT-001…012 → `feat(checks): gate protection continuity regressions`
+- [x] **Task 35** — protection MCP + UI → `feat(studio): explain test protection continuity`
 
 ## Priority reminder (spec §60)
 

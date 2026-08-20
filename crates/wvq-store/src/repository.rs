@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
 use wvq_domain::{
-    ArtifactId, ContentHash, HumanDecision, ObligationId, OracleSealId, ProofId, RevisionId,
+    ArtifactId, ContentHash, HumanDecision, ObligationId, OracleSealId, ProofId, RevisionId, RunId,
 };
 
 use crate::cas::Cas;
@@ -83,6 +83,38 @@ pub struct StoredProof {
     pub oracle_seal: OracleSealId,
     /// Verdict token (`PROVEN`, …).
     pub verdict: String,
+}
+
+/// Revision-bound aggregate runner execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRun {
+    /// Run identity.
+    pub id: RunId,
+    /// `OpenSpec` change identity.
+    pub change_id: String,
+    /// Exact Weavatrix revision before and after execution.
+    pub revision: RevisionId,
+    /// Lifecycle state (`complete`).
+    pub status: String,
+    /// True only when every registered executor exited successfully.
+    pub passed: bool,
+    /// Aggregate outcome (`passed`, `failed`, or `error`).
+    pub outcome: String,
+}
+
+/// One registered executor inside an aggregate run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRunItem {
+    /// Stable item identity.
+    pub id: String,
+    /// Parent run.
+    pub run_id: RunId,
+    /// Frozen executor registry id.
+    pub executor: String,
+    /// Process exit code, when the process exited normally.
+    pub status_code: Option<i32>,
+    /// Successful executor outcome.
+    pub passed: bool,
 }
 
 impl Store {
@@ -226,6 +258,210 @@ impl Store {
         }
     }
 
+    /// Read artifact bytes from CAS after validating its ledger row.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::MissingBlob`] when either the row or CAS object is absent.
+    pub fn read_artifact(&self, id: &ArtifactId) -> Result<(ArtifactRecord, Vec<u8>), StoreError> {
+        let record = self
+            .get_artifact(id)?
+            .ok_or_else(|| StoreError::MissingBlob(id.to_string()))?;
+        let bytes = self.cas.get(&record.content_hash)?;
+        Ok((record, bytes))
+    }
+
+    /// Persist an aggregate execution after its artifacts are safely in CAS.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on duplicate identity or database failure.
+    pub fn put_run(&self, run: &StoredRun) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO runs (id, executor, change_id, revision, status, passed, outcome) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    run.id.as_str(),
+                    "aggregate",
+                    run.change_id,
+                    run.revision.as_str(),
+                    run.status,
+                    i64::from(run.passed),
+                    run.outcome,
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Persist one executor outcome for a run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on invalid references or database failure.
+    pub fn put_run_item(&self, item: &StoredRunItem) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO run_items (id, run_id, executor, status_code, passed) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    item.id,
+                    item.run_id.as_str(),
+                    item.executor,
+                    item.status_code,
+                    i64::from(item.passed),
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Link an artifact to its producing run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on invalid references or database failure.
+    pub fn attach_run_artifact(
+        &self,
+        run: &RunId,
+        artifact: &ArtifactId,
+    ) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO run_artifacts (run_id, artifact) VALUES (?1, ?2)",
+                params![run.as_str(), artifact.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Load one run by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn get_run(&self, id: &RunId) -> Result<Option<StoredRun>, StoreError> {
+        self.query_run(
+            "SELECT id, change_id, revision, status, passed, outcome FROM runs WHERE id = ?1",
+            id.as_str(),
+        )
+    }
+
+    /// Latest recorded run for a change and exact revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn latest_run(
+        &self,
+        change_id: &str,
+        revision: &RevisionId,
+    ) -> Result<Option<StoredRun>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, change_id, revision, status, passed, outcome FROM runs WHERE change_id = ?1 AND revision = ?2 ORDER BY rowid DESC LIMIT 1",
+                params![change_id, revision.as_str()],
+                decode_run,
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        row.map(parse_run).transpose()
+    }
+
+    /// Latest run in this repository, regardless of change or revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn latest_run_any(&self) -> Result<Option<StoredRun>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, change_id, revision, status, passed, outcome FROM runs ORDER BY rowid DESC LIMIT 1",
+                [],
+                decode_run,
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        row.map(parse_run).transpose()
+    }
+
+    /// Artifact ids attached to a run, in stable order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn run_artifacts(&self, run: &RunId) -> Result<Vec<ArtifactId>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT artifact FROM run_artifacts WHERE run_id = ?1 ORDER BY artifact")
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([run.as_str()], |row| row.get::<_, String>(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let raw = row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            out.push(ArtifactId::new(raw).map_err(|err| StoreError::Invalid(err.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// Remember debt fingerprints that disappeared at a revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the ledger write fails.
+    pub fn remember_fixed_debt(
+        &self,
+        fingerprints: &[String],
+        revision: &RevisionId,
+    ) -> Result<(), StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "INSERT INTO debt_history (fingerprint, state, revision)
+                 VALUES (?1, 'fixed', ?2)
+                 ON CONFLICT(fingerprint) DO UPDATE
+                 SET state = 'fixed', revision = excluded.revision",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        for fingerprint in fingerprints {
+            statement
+                .execute(params![fingerprint, revision.as_str()])
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Every debt fingerprint recorded in a fixed bucket.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the ledger query fails.
+    pub fn previously_fixed_debt(&self) -> Result<Vec<String>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT fingerprint FROM debt_history WHERE state = 'fixed' ORDER BY fingerprint",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))
+    }
+
+    fn query_run(&self, sql: &str, value: &str) -> Result<Option<StoredRun>, StoreError> {
+        let row = self
+            .conn
+            .query_row(sql, [value], decode_run)
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        row.map(parse_run).transpose()
+    }
+
     /// Insert a proof. Updates are rejected by trigger.
     ///
     /// # Errors
@@ -279,6 +515,48 @@ impl Store {
             .query_row(
                 "SELECT id, revision, obligation, oracle_seal, verdict FROM proofs WHERE id = ?1",
                 [id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?
+            .map(|(id, revision, obligation, oracle_seal, verdict)| {
+                Ok(StoredProof {
+                    id: ProofId::new(id).map_err(|err| StoreError::Invalid(err.to_string()))?,
+                    revision: RevisionId::new(revision)
+                        .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                    obligation: ObligationId::new(obligation)
+                        .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                    oracle_seal: OracleSealId::new(oracle_seal)
+                        .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                    verdict,
+                })
+            })
+            .transpose()
+    }
+
+    /// Load the latest proof for one obligation at an exact revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] or [`StoreError::Invalid`].
+    pub fn proof_for_obligation(
+        &self,
+        revision: &RevisionId,
+        obligation: &ObligationId,
+    ) -> Result<Option<StoredProof>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT id, revision, obligation, oracle_seal, verdict FROM proofs \
+                 WHERE revision = ?1 AND obligation = ?2 ORDER BY rowid DESC LIMIT 1",
+                params![revision.as_str(), obligation.as_str()],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -691,6 +969,30 @@ impl Store {
         }
         Ok(out)
     }
+}
+
+type RunRow = (String, String, String, String, i64, String);
+
+fn decode_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<RunRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+    ))
+}
+
+fn parse_run(row: RunRow) -> Result<StoredRun, StoreError> {
+    Ok(StoredRun {
+        id: RunId::new(row.0).map_err(|err| StoreError::Invalid(err.to_string()))?,
+        change_id: row.1,
+        revision: RevisionId::new(row.2).map_err(|err| StoreError::Invalid(err.to_string()))?,
+        status: row.3,
+        passed: row.4 != 0,
+        outcome: row.5,
+    })
 }
 
 fn to_i64(value: u64) -> Result<i64, StoreError> {

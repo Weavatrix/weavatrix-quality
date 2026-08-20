@@ -6,7 +6,7 @@ use wvq_domain::{
     ArtifactId, HumanDecision, HumanDecisionId, HumanRole, NewDecision, ObligationId, OracleSealId,
     ProofId, RevisionId, VerificationDecision,
 };
-use wvq_store::{Store, StoredAiUsage, StoredProof};
+use wvq_store::{Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem};
 
 fn open_temp() -> Store {
     let nanos = SystemTime::now()
@@ -21,7 +21,55 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 5);
+    assert_eq!(store.schema_version().unwrap(), 7);
+}
+
+#[test]
+fn runs_survive_process_boundaries_with_artifact_handles() {
+    let store = open_temp();
+    let run_id = wvq_domain::RunId::new("run-live-1").unwrap();
+    let revision = RevisionId::new("rev-live-1").unwrap();
+    let artifact = ArtifactId::new("artifact-run-live-1-summary").unwrap();
+    store
+        .put_artifact(&artifact, "execution-summary", br#"{"passed":true}"#)
+        .unwrap();
+    store
+        .put_run(&StoredRun {
+            id: run_id.clone(),
+            change_id: "sankey-others".into(),
+            revision: revision.clone(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    store
+        .put_run_item(&StoredRunItem {
+            id: "run-live-1-cargo-test".into(),
+            run_id: run_id.clone(),
+            executor: "cargo-test".into(),
+            status_code: Some(0),
+            passed: true,
+        })
+        .unwrap();
+    store.attach_run_artifact(&run_id, &artifact).unwrap();
+
+    let loaded = store
+        .latest_run("sankey-others", &revision)
+        .unwrap()
+        .expect("run");
+    assert_eq!(
+        loaded,
+        StoredRun {
+            id: run_id.clone(),
+            change_id: "sankey-others".into(),
+            revision,
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        }
+    );
+    assert_eq!(store.run_artifacts(&run_id).unwrap(), [artifact]);
 }
 
 #[test]
@@ -77,6 +125,17 @@ fn proofs_are_immutable() {
     assert!(matches!(err, wvq_store::StoreError::ProofImmutable));
     let loaded = store.get_proof(&proof.id).unwrap().expect("proof");
     assert_eq!(loaded.verdict, "PROVEN");
+    let by_obligation = store
+        .proof_for_obligation(&proof.revision, &proof.obligation)
+        .unwrap()
+        .expect("proof by revision and obligation");
+    assert_eq!(by_obligation.id, proof.id);
+    assert!(
+        store
+            .proof_for_obligation(&RevisionId::new("rev-other").unwrap(), &proof.obligation,)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -215,5 +274,18 @@ fn human_decisions_keep_their_provenance() {
             .human_decisions_for_subject("never-reviewed")
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn fixed_debt_history_survives_later_runs() {
+    let store = open_temp();
+    let revision = RevisionId::new("revision-a").unwrap();
+    store
+        .remember_fixed_debt(&["runtime.unwrap:src/lib.rs:add".into()], &revision)
+        .unwrap();
+    assert_eq!(
+        store.previously_fixed_debt().unwrap(),
+        ["runtime.unwrap:src/lib.rs:add"]
     );
 }

@@ -15,12 +15,15 @@ categories = ["development-tools"]
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 wvq-domain = { workspace = true }
 wvq-intelligence = { workspace = true }
 wvq-proof = { workspace = true }
+wvq-runtime = { workspace = true }
 wvq-spec = { workspace = true }
+wvq-store = { workspace = true }
 
 [lints]
 workspace = true

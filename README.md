@@ -3,105 +3,146 @@
 [![CI](https://github.com/sergii-ziborov/weavatrix-quality/actions/workflows/ci.yml/badge.svg)](https://github.com/sergii-ziborov/weavatrix-quality/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Turn product intent and repository change into revision-bound proof — without spending LLM tokens on the green path.**
+**Turn product intent and a repository change into revision-bound proof — without spending LLM tokens on the green path.**
 
-Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` as the only code-intelligence engine, runs the smallest relevant existing test set, and stores immutable `Proof` records.
-
-It is **not** another Playwright wrapper, test runner, browser MCP, coverage dashboard, or click-through LLM agent.
+Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
 
 ```text
 OpenSpec says what should remain true.
 Weavatrix says what changed and what it can affect.
-Existing runners execute the smallest relevant protection set.
-WVQ proves whether old protection survived and new behavior gained proof.
-Humans review only unresolved product intent.
+Existing runners execute the smallest safe protection set.
+WVQ proves which obligations have same-revision execution evidence.
+Humans review unresolved product intent instead of ordinary green runs.
 ```
 
 ## Status
 
-**All 35 planned tasks are in tree.** Domain, OpenSpec reader, `OracleSeal`, Weavatrix embed, debt ratchet, the check families, runner normalization, selection, ledger, Proof, CLI, bounded MCP, browser `TestProgram`, `BehaviorGraph`, Delta Triangle, flake triage and safe healing, mutation/metamorphic/explorer, AI Cost Firewall, Quality Studio, spec recovery, and protection continuity.
+All 35 tasks in the canonical development plan are implemented. The live vertical is connected end to end:
 
-Read [`docs/STATUS.md`](docs/STATUS.md) before writing code.
+- repository manifests discover only frozen, bounded executors;
+- Weavatrix produces revision-bound `graph_diff`, change impact, test selection, and immutable debt comparison;
+- impact is `base ∪ head ∪ removed`, never head-only;
+- JUnit, LCOV, `go test -json`, and Go coverprofiles become normalized evidence;
+- measured coverage maps onto changed graph nodes and produces a `ProtectionSnapshot`;
+- SQLite + CAS preserve runs, evidence, debt history, AI usage, and immutable proofs across processes;
+- a passing suite proves only obligations explicitly bound to tests in policy;
+- an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 
-Normative specification: [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md) (2026-08-18).
-
-What is **not** done: the producers. Nothing yet feeds real `graph_diff` output into the impact union, real coverage into `FlowProtection`, or a real model into the AI budget. The rules are built and tested; wiring them to a live repository is the next layer, and the CI rollout in §59 has not started.
+Read [`docs/STATUS.md`](docs/STATUS.md) before changing the repository. The normative design is [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md).
 
 ## Place in the ecosystem
 
 ```text
 Weavatrix          UNDERSTAND   what exists in source
 Weavatrix Quality  PROVE        what must still be true after this change
-Weavatrix Loom     COMPOSE      capabilities → ordinary Rust
-Cortex Loom        optional     agent context / model routing
+Weavatrix Loom     COMPOSE      capabilities into ordinary Rust
+Cortex Loom        optional     agent context and model routing
 ```
 
-| Product | Owns | Does **not** own |
-| --- | --- | --- |
-| **Weavatrix** | Revision-bound code graph | Quality policy, proofs, oracles |
-| **Weavatrix Quality** (this) | Spec ↔ code ↔ behavior proof, debt ratchet, protection continuity | A second code graph, OpenSpec authoring, a browser |
-| **Weavatrix Loom** | Capability composition | Code intelligence or QA execution |
-| **Cortex Loom** | Agent token economy | Anything required for WVQ CI |
+WVQ CI does not depend on Cortex and uses zero runtime LLM tokens on the ordinary green path.
 
-WVQ CI must work without Cortex.
+## Live verification loop
 
-## v1 loop (definition of done)
+A Rust, TS/JS, Bun, Go, or Playwright repository can:
 
-A real TS/JS/Bun/Go repository can:
+1. parse OpenSpec plus `quality.yaml` and seal obligations;
+2. compare base/head Weavatrix graph evidence;
+3. classify quality debt as `new / existing / fixed / returned / excepted`;
+4. combine static impact with policy-bound obligation coverage;
+5. execute Cargo, npm, Vitest, Jest, Bun, Go, or Playwright through registered bounded argv;
+6. normalize runner output and fresh coverage artifacts;
+7. reject a revision change during execution;
+8. assemble and persist same-revision Proofs;
+9. expose the result through CLI, MCP, and the `qualityd` Studio service.
 
-1. parse OpenSpec + `quality.yaml`
-2. seal obligations
-3. compare base/head Weavatrix evidence
-4. run the Quality Debt Ratchet
-5. select a minimal impacted test subset
-6. execute existing Vitest/Jest/Bun/Go/Playwright tests
-7. normalize JUnit/JSON/LCOV/Go coverage
-8. create revision-bound Proofs
-9. expose `quality_verify` over CLI/MCP
-10. separate `new / existing / fixed / returned` debt
-11. consume **zero** LLM runtime tokens on a normal green PR
+An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run.
 
-Recorder, explorer, and mutation come after that loop is real.
-
-## Surfaces
+## CLI
 
 ```text
-wvq init | spec validate | spec seal | analyze | debt | select | run | verify | explain | record | replay | baseline | doctor
+wvq spec validate [--change ID]
+wvq spec seal [--change ID]
+wvq analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
+wvq debt [--change ID]
+wvq select [--change ID]
+wvq run [--change ID] [--scope impacted|all] [--evidence-policy standard|minimal|none]
+wvq status
+wvq verify [--change ID]
+wvq explain <id>
+wvq plan [--change ID]
+wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
 ```
 
-MCP default profile (via `mcport`) is **seven tools and stays seven**: `quality_context`, `quality_plan`, `quality_run`, `quality_status`, `quality_verify`, `quality_explain`, `quality_evidence`.
+Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1.
 
-Two opt-in profiles sit beside it, off the coding-agent surface so its schema footprint stays small:
+## Repository policy
+
+`.weavatrix-quality/config.yaml` binds concrete tests to compiled obligation IDs. A green runner without this mapping remains `UNPROVEN`.
+
+```yaml
+quality_policy_v: 1
+
+test_bindings:
+  - path: tests/permissions.spec.ts
+    obligations: [permissions-delete]
+    cost: 10
+    flake_penalty: 0
+
+ratchet:
+  exceptions:
+    - fingerprint: accepted-legacy-finding
+      reason: tracked migration debt
+      expires: 2026-12-31
+
+ai:
+  endpoint: http://127.0.0.1:11434/v1/chat/completions
+  model: local-quality-model
+  max_output_tokens: 512
+  max_tokens_per_change: 20000
+  max_runtime_tokens: 0
+  max_browser_escape_calls: 2
+  max_vision_calls: 1
+  max_cost_micros: 0
+  input_micros_per_million: 0
+  output_micros_per_million: 0
+```
+
+The model endpoint must resolve to loopback and return OpenAI-compatible completion content plus usage counters. WVQ checks the worst-case reservation before connecting, caps the response at 1 MiB, supports content-length and chunked responses, then persists measured usage. Change-local `quality.yaml` AI hints can only reduce the global token ceilings.
+
+## MCP and Studio
+
+The default `mcport` profile exposes exactly seven strict tools:
 
 ```text
-spec recovery   quality_spec_recover | _review | _questions | _preview_patch | _verify | _seal
-protection      quality_protection   | quality_test_lineage | quality_flow
+quality_context  quality_plan  quality_run  quality_status
+quality_verify   quality_explain  quality_evidence
 ```
 
-`qualityd` serves the exception-first Studio API over the same command bus. The change dashboard lists only unresolved proofs and counts the green ones; drill-down screens show everything.
+It has controlled concurrency, cooperative cancellation, no arbitrary shell, and handle-only delivery for large artifacts. Recovery and protection servers are exported as opt-in profiles for embedding without increasing the default coding-agent schema footprint.
 
-No arbitrary shell over MCP. Large artifacts stay behind handles.
+`qualityd` serves the exception-first Studio API over the same command bus. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
 
-## Finding possible defects, without guessing
+## Defect hypotheses
 
-Routing a change to the right human is necessary but not sufficient. WVQ also turns the *shape* of a change into falsifiable questions with concrete probes — a flipped default asks about the absent value, a retired persisted key asks what happens to records that still carry it, a new membership guard enumerates what falls outside the set.
+WVQ keeps two detector properties separate:
 
-Two things are tracked separately, and this matters:
+- **weight** — the consequence of a bad answer;
+- **confidence** — whether Weavatrix named the concrete symbol or a regex merely matched text.
 
-- **weight** — how much it would cost if the answer is bad;
-- **confidence** — whether the graph actually corroborated the signal, or a regex merely matched some text.
+Only `High` weight plus `Confirmed` confidence may block. `corroborate(signal, &GraphFacts)` promotes only the individual signal whose permission symbol, limit symbol, persisted key, or domain is graph-confirmed. `TestMovedWithImplementation` is never promoted by the graph.
 
-Only `High` weight **and** `Confirmed` confidence may fail a build. This is not caution for its own sake. A shadow run over sixty accepted, defect-free changes had text-matching detectors firing on 42% of them, because words like "viewer" and operators like `<` are everywhere; the two graph-backed detectors fired on 5–8%. A gate that stops two changes in five is a gate people switch off.
-
-Spec §59 Stage C is the rule: a category is promoted to blocking only after its precision is measured on that repository.
+In a sixty-change accepted-change shadow corpus, the first text-heavy tuning would have blocked 42% of clean changes; graph-corroborated categories fired on 5–8%. Promotion to a blocking category therefore requires measured repository precision.
 
 ## Build
 
 Requires Rust 1.89+.
 
 ```sh
-cargo test --workspace
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
+
+CI runs both commands on pushes to `main` and pull requests.
 
 ## License
 

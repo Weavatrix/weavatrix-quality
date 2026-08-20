@@ -102,12 +102,17 @@ pub struct RunReply {
     pub run_id: String,
     /// Change.
     pub change: String,
-    /// Scope that was accepted.
+    /// Scope requested by the caller.
+    pub requested_scope: String,
+    /// Effective scope. May widen from `impacted` to `all` when complete
+    /// selection evidence is unavailable.
     pub scope: String,
     /// `complete` or `queued`.
     pub status: String,
     /// True when a run was recorded (still no arbitrary shell).
     pub executed: bool,
+    /// Aggregate executor outcome: `passed`, `failed`, or `error`.
+    pub outcome: String,
     /// Artifact handles produced (possibly empty).
     pub artifact_handles: Vec<String>,
 }
@@ -119,6 +124,8 @@ pub struct StatusReply {
     pub run_id: Option<String>,
     /// `idle`, `queued`, or `complete`.
     pub status: String,
+    /// Aggregate executor outcome when a run exists.
+    pub outcome: Option<String>,
     /// Handles currently known.
     pub handles: Vec<String>,
 }
@@ -181,7 +188,7 @@ pub struct ChangesReply {
 pub struct ExplainReply {
     /// Requested id.
     pub id: String,
-    /// `obligation`, `proof`, `finding`, or `selection`.
+    /// `obligation`, `proof`, `run`, `finding`, or `selection`.
     pub kind: String,
     /// Short summary.
     pub summary: String,
@@ -236,6 +243,10 @@ pub type AnalyzeReply = ContextReply;
 /// Debt-ratchet bucket counts. Empty when no findings were supplied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DebtReply {
+    /// Exact Weavatrix revision used for the audit, when live.
+    pub revision: Option<String>,
+    /// Whether immutable base/head comparison was available.
+    pub comparison_present: bool,
     /// Present on base and head.
     pub existing: u64,
     /// Introduced on head.
@@ -248,11 +259,15 @@ pub struct DebtReply {
     pub excepted: u64,
     /// Compact finding summaries.
     pub findings: Vec<String>,
+    /// Explicitly unmeasured debt axes.
+    pub limitations: Vec<String>,
 }
 
 /// Minimal selection. Does not execute.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SelectReply {
+    /// Exact Weavatrix revision used for selection, when live.
+    pub revision: Option<String>,
     /// Algorithm id.
     pub algorithm: String,
     /// Selected test ids.
@@ -263,6 +278,27 @@ pub struct SelectReply {
     pub explanations: Vec<Vec<String>>,
     /// Always false.
     pub executed: bool,
+    /// True only when every mandatory obligation has a mapped candidate.
+    pub selection_complete: bool,
+}
+
+/// One explicitly requested, budgeted loopback model decision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModelReply {
+    /// Change whose budget was charged.
+    pub change: String,
+    /// Budget axis.
+    pub kind: String,
+    /// Local model identity.
+    pub model: String,
+    /// Assistant text.
+    pub text: String,
+    /// Measured input tokens.
+    pub input_tokens: u64,
+    /// Measured output tokens.
+    pub output_tokens: u64,
+    /// Calculated cost in micros.
+    pub cost_micros: u64,
 }
 
 /// Tagged reply for CLI JSON.
@@ -305,6 +341,9 @@ pub enum Reply {
     /// [`SelectReply`].
     #[serde(rename = "select")]
     Select(SelectReply),
+    /// [`ModelReply`].
+    #[serde(rename = "model")]
+    Model(ModelReply),
     /// [`ChangesReply`].
     #[serde(rename = "changes")]
     Changes(ChangesReply),

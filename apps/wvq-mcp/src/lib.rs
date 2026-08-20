@@ -9,6 +9,8 @@ pub use protection::{SharedProtection, protection_server};
 pub use recovery::{SharedDesk, recovery_server};
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use std::time::Duration;
 
 use mcport::{ConcurrentMcpServer, ConcurrentToolServer, RuntimeConfig, ToolReply, Value, json};
@@ -25,7 +27,9 @@ pub fn runtime_config() -> RuntimeConfig {
         max_in_flight: 4,
         queue_depth: 32,
         output_queue_depth: 32,
-        handler_deadline: Some(Duration::from_secs(30)),
+        // `quality_run` uses bounded repository runners whose own hard limit is
+        // 15 minutes. The transport must not cancel a valid run first.
+        handler_deadline: Some(Duration::from_secs(16 * 60)),
         ..RuntimeConfig::default()
     }
 }
@@ -59,9 +63,28 @@ pub fn quality_server(service: &Arc<dyn QualityService>) -> ConcurrentMcpServer 
         )
         .typed_tool(
             "quality_run",
-            "Execute the bounded selected plan through registered executors. No arbitrary shell.",
+            "Execute repository-discovered registered runners with bounded argv, deadline, output, CAS evidence, and revision checks. Impacted widens to all until selection evidence is complete. No arbitrary shell.",
             schema_run(),
-            move |_ctx, input: RunCommand| tool_result(run.run(&input)),
+            move |ctx, input: RunCommand| {
+                let cancel = Arc::new(AtomicBool::new(false));
+                let completed = Arc::new(AtomicBool::new(false));
+                let watcher_cancel = Arc::clone(&cancel);
+                let watcher_completed = Arc::clone(&completed);
+                let watcher_context = ctx.clone();
+                let watcher = thread::spawn(move || {
+                    while !watcher_completed.load(Ordering::Acquire) {
+                        if watcher_context.is_cancelled() {
+                            watcher_cancel.store(true, Ordering::Release);
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                });
+                let reply = run.run_controlled(&input, cancel);
+                completed.store(true, Ordering::Release);
+                let _ = watcher.join();
+                tool_result(reply)
+            },
         )
         .typed_tool(
             "quality_status",

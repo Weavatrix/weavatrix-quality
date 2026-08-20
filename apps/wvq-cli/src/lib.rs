@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    Command, ContextCommand, DebtCommand, ExplainCommand, LiveService, PlanCommand, QualityService,
-    RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
+    Command, ContextCommand, DebtCommand, ExplainCommand, LiveService, ModelCommand, PlanCommand,
+    QualityService, RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -41,6 +41,7 @@ Usage:
   wvq [--repo PATH] analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
   wvq [--repo PATH] debt [--change ID]
   wvq [--repo PATH] select [--change ID]
+  wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID]
   wvq [--repo PATH] explain <id>
@@ -69,12 +70,22 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
             let value = args
                 .get(index)
                 .ok_or_else(|| format!("flag --{name} requires a value"))?;
-            flags.insert(name.to_owned(), value.clone());
+            if flags.insert(name.to_owned(), value.clone()).is_some() {
+                return Err(format!("flag --{name} was supplied more than once"));
+            }
             index += 1;
             continue;
         }
         positionals.push(item.clone());
         index += 1;
+    }
+    if let Some(allowed) = allowed_flags(&positionals)
+        && let Some(unknown) = flags.keys().find(|name| !allowed.contains(&name.as_str()))
+    {
+        return Err(format!(
+            "unknown flag --{unknown} for {}",
+            positionals.join(" ")
+        ));
     }
     let repo = flags
         .get("repo")
@@ -100,6 +111,11 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         }),
         [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change }),
         [cmd] if cmd == "select" => Command::Select(SelectCommand { change }),
+        [cmd] if cmd == "model" => Command::Model(ModelCommand {
+            change,
+            kind: required_flag(&flags, "kind")?,
+            prompt: required_flag(&flags, "prompt")?,
+        }),
         [cmd] if cmd == "run" => Command::Run(RunCommand {
             change,
             scope: flags
@@ -127,6 +143,31 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         }
     };
     Ok(CliRequest { repo, command })
+}
+
+fn required_flag(flags: &BTreeMap<String, String>, name: &str) -> Result<String, String> {
+    flags
+        .get(name)
+        .filter(|value| !value.is_empty())
+        .cloned()
+        .ok_or_else(|| format!("flag --{name} is required"))
+}
+
+fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
+    match positionals {
+        [spec, action] if spec == "spec" && matches!(action.as_str(), "validate" | "seal") => {
+            Some(&["repo", "change"])
+        }
+        [cmd] if cmd == "analyze" => Some(&["repo", "change", "purpose", "token-budget"]),
+        [cmd] if matches!(cmd.as_str(), "debt" | "select" | "verify" | "plan") => {
+            Some(&["repo", "change"])
+        }
+        [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
+        [cmd] if cmd == "run" => Some(&["repo", "change", "scope", "evidence-policy"]),
+        [cmd] if cmd == "status" => Some(&["repo"]),
+        [cmd, _] if cmd == "explain" => Some(&["repo"]),
+        _ => None,
+    }
 }
 
 fn parse_budget(raw: Option<&String>) -> Result<u64, String> {

@@ -2,10 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use wvq_runtime::{TestStatus, parse_go_json, parse_junit, parse_lcov};
+use wvq_runtime::{TestStatus, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov};
 
 fn fixture(parts: &[&str]) -> PathBuf {
-    let mut path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join("fixtures");
+    let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("fixtures");
     for part in parts {
         path.push(part);
     }
@@ -68,13 +70,30 @@ fn go_json_parses_pass_fail_skip() {
 }
 
 #[test]
+fn go_coverprofile_maps_measured_ranges() {
+    let coverage = parse_go_coverprofile(&read(&["go", "coverage.out"])).unwrap();
+    assert_eq!(coverage.files.len(), 1);
+    assert_eq!(coverage.files[0].path, "example.com/wvq/add.go");
+    assert_eq!(coverage.files[0].covered, [range(1, 3)]);
+    assert_eq!(coverage.files[0].uncovered, [range(5, 7)]);
+}
+
+#[test]
 fn malformed_and_truncated_evidence_is_rejected() {
     assert!(parse_junit("<testsuites><testcase").is_err());
     assert!(parse_junit("<testsuites><testcase time=\"1\"/></testsuites>").is_err());
     assert!(parse_lcov("DA:1,1\nend_of_record\n").is_err());
     assert!(parse_lcov("SF:src/a.js\nDA:1,1\n").is_err());
-    assert!(parse_go_json("{\"Action\":\"run\",\"Package\":\"p\",\"Test\":\"T\"}\n{\"Action\":\"run\"").is_err());
-    assert!(parse_go_json("{\"Action\":\"run\",\"Package\":\"p\",\"Test\":\"NeverFinishes\"}\n").is_err());
+    assert!(
+        parse_go_json("{\"Action\":\"run\",\"Package\":\"p\",\"Test\":\"T\"}\n{\"Action\":\"run\"")
+            .is_err()
+    );
+    assert!(
+        parse_go_json("{\"Action\":\"run\",\"Package\":\"p\",\"Test\":\"NeverFinishes\"}\n")
+            .is_err()
+    );
+    assert!(parse_go_coverprofile("mode: set\n").is_err());
+    assert!(parse_go_coverprofile("not-a-mode\nfile.go:1.1,2.1 1 1\n").is_err());
 }
 
 fn range(start: u32, end: u32) -> wvq_runtime::LineRange {

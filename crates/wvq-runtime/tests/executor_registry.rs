@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use wvq_runtime::{
     Executor, ExecutorId, ExecutorRegistry, ExecutorSpec, PrepareRequest, ProcessLimits,
-    RuntimeError, default_limits,
+    RuntimeError, default_limits, discover_executor_targets,
 };
 
 fn request(id: &str, extra: BTreeMap<String, String>) -> PrepareRequest {
@@ -24,7 +24,9 @@ fn request(id: &str, extra: BTreeMap<String, String>) -> PrepareRequest {
 #[test]
 fn unknown_executor_id_fails() {
     let registry = ExecutorRegistry::production().unwrap();
-    let err = registry.prepare(request("bash", BTreeMap::new())).unwrap_err();
+    let err = registry
+        .prepare(request("bash", BTreeMap::new()))
+        .unwrap_err();
     assert!(matches!(err, RuntimeError::UnknownExecutor(id) if id == "bash"));
 }
 
@@ -37,7 +39,14 @@ fn registered_go_test_gets_frozen_typed_argv() {
     assert_eq!(prepared.program, "go");
     assert_eq!(
         prepared.args,
-        ["test", "-json", "-run", "TestAdd"]
+        [
+            "test",
+            "-json",
+            "-coverprofile=.weavatrix-quality/go-cover.out",
+            "./...",
+            "-run",
+            "TestAdd"
+        ]
     );
     assert_eq!(
         registry
@@ -45,6 +54,27 @@ fn registered_go_test_gets_frozen_typed_argv() {
             .map(|caps| caps.cases),
         Some(true)
     );
+}
+
+#[test]
+fn repository_discovery_returns_only_registered_ids() {
+    let root = std::env::temp_dir().join(format!("wvq-discovery-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("web")).unwrap();
+    std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+    std::fs::write(
+        root.join("web/package.json"),
+        r#"{"scripts":{"test":"vitest run"},"devDependencies":{"vitest":"1"}}"#,
+    )
+    .unwrap();
+
+    let targets = discover_executor_targets(&root).unwrap();
+    let ids: Vec<&str> = targets
+        .iter()
+        .map(|target| target.executor.as_str())
+        .collect();
+    assert_eq!(ids, ["cargo-test", "npm-test"]);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -127,7 +157,9 @@ fn deadline_output_and_cancel_limits_are_enforced() {
     ));
 
     let cancelled = request("wvq-echo", BTreeMap::new());
-    cancelled.cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    cancelled
+        .cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let prepared = registry.prepare(cancelled).unwrap();
     assert!(matches!(
         registry.execute(&prepared),

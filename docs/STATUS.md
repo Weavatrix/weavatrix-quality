@@ -1,63 +1,51 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: sequential implementation (Tasks 1–35 done, plus the hypothesis engine)
+Session: live producer completion and public-release validation
 
 ## Now
 
-**All 35 tasks of the canonical plan are implemented, tested and committed.**
+All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are now part of `LiveService`, shared by the CLI, default MCP server, and Studio service.
 
-**Current task:** none in progress.
+Current release task: validate the whole workspace, commit without co-author trailers, push `main`, and verify the public CI result.
 
-**Next:** not more implementation. The plan's own §59 says the next step is a
-CI rollout in observe-only mode, and §62 says nothing may be called "10×" until
-human-effort data exists. Both are measurement, not code.
+Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
-## What is built
+## Live production path
 
-| Range | Delivers |
+| Producer | Live behavior |
 | --- | --- |
-| Tasks 1–3 | typed domain, `OpenSpec` change-delta reader, `OracleSeal` |
-| Tasks 4–9 | Weavatrix embed, Quality Debt Ratchet, `WVQ-ARCH/SIZE/DEAD/CLONE/GRAPH/API/HIST-*` |
-| Tasks 10–13 | JUnit/LCOV/`go test -json` normalization, bounded executors, coverage↔graph, minimal selection |
-| Tasks 14–17 | SQLite + CAS ledger, Proof engine, CLI + bounded MCP, shadow benchmark harness |
-| Tasks 18–21 | browser `TestProgram`, record/replay `BehaviorGraph`, Delta Triangle, flake triage + safe healing |
-| Tasks 22–23 | mutation, metamorphic relations, cheap explorer, AI Cost Firewall, Quality Studio |
-| Tasks 24–28 | `wvq-spec-recovery`: intent-evidence tiers, capability clustering, candidate verifier, mandatory QA review, recovery MCP + Studio |
-| Tasks 29–35 | dual-revision impact, test lineage, `ProtectionSnapshot`/`Delta`, flow-aware selection, `WVQ-PROTECT-001…012`, protection MCP + Studio |
-| beyond plan | defect-hypothesis engine with per-signal confidence |
+| execution | Discovers Cargo/npm/Vitest/Jest/Bun/Go/Playwright manifests and invokes only frozen bounded executor definitions |
+| selection | Combines Weavatrix head impact, base-only removed test evidence, and explicit obligation bindings; incomplete/unsafe filters widen to the full suite |
+| graph impact | Persists `graph_diff`, change impact, static selection, and `Impact(base) ∪ Impact(head) ∪ removed` at one exact revision |
+| coverage | Normalizes fresh LCOV/Go evidence, maps it to changed graph nodes, and persists a revision-bound `ProtectionSnapshot` |
+| evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
+| proof | Uses only the latest same-change, same-revision run; a green suite proves only obligations explicitly bound to executed tests |
+| debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
+| AI | Explicit CLI-only loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
 
-## What is deliberately not built
+`plan` reads existing same-revision proofs. `explain` resolves obligations, proofs, runs, selections, and debt findings with provenance. `status`, evidence handles, proofs, debt history, and AI usage survive a new process.
 
-The **producers**. Nothing yet feeds live `graph_diff` output into the impact
-union, real measured coverage into `FlowProtection`, or a real model into the AI
-budget. `charge()` and `put_ai_usage` are exercised only by tests, which is
-correct at this stage: the ordinary green path spends zero runtime tokens by
-design, so the AI callers appear only when the explorer's escape packet and the
-flake decision packet are wired to a model.
+## Safety invariants exercised
 
-The rules are built and tested. Connecting them to a live repository is the next
-layer of work.
+- no arbitrary shell over MCP;
+- large artifacts remain handles;
+- unknown schema versions, command values, stale/malformed evidence, revision drift, and incomplete graph diffs fail closed;
+- missing coverage is unmeasured, never uncovered;
+- a successful unbound suite remains `UNPROVEN`;
+- normal verification makes no model call and spends zero runtime tokens;
+- model calls accept loopback HTTP only and are refused before network I/O when budget cannot cover the reservation;
+- detector blocking requires `High` weight and per-signal `Confirmed` graph corroboration.
 
-## Measured, not assumed
+## Measured detector calibration
 
-A shadow run over sixty accepted, defect-free changes in a real repository:
+On sixty accepted, defect-free changes, text matching fired on 33–92% depending on category and the initial policy would have blocked 42% of clean changes. Graph-backed default-flip and retired-persisted-key categories fired on 5–8%. The graph promotes only the signal whose concrete symbol it names; `TestMovedWithImplementation` is never promoted.
 
-| Detector kind | Fired on | Verdict |
-| --- | ---: | --- |
-| text-matching (permissions, boundaries, folds, test co-change) | 33–92% | too noisy to gate |
-| graph-backed (default flip, retired persisted key) | 5–8% | usable |
+## Repository maintenance debt
 
-42% of clean changes would have been blocked by the first tuning. That is why
-`SignalConfidence` exists and why only `High` weight **and** `Confirmed`
-confidence may fail a build. Promote a category only after its precision is
-measured on the repository in question — spec §59 Stage C.
+- `cargo fmt --all -- --check` has roughly forty pre-existing formatting differences. This session formats only touched files so that unrelated churn is not mixed into the release.
+- `[profile.dev] debug = "line-tables-only"` remains in the workspace manifest to keep local build artifacts bounded.
 
-## Known debt in this repository
+## Load next
 
-- `cargo fmt --all -- --check` fails on roughly forty pre-existing files. The
-  drift predates the current work and was deliberately not mixed into feature
-  commits.
-- `[profile.dev] debug = "line-tables-only"` is set in the workspace manifest.
-  It cuts `target/` from about 3 GB to 1.35 GB; revert the line if full
-  debuginfo is wanted back.
+After public CI is green, load `docs/benchmark-methodology.md` for the requested real WVQ benchmark and the TypeScript runtime-boundary sections before designing the JS distribution package. Rust remains the authority for policy and proof semantics.

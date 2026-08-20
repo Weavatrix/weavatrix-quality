@@ -475,6 +475,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "weavatrix-clone"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bc69185652622f52eb602dd8bc9db258fd671b8f826b49449e6013e98014940"
+dependencies = [
+ "weavatrix-scan",
+]
+
+[[package]]
+name = "weavatrix-git"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3dce29c0f582ffc64d1a6c29811da58a33e8c7a4301217143db44c48a3d437ce"
+
+[[package]]
 name = "weavatrix-graph"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -496,7 +511,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "012e11bd65add5241c1c28d926cf7b457a3545888f629b5321527e93d01ca6ec"
 dependencies = [
  "blazingly-json",
+ "proc-macro2",
  "serde",
+ "syn 3.0.3",
+ "weavatrix-clone",
+ "weavatrix-git",
  "weavatrix-graph",
  "weavatrix-parse",
  "weavatrix-scan",
@@ -559,12 +578,15 @@ version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
+ "serde_yaml",
  "sha2",
  "thiserror",
  "wvq-domain",
  "wvq-intelligence",
  "wvq-proof",
+ "wvq-runtime",
  "wvq-spec",
+ "wvq-store",
 ]
 
 [[package]]
@@ -607,6 +629,7 @@ name = "wvq-proof"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
  "sha2",
  "thiserror",
  "wvq-domain",

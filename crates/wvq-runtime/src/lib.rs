@@ -5,7 +5,9 @@
 mod behavior;
 mod browser_protocol;
 mod diff;
+mod discovery;
 mod executor;
+mod gocover;
 mod gojson;
 mod junit;
 mod lcov;
@@ -24,10 +26,12 @@ pub use browser_protocol::{
 pub use diff::{
     AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta, replay_base_head,
 };
+pub use discovery::{ExecutorTarget, discover_executor_targets};
 pub use executor::{
     ExecutionResult, Executor, ExecutorCapabilities, ExecutorId, ExecutorRegistry, ExecutorSpec,
     PrepareRequest, PreparedRun, default_limits,
 };
+pub use gocover::parse_go_coverprofile;
 pub use gojson::parse_go_json;
 pub use junit::parse_junit;
 pub use lcov::parse_lcov;
