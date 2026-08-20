@@ -23,7 +23,60 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 8);
+    assert_eq!(store.schema_version().unwrap(), 9);
+}
+
+#[test]
+fn historical_test_node_candidates_require_repeated_exact_observations() {
+    let store = open_temp();
+    let first = RevisionId::new("rev-history-1").unwrap();
+    let second = RevisionId::new("rev-history-2").unwrap();
+    let first_run = wvq_domain::RunId::new("run-history-1").unwrap();
+    let second_run = wvq_domain::RunId::new("run-history-2").unwrap();
+    for (run_id, revision) in [(&first_run, &first), (&second_run, &second)] {
+        store
+            .put_run(&StoredRun {
+                id: run_id.clone(),
+                change_id: "selection-history".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: true,
+                outcome: "passed".into(),
+            })
+            .unwrap();
+    }
+    store
+        .observe_test_nodes(
+            &first_run,
+            "tests/cart.test.ts",
+            &["symbol:cart".into(), "symbol:voucher".into()],
+            &first,
+        )
+        .unwrap();
+    assert!(
+        store
+            .historical_tests_for_nodes(&["symbol:cart".into()], 2, 100)
+            .unwrap()
+            .is_empty(),
+        "one observation is not confident enough to affect selection"
+    );
+    store
+        .observe_test_nodes(
+            &second_run,
+            "tests/cart.test.ts",
+            &["symbol:cart".into()],
+            &second,
+        )
+        .unwrap();
+
+    let learned = store
+        .historical_tests_for_nodes(&["symbol:cart".into(), "symbol:unrelated".into()], 2, 100)
+        .unwrap();
+    assert_eq!(learned.len(), 1);
+    assert_eq!(learned[0].test_path, "tests/cart.test.ts");
+    assert_eq!(learned[0].matched_nodes, ["symbol:cart"]);
+    assert_eq!(learned[0].minimum_observations, 2);
+    assert_eq!(learned[0].last_revision, second);
 }
 
 #[test]

@@ -40,7 +40,8 @@ use wvq_spec_recovery::{
     TestIntentSummary, TestsDelta, VerifyContext, cluster, narrate,
 };
 use wvq_store::{
-    Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem, StoredTestCaseResult,
+    HistoricalTestCandidate, Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem,
+    StoredTestCaseResult,
 };
 
 use crate::commands::{
@@ -1398,14 +1399,16 @@ impl QualityService for LiveService {
         let browser_bindings = browser
             .as_ref()
             .map_or_else(Vec::new, browser_test_bindings);
+        let impact = live_impacted_surface(&graph_diff, &change_impact)?;
+        let historical_selection = historical_selection_candidates(&store, &impact)?;
         let live_selection = build_live_selection(
             &self.repo,
             &static_selection,
             &graph_diff,
             &obligation_needs,
             &browser_bindings,
+            &historical_selection,
         )?;
-        let impact = live_impacted_surface(&graph_diff, &change_impact)?;
         let browser_paths = browser_bindings
             .iter()
             .map(|binding| binding.path.clone())
@@ -1555,6 +1558,14 @@ impl QualityService for LiveService {
         put_json_run_artifact(
             &store,
             &run_id,
+            &format!("artifact-{}-selection-decision", run_id.as_str()),
+            "selection-decision",
+            &live_selection_report(&live_selection, historical_selection.len()),
+            &mut handles,
+        )?;
+        put_json_run_artifact(
+            &store,
+            &run_id,
             &format!("artifact-{}-protection-graph", run_id.as_str()),
             "weavatrix-protection-graph",
             &protection_graph,
@@ -1668,6 +1679,7 @@ impl QualityService for LiveService {
             &test_analytics.bytes,
             &mut handles,
         )?;
+        persist_dynamic_coverage_history(&store, &run_id, &before, &protection_graph, &records)?;
         if let Some(protection) = live_protection_snapshot(&before, &protection_graph, &records)? {
             put_json_run_artifact(
                 &store,
@@ -2173,6 +2185,16 @@ impl QualityService for LiveService {
                 "token_budget": 20000
             }),
         )?;
+        let change_impact = self.weavatrix_operation(
+            &revision,
+            "change_impact",
+            &json!({
+                "base_ref": range.base_ref,
+                "depth": 6,
+                "max_nodes": 100_000,
+                "precision": "graph"
+            }),
+        )?;
         let obligations: Vec<ObligationNeed> = compiled
             .obligations
             .iter()
@@ -2184,19 +2206,23 @@ impl QualityService for LiveService {
         let browser_bindings = load_browser_policy(&self.repo, &compiled.obligations)?
             .as_ref()
             .map_or_else(Vec::new, browser_test_bindings);
+        let impact = live_impacted_surface(&diff, &change_impact)?;
+        let store = self.store()?;
+        let historical_selection = historical_selection_candidates(&store, &impact)?;
         let selection = build_live_selection(
             &self.repo,
             &static_report,
             &diff,
             &obligations,
             &browser_bindings,
+            &historical_selection,
         )?;
         let selection_complete = selection.complete();
         Ok(SelectReply {
             base: range.base_ref,
             head: range.head_ref,
             revision: Some(revision.to_string()),
-            algorithm: "weavatrix-base-head-union+greedy-weighted-set-cover".into(),
+            algorithm: "weavatrix-base-head-history-union+greedy-weighted-set-cover".into(),
             selected: selection.selected,
             uncovered_mandatory: selection.uncovered_mandatory,
             explanations: selection.explanations,
@@ -4406,20 +4432,64 @@ fn static_and_base_tests(static_report: &Value, diff: &Value) -> (Vec<String>, V
     (selected, explanations)
 }
 
+fn historical_selection_candidates(
+    store: &Store,
+    impact: &wvq_intelligence::ImpactedSurface,
+) -> Result<Vec<HistoricalTestCandidate>, BusError> {
+    let mut candidates = store
+        .historical_tests_for_nodes(&impact.all_nodes(), 2, 100_000)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    candidates.sort_by(|left, right| {
+        right
+            .matched_nodes
+            .len()
+            .cmp(&left.matched_nodes.len())
+            .then_with(|| right.minimum_observations.cmp(&left.minimum_observations))
+            .then_with(|| left.test_path.cmp(&right.test_path))
+    });
+    candidates.truncate(500);
+    Ok(candidates)
+}
+
+fn merge_historical_selection(
+    repo: &Path,
+    historical: &[HistoricalTestCandidate],
+    selected: &mut Vec<String>,
+    explanations: &mut BTreeMap<String, BTreeSet<String>>,
+) {
+    for candidate in historical.iter().filter(|candidate| {
+        repo.join(&candidate.test_path).is_file() && is_test_path(&candidate.test_path)
+    }) {
+        let path = normalize_path(&candidate.test_path);
+        explanations
+            .entry(path.clone())
+            .or_default()
+            .insert(format!(
+                "selected by repeated measured coverage of {} impacted graph node(s), minimum {} observations, evidence revision {}",
+                candidate.matched_nodes.len(),
+                candidate.minimum_observations,
+                candidate.last_revision
+            ));
+        selected.push(path);
+    }
+}
+
 fn build_live_selection(
     repo: &Path,
     static_report: &Value,
     diff: &Value,
     obligations: &[ObligationNeed],
     additional_bindings: &[TestBinding],
+    historical: &[HistoricalTestCandidate],
 ) -> Result<LiveSelection, BusError> {
-    let (static_selected, static_explanations) = static_and_base_tests(static_report, diff);
+    let (mut static_selected, static_explanations) = static_and_base_tests(static_report, diff);
     let mut explanations = static_selected
         .iter()
         .cloned()
         .zip(static_explanations)
         .map(|(path, reasons)| (path, reasons.into_iter().collect::<BTreeSet<_>>()))
         .collect::<BTreeMap<_, _>>();
+    merge_historical_selection(repo, historical, &mut static_selected, &mut explanations);
     let known = obligations
         .iter()
         .map(|obligation| obligation.id.clone())
@@ -4505,6 +4575,29 @@ fn build_live_selection(
         uncovered_mandatory: plan.uncovered_mandatory,
         uncovered_all,
         bindings,
+    })
+}
+
+fn live_selection_report(selection: &LiveSelection, historical_candidates: usize) -> Value {
+    let selected = selection
+        .selected
+        .iter()
+        .zip(&selection.explanations)
+        .map(|(path, explanation)| {
+            json!({
+                "path": path,
+                "explanation": explanation,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "schema_v": 1,
+        "algorithm": "weavatrix-base-head-history-union+greedy-weighted-set-cover",
+        "selected": selected,
+        "historical_candidates": historical_candidates,
+        "minimum_history_observations": 2,
+        "uncovered_mandatory": selection.uncovered_mandatory,
+        "uncovered_obligations": selection.uncovered_all,
     })
 }
 
@@ -5305,6 +5398,52 @@ fn live_protection_snapshot(
     let snapshot = snapshot(revision, flows.into_values().collect())
         .map_err(|err| BusError::Runtime(err.to_string()))?;
     Ok(Some(snapshot))
+}
+
+fn persist_dynamic_coverage_history(
+    store: &Store,
+    run: &RunId,
+    revision: &RevisionId,
+    graph: &Value,
+    records: &[ExecutorRecord],
+) -> Result<(), BusError> {
+    let mut observations = BTreeMap::<String, BTreeSet<String>>::new();
+    for record in records
+        .iter()
+        .filter(|record| record.passed && record.selection.len() == 1)
+    {
+        let test = &record.selection[0];
+        if !is_test_path(test) {
+            continue;
+        }
+        for artifact in record
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "coverage")
+        {
+            let coverage: CoverageArtifact =
+                serde_json::from_slice(&artifact.bytes).map_err(|err| {
+                    BusError::Runtime(format!(
+                        "cannot decode normalized coverage {}: {err}",
+                        artifact.path
+                    ))
+                })?;
+            let mapped = map_coverage_to_nodes(Some(&coverage), graph)
+                .map_err(|err| BusError::Intelligence(err.to_string()))?;
+            observations.entry(test.clone()).or_default().extend(
+                mapped
+                    .into_iter()
+                    .filter(|node| node.measurement == CoverageMeasurement::Covered)
+                    .map(|node| node.node_id),
+            );
+        }
+    }
+    for (test, nodes) in observations {
+        store
+            .observe_test_nodes(run, &test, &nodes.into_iter().collect::<Vec<_>>(), revision)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+    }
+    Ok(())
 }
 
 fn measured_protection_flows(
@@ -6528,6 +6667,117 @@ mod tests {
         assert_eq!(flow.revision, "revision-1");
         assert_eq!(flow.covered_nodes, ["symbol:add"]);
         assert_eq!(flow.tests, ["executor:cargo-test@."]);
+    }
+
+    #[test]
+    fn dynamic_selection_learns_only_repeated_single_test_coverage() {
+        let root = TempDir::new("dynamic-selection-history");
+        let store = Store::open(&root.0).unwrap();
+        let revision = RevisionId::new("revision-dynamic-selection").unwrap();
+        let graph = json!({
+            "nodes": [{
+                "id": "symbol:add",
+                "span": {"file": "src/lib.rs", "start_line": 1, "end_line": 2}
+            }]
+        });
+        let coverage = CoverageArtifact {
+            files: vec![wvq_runtime::FileCoverage {
+                path: "src/lib.rs".into(),
+                covered: vec![wvq_runtime::LineRange { start: 1, end: 2 }],
+                uncovered: Vec::new(),
+            }],
+        };
+
+        for index in 1..=2 {
+            let run_id = RunId::new(format!("run-dynamic-selection-{index}")).unwrap();
+            store
+                .put_run(&StoredRun {
+                    id: run_id.clone(),
+                    change_id: "dynamic-selection".into(),
+                    revision: revision.clone(),
+                    status: "complete".into(),
+                    passed: true,
+                    outcome: "passed".into(),
+                })
+                .unwrap();
+            let mut exact = record("vitest");
+            exact.selection = vec!["tests/add.test.ts".into()];
+            exact.artifacts.push(ProducedArtifact {
+                kind: "coverage".into(),
+                path: "coverage#normalized".into(),
+                bytes: serde_json::to_vec(&coverage).unwrap(),
+            });
+            persist_dynamic_coverage_history(&store, &run_id, &revision, &graph, &[exact]).unwrap();
+        }
+
+        let learned = store
+            .historical_tests_for_nodes(&["symbol:add".into()], 2, 100)
+            .unwrap();
+        assert_eq!(learned.len(), 1);
+        assert_eq!(learned[0].test_path, "tests/add.test.ts");
+
+        let batch_run = RunId::new("run-dynamic-selection-batch").unwrap();
+        store
+            .put_run(&StoredRun {
+                id: batch_run.clone(),
+                change_id: "dynamic-selection".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: true,
+                outcome: "passed".into(),
+            })
+            .unwrap();
+        let mut batch = record("vitest");
+        batch.selection = vec!["tests/a.test.ts".into(), "tests/b.test.ts".into()];
+        batch.artifacts.push(ProducedArtifact {
+            kind: "coverage".into(),
+            path: "coverage#normalized".into(),
+            bytes: serde_json::to_vec(&coverage).unwrap(),
+        });
+        persist_dynamic_coverage_history(&store, &batch_run, &revision, &graph, &[batch]).unwrap();
+        assert_eq!(
+            store
+                .historical_tests_for_nodes(&["symbol:add".into()], 1, 100)
+                .unwrap()
+                .len(),
+            1,
+            "aggregate coverage from a multi-test batch is not attributed"
+        );
+    }
+
+    #[test]
+    fn repeated_dynamic_history_is_unioned_with_weavatrix_selection() {
+        let root = TempDir::new("dynamic-selection-union");
+        std::fs::create_dir_all(root.0.join("tests")).unwrap();
+        std::fs::write(root.0.join("tests/history.test.ts"), "test").unwrap();
+        let static_report = json!({"tests": []});
+        let diff = json!({
+            "counts": {
+                "nodes_added": 0,
+                "nodes_removed": 0,
+                "nodes_changed": 0,
+                "edges_added": 0,
+                "edges_removed": 0
+            },
+            "nodes": {"added": [], "removed": [], "changed": []},
+            "edges": {"added": [], "removed": []}
+        });
+        let selection = build_live_selection(
+            &root.0,
+            &static_report,
+            &diff,
+            &[],
+            &[],
+            &[HistoricalTestCandidate {
+                test_path: "tests/history.test.ts".into(),
+                matched_nodes: vec!["symbol:history".into()],
+                minimum_observations: 2,
+                last_revision: RevisionId::new("revision-history").unwrap(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(selection.selected, ["tests/history.test.ts"]);
+        assert!(selection.explanations[0][0].contains("repeated measured coverage"));
     }
 
     #[test]

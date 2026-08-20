@@ -60,6 +60,8 @@ An `impacted` run uses a filtered JS/Bun/Playwright subset only when every oblig
 
 Fresh normalized JUnit, Go, and typed browser results also feed persistent test analytics. WVQ records each exact executor/suite/test identity with its revision, outcome, and reported duration; clusters repeated failures by a stable fingerprint; and reports the slowest current cases with their historical mean. A test is called flaky only after the same identity has both passed and failed/errored in recorded history. The bounded `test-analytics` artifact stays in CAS, while `run` returns recorded, failed, flaky, and deterministically unclassified counts. This path makes no model call.
 
+Measured coverage can teach later selections without replacing Weavatrix. WVQ attributes graph nodes to a test only when a successful executor invocation ran exactly one test path; aggregate coverage from multi-test batches is never guessed onto each member. A historical test enters the base/head candidate union only after the same test-node relation was observed in two distinct runs. The bounded `selection-decision` artifact shows every chosen path, its evidence chain, the observation floor, and uncovered obligations.
+
 ## CLI
 
 ```text

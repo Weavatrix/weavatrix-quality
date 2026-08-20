@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -27,6 +27,20 @@ fn fixture_repo() -> PathBuf {
 
 struct TempRepo(PathBuf);
 
+static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
+
+fn unique_temp_repo(prefix: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let sequence = NEXT_TEMP_REPO.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "{prefix}-{}-{nanos}-{sequence}",
+        std::process::id()
+    ))
+}
+
 impl Drop for TempRepo {
     fn drop(&mut self) {
         let node_modules = self.0.join("node_modules");
@@ -43,11 +57,7 @@ impl Drop for TempRepo {
 }
 
 fn live_runner_repo() -> TempRepo {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("wvq-live-runner-{nanos}"));
+    let root = unique_temp_repo("wvq-live-runner");
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("openspec/changes/live-add/specs/arithmetic")).unwrap();
     std::fs::create_dir_all(root.join(".weavatrix-quality")).unwrap();
@@ -105,11 +115,7 @@ fn live_runner_repo() -> TempRepo {
 }
 
 fn live_coverage_runner_repo() -> TempRepo {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("wvq-live-coverage-{nanos}"));
+    let root = unique_temp_repo("wvq-live-coverage");
     std::fs::create_dir_all(root.join("src")).unwrap();
     std::fs::create_dir_all(root.join("openspec/changes/live-js/specs/arithmetic")).unwrap();
     std::fs::create_dir_all(root.join(".weavatrix-quality")).unwrap();
@@ -162,11 +168,7 @@ fn live_coverage_runner_repo() -> TempRepo {
 }
 
 fn live_browser_repo(base_url: &str) -> TempRepo {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("wvq-live-browser-{nanos}"));
+    let root = unique_temp_repo("wvq-live-browser");
     std::fs::create_dir_all(root.join("openspec/changes/live-browser/specs/ui")).unwrap();
     std::fs::create_dir_all(root.join(".weavatrix-quality/programs")).unwrap();
     std::fs::write(
@@ -590,7 +592,7 @@ fn live_select_unions_base_and_head_static_candidates() {
     assert!(!reply.executed);
     assert_eq!(
         reply.algorithm,
-        "weavatrix-base-head-union+greedy-weighted-set-cover"
+        "weavatrix-base-head-history-union+greedy-weighted-set-cover"
     );
     assert!(reply.revision.is_some());
     assert!(

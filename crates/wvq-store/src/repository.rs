@@ -1,5 +1,6 @@
 //! High-level evidence ledger: artifacts in CAS, proofs immutable.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -157,6 +158,19 @@ pub struct TestCaseStats {
     pub average_duration_ms: Option<u64>,
     /// True only after this exact identity has both passed and failed/errored.
     pub flaky: bool,
+}
+
+/// A test repeatedly observed covering one or more requested graph nodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoricalTestCandidate {
+    /// Repository-relative test path.
+    pub test_path: String,
+    /// Requested nodes with repeated measured coverage.
+    pub matched_nodes: Vec<String>,
+    /// Weakest observation count among the matched nodes.
+    pub minimum_observations: u64,
+    /// Deterministically selected exact revision from the matching observations.
+    pub last_revision: RevisionId,
 }
 
 impl Store {
@@ -439,6 +453,147 @@ impl Store {
             average_duration_ms: (duration_count > 0).then(|| to_u64(row.5) / duration_count),
             flaky: passes > 0 && failures.saturating_add(errors) > 0,
         })
+    }
+
+    /// Add one exact-test coverage observation for each measured graph node.
+    ///
+    /// Callers must only attribute aggregate coverage when exactly one test path
+    /// was executed; the store deliberately does not infer that condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns SQL or identity failures.
+    pub fn observe_test_nodes(
+        &self,
+        run_id: &RunId,
+        test_path: &str,
+        node_ids: &[String],
+        revision: &RevisionId,
+    ) -> Result<(), StoreError> {
+        if test_path.trim().is_empty() {
+            return Err(StoreError::Invalid("test path cannot be empty".into()));
+        }
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        for node in node_ids
+            .iter()
+            .filter(|node| !node.trim().is_empty())
+            .collect::<BTreeSet<_>>()
+        {
+            let inserted = tx
+                .execute(
+                    "INSERT OR IGNORE INTO test_node_observation_runs \
+                     (test_path, node_id, run_id, revision) VALUES (?1, ?2, ?3, ?4)",
+                    params![test_path, node, run_id.as_str(), revision.as_str()],
+                )
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            if inserted == 0 {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO test_node_observations \
+                     (test_path, node_id, observations, last_revision) VALUES (?1, ?2, 1, ?3) \
+                     ON CONFLICT(test_path, node_id) DO UPDATE SET \
+                     observations = observations + 1, last_revision = excluded.last_revision",
+                params![test_path, node, revision.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        tx.commit()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Find tests with repeated exact-test coverage of requested graph nodes.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unbounded/invalid queries and returns SQL or revision failures.
+    pub fn historical_tests_for_nodes(
+        &self,
+        node_ids: &[String],
+        minimum_observations: u64,
+        max_rows: usize,
+    ) -> Result<Vec<HistoricalTestCandidate>, StoreError> {
+        if minimum_observations == 0 || max_rows == 0 {
+            return Err(StoreError::Invalid(
+                "selection history requires positive observation and row limits".into(),
+            ));
+        }
+        let requested = node_ids
+            .iter()
+            .filter(|node| !node.trim().is_empty())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let mut merged = BTreeMap::<String, (BTreeSet<String>, u64, String)>::new();
+        let threshold = to_i64(minimum_observations)?;
+        let mut matched_rows = 0_usize;
+        for chunk in requested.iter().collect::<Vec<_>>().chunks(250) {
+            let placeholders = std::iter::repeat_n("?", chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT test_path, node_id, observations, last_revision \
+                 FROM test_node_observations WHERE observations >= ? \
+                 AND node_id IN ({placeholders}) ORDER BY test_path, node_id"
+            );
+            let mut values = Vec::<rusqlite::types::Value>::with_capacity(chunk.len() + 1);
+            values.push(rusqlite::types::Value::Integer(threshold));
+            values.extend(
+                chunk
+                    .iter()
+                    .map(|node| rusqlite::types::Value::Text((*node).clone())),
+            );
+            let mut statement = self
+                .conn
+                .prepare(&sql)
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            let rows = statement
+                .query_map(rusqlite::params_from_iter(values), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            for row in rows {
+                let (path, node, observations, revision) =
+                    row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+                matched_rows = matched_rows.saturating_add(1);
+                if matched_rows > max_rows {
+                    return Err(StoreError::Invalid(format!(
+                        "selection history exceeds {max_rows} matching rows"
+                    )));
+                }
+                let observations = to_u64(observations);
+                let entry = merged
+                    .entry(path)
+                    .or_insert_with(|| (BTreeSet::new(), observations, revision.clone()));
+                entry.0.insert(node);
+                entry.1 = entry.1.min(observations);
+                if revision > entry.2 {
+                    entry.2 = revision;
+                }
+            }
+        }
+        merged
+            .into_iter()
+            .map(
+                |(test_path, (matched_nodes, minimum_observations, revision))| {
+                    Ok(HistoricalTestCandidate {
+                        test_path,
+                        matched_nodes: matched_nodes.into_iter().collect(),
+                        minimum_observations,
+                        last_revision: RevisionId::new(revision)
+                            .map_err(|err| StoreError::Invalid(err.to_string()))?,
+                    })
+                },
+            )
+            .collect()
     }
 
     /// Link an artifact to its producing run.

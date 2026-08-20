@@ -15,6 +15,8 @@ Unreleased state: the authoring vertical, actual selected-vs-full benchmark runn
 
 Live test analytics are now wired rather than model-only. Every normalized JUnit/Go case and typed browser program is persisted with exact run/revision identity, outcome, and duration. Failure occurrences use stable fingerprints and the deterministic flake triage; mixed pass plus fail/error history is the only condition that marks an identity flaky. Each run emits a bounded CAS-backed `test-analytics` artifact with current outcomes, failure clusters, flaky histories, and the twenty slowest reported durations with historical means. `RunReply` exposes recorded/failed/flaky/unknown counts. This path uses zero runtime LLM tokens.
 
+Selection now consumes conservative measured history as a real producer. Successful coverage is attributed to a test-node pair only when an executor ran exactly one selected test path; a multi-test batch never teaches ambiguous per-test coverage. The pair must be seen in two distinct run ids before it joins the Weavatrix base/head union, and duplicate ingestion from one run cannot increase confidence. Candidate queries and persisted evidence are bounded; a `selection-decision` CAS artifact records the algorithm, selected paths, explanations, history count, observation floor, and uncovered obligations.
+
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
 
 The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the same broad graph case, impacted execution selected 41 of 42 available test files in one process and passed in 47.95 s; full execution passed in 46.82 s. This is a valid one-file reduction but not a speedup claim. Both used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
@@ -31,7 +33,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 349 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied.
+Current validation before the final workspace rerun: 352 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; affected-crate Clippy passes for all targets with warnings denied.
 
 ## JS/npm distribution
 
@@ -50,6 +52,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | --- | --- |
 | execution | Discovers Cargo/npm/Vitest/Jest/Bun/Go/Playwright manifests and invokes only frozen bounded executor definitions |
 | selection | Combines Weavatrix head impact, base-only removed test evidence, and explicit obligation bindings; incomplete/unsafe filters widen to the full suite |
+| selection history | Learns only repeated, single-test measured coverage and unions it with base/head evidence; ambiguous batches never train the selector |
 | graph impact | Persists `graph_diff`, change impact, static selection, and `Impact(base) ∪ Impact(head) ∪ removed` at one exact revision |
 | coverage | Normalizes fresh LCOV/Go evidence, maps it to changed graph nodes, and persists a revision-bound `ProtectionSnapshot` |
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
@@ -82,4 +85,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Finish the remaining reproduced competitor gaps: predictive selection confidence/defensive learning, persisted generated-test promotion and healing, and live mutation/behavior producers. Do not duplicate Rust policy/proof semantics in TypeScript.
+Finish the remaining reproduced competitor gaps: defensive full-run comparison and missed-test learning, persisted generated-test promotion and healing, and live mutation/behavior producers. Do not duplicate Rust policy/proof semantics in TypeScript.
