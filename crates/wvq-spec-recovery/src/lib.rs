@@ -14,9 +14,11 @@
 
 #![forbid(unsafe_code)]
 
+mod cluster;
 mod evidence;
 mod narrative;
 
+pub use cluster::{CapabilityCluster, ClusterBasis, CommitFacts, cluster};
 pub use evidence::{
     Confidence, ConfidenceLevel, EvidenceSource, EvidenceTier, IntentEvidence, assess,
     establishes_intent, strongest_tier,
