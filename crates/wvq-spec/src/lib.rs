@@ -15,6 +15,7 @@ pub use openspec::{
     SourceLocation, SpecError, read_change,
 };
 pub use quality_yaml::{
-    EvidenceKind, ObligationKind, QualityContract, RiskLevel, load_quality_contract,
+    EvidenceKind, ObligationKind, Predicate, PredicateTarget, QualityContract, RiskLevel,
+    StorageArea, load_quality_contract,
 };
 pub use seal::{OracleSeal, seal};

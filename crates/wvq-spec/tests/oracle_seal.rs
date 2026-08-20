@@ -2,9 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use wvq_spec::{
-    ObligationKind, compile_obligations, load_quality_contract, read_change, seal,
-};
+use wvq_spec::{ObligationKind, compile_obligations, load_quality_contract, read_change, seal};
 
 fn fixture_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -58,6 +56,26 @@ fn expected_invariant_change_alters_seal() {
         .find(|item| item.kind == ObligationKind::Invariant)
         .expect("fixture has an invariant");
     invariant.kind = ObligationKind::Behavioral;
+
+    let obligations = compile_obligations(&contract, &spec).unwrap();
+    let after = seal(&contract, &obligations, &spec).unwrap();
+    assert_ne!(before.digest, after.digest);
+}
+
+#[test]
+fn expected_predicate_change_alters_seal() {
+    let root = fixture_root();
+    let spec = read_change(&root, "sankey-others").unwrap();
+    let mut contract = load_quality_contract(&root, "sankey-others").unwrap();
+    let before = {
+        let obligations = compile_obligations(&contract, &spec).unwrap();
+        seal(&contract, &obligations, &spec).unwrap()
+    };
+
+    let obligation = &mut contract.requirements[0].scenarios[0].obligations[0];
+    obligation.expected = Some(wvq_spec::Predicate::RouteEquals {
+        value: "/not-sankey".into(),
+    });
 
     let obligations = compile_obligations(&contract, &spec).unwrap();
     let after = seal(&contract, &obligations, &spec).unwrap();

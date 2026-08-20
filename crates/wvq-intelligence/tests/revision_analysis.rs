@@ -49,6 +49,13 @@ fn operation_results_share_the_analyze_revision() {
 }
 
 #[test]
+fn indexed_files_are_quoted_from_the_authoritative_snapshot() {
+    let files = WeavatrixProvider.indexed_files(&tiny_js()).unwrap();
+    assert!(files.contains("src/add.js"), "{files:?}");
+    assert!(files.iter().all(|path| !path.starts_with(".git/")));
+}
+
+#[test]
 fn unknown_operation_fails_closed() {
     let err = WeavatrixProvider
         .operation(&tiny_js(), "invent_a_graph", &json!({}))

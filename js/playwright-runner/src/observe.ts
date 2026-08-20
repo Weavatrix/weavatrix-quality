@@ -16,8 +16,10 @@ export type Observation = {
   network: string[];
   console: string[];
   storage: Record<string, string>;
+  storage_available?: boolean;
   viewport?: string;
   screenshot_handle?: string;
+  screenshot_path?: string;
 };
 
 function allowed(when: CaptureWhen, failed: boolean): boolean {
@@ -34,9 +36,13 @@ export function filterObservation(
   const next = { ...observation };
   if (!allowed(policy.screenshot, failed)) {
     delete next.screenshot_handle;
+    delete next.screenshot_path;
   }
   if (!allowed(policy.network, failed)) next.network = [];
   if (!allowed(policy.console, failed)) next.console = [];
-  if (!allowed(policy.storage, failed)) next.storage = {};
+  if (!allowed(policy.storage, failed)) {
+    next.storage = {};
+    next.storage_available = false;
+  }
   return next;
 }

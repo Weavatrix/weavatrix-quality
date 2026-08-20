@@ -16,10 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: js/playwright-runner/package-lock.json
       - name: Install Rust 1.89
         run: |
           rustup toolchain install 1.89.0 --profile minimal --component clippy
           rustup default 1.89.0
+      - name: Install Playwright bridge and browser
+        working-directory: js/playwright-runner
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
       - name: Test workspace
         run: cargo test --workspace --locked
       - name: Clippy

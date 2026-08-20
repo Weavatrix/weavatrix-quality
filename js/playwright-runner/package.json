@@ -1,9 +1,27 @@
 {
   "name": "@weavatrix/playwright-runner",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "Thin Playwright bridge for Weavatrix Quality. No AI.",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "wvq-playwright-runner": "dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "test": "node --test --experimental-strip-types tests/protocol.test.ts"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test --experimental-strip-types tests/*.test.ts"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "typescript": "7.0.2"
   }
 }

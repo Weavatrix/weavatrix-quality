@@ -1,30 +1,130 @@
-/** Stdio host. Speaks the Rust/TS golden protocol. No AI. */
+#!/usr/bin/env node
+/** Stdio host. Speaks the Rust/TS golden protocol. */
 
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline";
-import { decodeRequest } from "./protocol.ts";
-import { executeStep, type Driver } from "./execute.ts";
-import { filterObservation, type EvidencePolicy, type Observation } from "./observe.ts";
+import { pathToFileURL } from "node:url";
+import { decodeRequest } from "./protocol.js";
+import { executeStep, type TestAction } from "./execute.js";
+import { filterObservation, type EvidencePolicy } from "./observe.js";
+import {
+  PlaywrightDriver,
+  type BrowserConfig,
+  type BrowserProgram,
+  type ProgramOracle,
+} from "./playwright.js";
 
-type Program = {
-  steps: Array<{ action: string } & Record<string, unknown>>;
-  evidence_policy?: EvidencePolicy;
-};
+type Reply =
+  | { type: "ok"; id: number; body: Record<string, unknown> }
+  | { type: "error"; id: number; error: string };
 
-const memory: { program?: Program; failed: boolean; route: string } = {
-  failed: false,
-  route: "",
-};
+class BridgeSession {
+  #initialized = false;
+  #program?: BrowserProgram;
+  #driver?: PlaywrightDriver;
+  #failed = false;
+  #finished = false;
 
-const driver: Driver = {
-  navigate(route) {
-    memory.route = route;
-  },
-  activate() {},
-  fill() {},
-  press() {},
-  assert() {},
-};
+  async handle(line: string): Promise<string> {
+    let id = 0;
+    try {
+      const request = decodeRequest(line);
+      id = request.id;
+      let body: Record<string, unknown> = {};
+      switch (request.method) {
+        case "initialize": {
+          const schema = request.params.schema_v ?? 1;
+          if (schema !== 1) throw new Error(`unknown bridge schema_v ${schema}`);
+          if (this.#initialized) throw new Error("bridge is already initialized");
+          this.#initialized = true;
+          body = { schema_v: 1, engine: "playwright" };
+          break;
+        }
+        case "prepare": {
+          this.#requireInitialized();
+          if (this.#driver) throw new Error("a program is already prepared");
+          const program = request.params.program as BrowserProgram;
+          const oracles = request.params.oracles as ProgramOracle[];
+          const config = request.params.config as BrowserConfig;
+          if (!Array.isArray(oracles)) throw new Error("prepare requires params.oracles");
+          this.#program = program;
+          this.#driver = await PlaywrightDriver.create(program, oracles, config);
+          for (const action of program.preconditions ?? []) {
+            await executeStep(this.#driver, action as TestAction);
+          }
+          body = { program: program.id, preconditions: program.preconditions?.length ?? 0 };
+          break;
+        }
+        case "execute_step": {
+          const { program, driver } = this.#requirePrepared();
+          const index = request.params.index;
+          if (!Number.isInteger(index) || Number(index) < 0) {
+            throw new Error("execute_step requires a non-negative integer index");
+          }
+          const action = program.steps[Number(index)];
+          if (!action) throw new Error("step index out of range");
+          try {
+            await executeStep(driver, action as TestAction);
+          } catch (error) {
+            this.#failed = true;
+            throw error;
+          }
+          body = { index, action: action.action };
+          break;
+        }
+        case "observe": {
+          const { program, driver } = this.#requirePrepared();
+          const failed = Boolean(request.params.failed) || this.#failed;
+          const raw = await driver.observe(failed);
+          body = filterObservation(raw, program.evidence_policy ?? defaultPolicy(), failed);
+          break;
+        }
+        case "finish": {
+          const { driver } = this.#requirePrepared();
+          body = await driver.finish();
+          this.#finished = true;
+          break;
+        }
+        case "cancel": {
+          if (this.#driver) await this.#driver.cancel();
+          this.#finished = true;
+          body = { cancelled: true };
+          break;
+        }
+        default: {
+          const unknown: never = request.method;
+          throw new Error(`unknown bridge method \`${unknown}\``);
+        }
+      }
+      return JSON.stringify({ type: "ok", id, body } satisfies Reply);
+    } catch (error) {
+      return JSON.stringify({
+        type: "error",
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      } satisfies Reply);
+    }
+  }
+
+  #requireInitialized(): void {
+    if (!this.#initialized) throw new Error("initialize must run first");
+    if (this.#finished) throw new Error("bridge session has finished");
+  }
+
+  #requirePrepared(): { program: BrowserProgram; driver: PlaywrightDriver } {
+    this.#requireInitialized();
+    if (!this.#program || !this.#driver) throw new Error("prepare must run first");
+    return { program: this.#program, driver: this.#driver };
+  }
+}
+
+const defaultSession = new BridgeSession();
+
+export async function handle(line: string): Promise<string> {
+  return defaultSession.handle(line);
+}
+
+export { BridgeSession };
 
 function defaultPolicy(): EvidencePolicy {
   return {
@@ -36,69 +136,10 @@ function defaultPolicy(): EvidencePolicy {
   };
 }
 
-function handle(line: string): string {
-  try {
-    const request = decodeRequest(line);
-    switch (request.method) {
-      case "initialize":
-        return JSON.stringify({ type: "ok", id: request.id, body: { schema_v: 1 } });
-      case "prepare":
-        memory.program = request.params.program as Program;
-        memory.failed = false;
-        return JSON.stringify({ type: "ok", id: request.id, body: {} });
-      case "execute_step": {
-        const index = Number(request.params.index);
-        const step = memory.program?.steps[index];
-        if (!step) {
-          return JSON.stringify({
-            type: "error",
-            id: request.id,
-            error: "step index out of range",
-          });
-        }
-        executeStep(driver, step as { action: string });
-        return JSON.stringify({ type: "ok", id: request.id, body: {} });
-      }
-      case "observe": {
-        const failed = Boolean(request.params.failed) || memory.failed;
-        const raw: Observation = {
-          route: memory.route || undefined,
-          network: [],
-          console: [],
-          storage: {},
-          screenshot_handle: "cas:unused",
-        };
-        const body = filterObservation(
-          raw,
-          memory.program?.evidence_policy ?? defaultPolicy(),
-          failed,
-        );
-        return JSON.stringify({ type: "ok", id: request.id, body });
-      }
-      case "finish":
-      case "cancel":
-        return JSON.stringify({ type: "ok", id: request.id, body: {} });
-      default:
-        return JSON.stringify({
-          type: "error",
-          id: request.id,
-          error: "unknown bridge method",
-        });
-    }
-  } catch (err) {
-    return JSON.stringify({
-      type: "error",
-      id: 0,
-      error: err instanceof Error ? err.message : String(err),
-    });
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const session = new BridgeSession();
+  const lines = createInterface({ input, crlfDelay: Infinity });
+  for await (const line of lines) {
+    output.write(`${await session.handle(line)}\n`);
   }
-}
-
-export { handle };
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const rl = createInterface({ input, crlfDelay: Infinity });
-  rl.on("line", (line) => {
-    output.write(`${handle(line)}\n`);
-  });
 }

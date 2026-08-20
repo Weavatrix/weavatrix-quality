@@ -118,6 +118,9 @@ pub struct Target {
     /// Component name hint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_hint: Option<String>,
+    /// Optional semantic scope resolved before this target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Box<Target>>,
     /// Last-resort CSS. Never `XPath`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_css: Option<String>,
@@ -125,16 +128,130 @@ pub struct Target {
 
 impl Target {
     fn validate(&self) -> Result<(), ProgramError> {
-        let empty = self.role.is_none()
-            && self.accessible_name.is_none()
-            && self.label.is_none()
-            && self.test_id.is_none()
-            && self.component_hint.is_none()
-            && self.fallback_css.is_none();
+        let identities = [
+            self.role.as_deref(),
+            self.accessible_name.as_deref(),
+            self.label.as_deref(),
+            self.test_id.as_deref(),
+            self.component_hint.as_deref(),
+            self.fallback_css.as_deref(),
+        ];
+        let empty = identities
+            .iter()
+            .flatten()
+            .all(|value| value.trim().is_empty());
         if empty {
             return Err(ProgramError::Invalid(
                 "target needs a semantic identity (test_id, role, name, label, or CSS fallback)"
                     .into(),
+            ));
+        }
+        if identities.iter().flatten().any(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            value.contains("xpath") || value.starts_with("//")
+        }) {
+            return Err(ProgramError::Invalid(
+                "XPath is not a TestProgram identity".into(),
+            ));
+        }
+        if let Some(scope) = &self.scope {
+            scope.validate()?;
+        }
+        Ok(())
+    }
+}
+
+/// Deterministic browser fault registered by a program.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FaultSpec {
+    /// Abort matching requests.
+    Abort {
+        /// URL substring.
+        url_contains: String,
+    },
+    /// Fulfil matching requests with a fixed response.
+    HttpResponse {
+        /// URL substring.
+        url_contains: String,
+        /// HTTP status.
+        status: u16,
+        /// Optional deterministic body.
+        #[serde(default)]
+        body: String,
+        /// Fixed response headers.
+        #[serde(default)]
+        headers: BTreeMap<String, String>,
+    },
+    /// Delay matching requests before continuing.
+    Delay {
+        /// URL substring.
+        url_contains: String,
+        /// Bounded delay.
+        delay_ms: u32,
+    },
+}
+
+impl FaultSpec {
+    fn validate(&self) -> Result<(), ProgramError> {
+        let (url, status, delay) = match self {
+            Self::Abort { url_contains } => (url_contains, None, None),
+            Self::HttpResponse {
+                url_contains,
+                status,
+                ..
+            } => (url_contains, Some(*status), None),
+            Self::Delay {
+                url_contains,
+                delay_ms,
+            } => (url_contains, None, Some(*delay_ms)),
+        };
+        if url.trim().is_empty() {
+            return Err(ProgramError::Invalid(
+                "fault URL fragment must be non-empty".into(),
+            ));
+        }
+        if status.is_some_and(|status| !(100..=599).contains(&status)) {
+            return Err(ProgramError::Invalid(
+                "fault HTTP status must be between 100 and 599".into(),
+            ));
+        }
+        if delay.is_some_and(|delay| delay == 0 || delay > 30_000) {
+            return Err(ProgramError::Invalid(
+                "fault delay_ms must be between 1 and 30000".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Registered direct API operation. URLs stay relative to the configured app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApiOperation {
+    /// HTTP method.
+    pub method: String,
+    /// Root-relative application path.
+    pub path: String,
+    /// Fixed request headers.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+}
+
+impl ApiOperation {
+    fn validate(&self) -> Result<(), ProgramError> {
+        if !matches!(
+            self.method.as_str(),
+            "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS"
+        ) {
+            return Err(ProgramError::Invalid(format!(
+                "unsupported API method `{}`",
+                self.method
+            )));
+        }
+        if !self.path.starts_with('/') || self.path.starts_with("//") {
+            return Err(ProgramError::Invalid(
+                "API operation path must be root-relative".into(),
             ));
         }
         Ok(())
@@ -143,7 +260,7 @@ impl Target {
 
 /// Wait predicate. Timeouts are explicit; no implicit sleeps in the IR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum WaitCondition {
     /// Target is visible.
     Visible {
@@ -159,7 +276,7 @@ pub enum WaitCondition {
 
 /// Typed action. Unknown `action` tags fail closed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
+#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TestAction {
     /// Open a route.
     Navigate {
@@ -273,8 +390,20 @@ pub struct TestProgram {
     pub source: ProgramSource,
     /// Sealed obligations this program may prove.
     pub obligations: Vec<ObligationId>,
+    /// Setup actions executed before the measured steps.
+    #[serde(default)]
+    pub preconditions: Vec<TestAction>,
     /// Ordered steps.
     pub steps: Vec<TestAction>,
+    /// Named deterministic data fixtures used by API operations.
+    #[serde(default)]
+    pub data: BTreeMap<String, serde_json::Value>,
+    /// Named network faults. `InjectFault` can only select one of these.
+    #[serde(default)]
+    pub faults: BTreeMap<String, FaultSpec>,
+    /// Named, root-relative API operations.
+    #[serde(default)]
+    pub api_operations: BTreeMap<String, ApiOperation>,
     /// Capture policy.
     #[serde(default)]
     pub evidence_policy: EvidencePolicy,
@@ -321,8 +450,57 @@ impl TestProgram {
                 "TestProgram needs at least one step".into(),
             ));
         }
-        for step in &self.steps {
+        for fault in self.faults.values() {
+            fault.validate()?;
+        }
+        for operation in self.api_operations.values() {
+            operation.validate()?;
+        }
+        if self
+            .preconditions
+            .iter()
+            .any(|action| matches!(action, TestAction::Assert { .. }))
+        {
+            return Err(ProgramError::Invalid(
+                "preconditions cannot assert an obligation".into(),
+            ));
+        }
+        let mut asserted = std::collections::BTreeSet::new();
+        for step in self.preconditions.iter().chain(&self.steps) {
             step.validate()?;
+            match step {
+                TestAction::Assert { obligation } if !self.obligations.contains(obligation) => {
+                    return Err(ProgramError::Invalid(format!(
+                        "assert names undeclared obligation `{obligation}`"
+                    )));
+                }
+                TestAction::Assert { obligation } => {
+                    asserted.insert(obligation.clone());
+                }
+                TestAction::InjectFault { fault } if !self.faults.contains_key(fault) => {
+                    return Err(ProgramError::Invalid(format!(
+                        "inject_fault names unknown fault `{fault}`"
+                    )));
+                }
+                TestAction::ApiCall { operation, input }
+                    if !self.api_operations.contains_key(operation)
+                        || !self.data.contains_key(input) =>
+                {
+                    return Err(ProgramError::Invalid(format!(
+                        "api_call requires registered operation `{operation}` and data `{input}`"
+                    )));
+                }
+                _ => {}
+            }
+        }
+        if let Some(missing) = self
+            .obligations
+            .iter()
+            .find(|obligation| !asserted.contains(*obligation))
+        {
+            return Err(ProgramError::Invalid(format!(
+                "declared obligation `{missing}` is never asserted"
+            )));
         }
         Ok(())
     }
@@ -346,6 +524,9 @@ pub struct Observation {
     /// Storage keys.
     #[serde(default)]
     pub storage: BTreeMap<String, String>,
+    /// Whether storage was instrumented for the current document.
+    #[serde(default)]
+    pub storage_available: bool,
     /// Viewport `WxH`.
     #[serde(default)]
     pub viewport: Option<String>,

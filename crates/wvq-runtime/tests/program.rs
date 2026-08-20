@@ -67,6 +67,76 @@ fn empty_target_is_rejected() {
 }
 
 #[test]
+fn blank_and_xpath_fallback_targets_are_rejected() {
+    for target in [r#"{"label":"  "}"#, r#"{"fallback_css":"//button"}"#] {
+        let raw = format!(
+            r#"{{
+                "schema_v": 1,
+                "id": "p1",
+                "source": "authored",
+                "obligations": ["others-visible"],
+                "steps": [
+                    {{ "action": "activate", "target": {target} }},
+                    {{ "action": "assert", "obligation": "others-visible" }}
+                ]
+            }}"#
+        );
+        let err = TestProgram::from_json(&raw).unwrap_err();
+        assert!(matches!(err, ProgramError::Invalid(_)), "{err}");
+    }
+}
+
+#[test]
+fn every_declared_obligation_must_be_asserted() {
+    let raw = r#"{
+        "schema_v": 1,
+        "id": "p1",
+        "source": "authored",
+        "obligations": ["others-visible"],
+        "steps": [{ "action": "navigate", "route": "/" }]
+    }"#;
+    let err = TestProgram::from_json(raw).unwrap_err();
+    assert!(matches!(err, ProgramError::Invalid(message) if message.contains("never asserted")));
+}
+
+#[test]
+fn runtime_actions_must_reference_registered_resources() {
+    for action in [
+        r#"{"action":"inject_fault","fault":"missing"}"#,
+        r#"{"action":"api_call","operation":"missing","input":"missing"}"#,
+    ] {
+        let raw = format!(
+            r#"{{
+                "schema_v": 1,
+                "id": "p1",
+                "source": "authored",
+                "obligations": ["others-visible"],
+                "steps": [
+                    {action},
+                    {{ "action": "assert", "obligation": "others-visible" }}
+                ]
+            }}"#
+        );
+        let err = TestProgram::from_json(&raw).unwrap_err();
+        assert!(matches!(err, ProgramError::Invalid(_)), "{err}");
+    }
+}
+
+#[test]
+fn assertions_cannot_hide_in_preconditions() {
+    let raw = r#"{
+        "schema_v": 1,
+        "id": "p1",
+        "source": "authored",
+        "obligations": ["others-visible"],
+        "preconditions": [{ "action": "assert", "obligation": "others-visible" }],
+        "steps": [{ "action": "navigate", "route": "/" }]
+    }"#;
+    let err = TestProgram::from_json(raw).unwrap_err();
+    assert!(matches!(err, ProgramError::Invalid(message) if message.contains("preconditions")));
+}
+
+#[test]
 fn unknown_schema_fails_closed() {
     let raw = r#"{
         "schema_v": 2,

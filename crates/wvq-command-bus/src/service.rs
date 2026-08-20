@@ -11,7 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use wvq_domain::{ArtifactId, ProofId, RevisionId, RunId};
+use wvq_domain::{ArtifactId, ProgramId, ProofId, RevisionId, RunId};
 use wvq_intelligence::{
     CodeEvidenceProvider, CoverageMeasurement, GraphDelta, ObligationNeed, SelectionInput,
     SurfaceDelta, TestCandidate, WeavatrixProvider, impacted_surface, map_coverage_to_nodes,
@@ -24,9 +24,10 @@ use wvq_proof::{
     TestLineageView, assemble, call_local_model, gate_protection, protection_delta, snapshot,
 };
 use wvq_runtime::{
-    CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget, PrepareRequest,
-    default_limits, discover_executor_targets, parse_go_coverprofile, parse_go_json, parse_junit,
-    parse_lcov,
+    BrowserProgramRun, BrowserRunConfig, CaptureWhen, CoverageArtifact, ExecutionResult,
+    ExecutorRegistry, ExecutorTarget, PrepareRequest, ProgramOracle, TestProgram, default_limits,
+    discover_executor_targets, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov,
+    run_browser_program,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -1028,6 +1029,39 @@ struct TestBinding {
     flake_penalty: u64,
 }
 
+struct BrowserPolicy {
+    base_url: String,
+    browser: String,
+    headless: bool,
+    timeout: Duration,
+    module_root: PathBuf,
+    programs: Vec<ConfiguredBrowserProgram>,
+}
+
+struct ConfiguredBrowserProgram {
+    path: String,
+    program: TestProgram,
+    oracles: Vec<ProgramOracle>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredBrowserProgramEvidence {
+    schema_v: u32,
+    program: String,
+    asserted: Vec<String>,
+    contradicted: Vec<String>,
+    present: Vec<EvidenceKind>,
+    observations: Vec<String>,
+}
+
+#[derive(Default)]
+struct BrowserProofEvidence {
+    programs: BTreeSet<String>,
+    present: Vec<EvidenceKind>,
+    observations: Vec<String>,
+    contradicted: bool,
+}
+
 struct ModelPolicy {
     model: LocalModelConfig,
     budget: AiBudget,
@@ -1132,9 +1166,14 @@ impl QualityService for LiveService {
         }
         let targets = discover_executor_targets(&self.repo)
             .map_err(|err| BusError::Runtime(err.to_string()))?;
-        if targets.is_empty() {
+        let browser = load_browser_policy(&self.repo, &compiled.obligations)?;
+        if targets.is_empty()
+            && browser
+                .as_ref()
+                .is_none_or(|policy| policy.programs.is_empty())
+        {
             return Err(BusError::Runtime(
-                "no supported registered executor was discovered from repository manifests".into(),
+                "no supported registered executor or browser TestProgram was discovered".into(),
             ));
         }
         let range = self.revision_range(&cmd.base, &cmd.head)?;
@@ -1180,15 +1219,28 @@ impl QualityService for LiveService {
                 high_risk: matches!(item.risk, RiskLevel::High | RiskLevel::Critical),
             })
             .collect();
+        let browser_bindings = browser
+            .as_ref()
+            .map_or_else(Vec::new, browser_test_bindings);
         let live_selection = build_live_selection(
             &self.repo,
             &static_selection,
             &graph_diff,
             &obligation_needs,
+            &browser_bindings,
         )?;
         let impact = live_impacted_surface(&graph_diff, &change_impact)?;
-        let (execution_requests, effective_scope, executed_tests) =
-            build_execution_requests(&self.repo, &targets, &live_selection, &cmd.scope);
+        let browser_paths = browser_bindings
+            .iter()
+            .map(|binding| binding.path.clone())
+            .collect::<BTreeSet<_>>();
+        let (execution_requests, effective_scope, executed_tests) = build_execution_requests(
+            &self.repo,
+            &targets,
+            &live_selection,
+            &browser_paths,
+            &cmd.scope,
+        );
         let mut records = Vec::new();
         for request in &execution_requests {
             let target = &request.target;
@@ -1242,6 +1294,41 @@ impl QualityService for LiveService {
             records.push(record);
         }
 
+        let mut browser_runs = Vec::new();
+        if let Some(policy) = &browser {
+            for configured in policy.programs.iter().filter(|program| {
+                executed_tests
+                    .as_ref()
+                    .is_none_or(|selected| selected.contains(&program.path))
+            }) {
+                let mut executable = configured.program.clone();
+                cap_browser_evidence(&mut executable, &cmd.evidence_policy);
+                let evidence_dir = self
+                    .repo
+                    .join(".weavatrix-quality")
+                    .join("browser-evidence")
+                    .join(safe_file_token(configured.program.id.as_str()));
+                let result = run_browser_program(
+                    &BrowserRunConfig {
+                        base_url: policy.base_url.clone(),
+                        browser: policy.browser.clone(),
+                        headless: policy.headless,
+                        timeout: policy.timeout,
+                        module_root: policy.module_root.clone(),
+                        runtime_dir: self
+                            .repo
+                            .join(".weavatrix-quality/runtime/playwright-runner"),
+                        evidence_dir,
+                        cancel: Arc::clone(&cancel),
+                    },
+                    &executable,
+                    &configured.oracles,
+                )
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+                browser_runs.push((configured, result));
+            }
+        }
+
         let after = self.revision()?;
         if before != after {
             return Err(BusError::Ambiguous(format!(
@@ -1250,7 +1337,9 @@ impl QualityService for LiveService {
         }
         let outcome = if records.iter().any(|record| record.error.is_some()) {
             "error"
-        } else if records.iter().all(|record| record.passed) {
+        } else if records.iter().all(|record| record.passed)
+            && browser_runs.iter().all(|(_, run)| run.passed)
+        {
             "passed"
         } else {
             "failed"
@@ -1300,12 +1389,13 @@ impl QualityService for LiveService {
             &graph_diff,
             &mut handles,
         )?;
-        let obligation_execution = obligation_execution_map(
+        let mut obligation_execution = obligation_execution_map(
             &self.repo,
             &targets,
             &live_selection.bindings,
             executed_tests.as_ref(),
         );
+        merge_browser_execution(&mut obligation_execution, &browser_runs)?;
         put_json_run_artifact(
             &store,
             &run_id,
@@ -1382,6 +1472,13 @@ impl QualityService for LiveService {
                 )?;
             }
         }
+        persist_browser_runs(
+            &store,
+            &run_id,
+            &browser_runs,
+            &cmd.evidence_policy,
+            &mut handles,
+        )?;
         if let Some(protection) = live_protection_snapshot(&before, &protection_graph, &records)? {
             put_json_run_artifact(
                 &store,
@@ -1402,6 +1499,7 @@ impl QualityService for LiveService {
             &cmd.evidence_policy,
             outcome,
             &records,
+            &browser_runs,
         )?;
         put_run_artifact(
             &store,
@@ -1504,6 +1602,7 @@ impl QualityService for LiveService {
         };
         let mut present = Vec::new();
         let mut obligation_execution = BTreeMap::<String, Vec<String>>::new();
+        let mut browser_evidence = BTreeMap::<String, BrowserProofEvidence>::new();
         for artifact in &artifact_ids {
             let (record, bytes) = store
                 .read_artifact(artifact)
@@ -1521,6 +1620,9 @@ impl QualityService for LiveService {
                 }
                 obligation_execution = parse_obligation_execution_map(&bytes)?;
             }
+            if record.kind == "browser-program-evidence" {
+                merge_browser_proof_evidence(&mut browser_evidence, &bytes)?;
+            }
         }
         let mut proofs = Vec::new();
         let mut verdicts = Vec::new();
@@ -1531,17 +1633,26 @@ impl QualityService for LiveService {
             );
             let id = ProofId::new(format!("proof-{}-{proof_suffix}", obligation.id))
                 .map_err(|err| BusError::Identity(err.to_string()))?;
+            let browser = browser_evidence.get(obligation.id.as_str());
+            let mut obligation_present = present.clone();
+            if let Some(browser) = browser {
+                for kind in &browser.present {
+                    if !obligation_present.contains(kind) {
+                        obligation_present.push(*kind);
+                    }
+                }
+            }
             let execution = if obligation_execution
                 .get(obligation.id.as_str())
                 .is_some_and(|tests| !tests.is_empty())
             {
                 match &run {
                     Some(run) if run.passed => ExecutionEvidence::Passed {
-                        present: present.clone(),
+                        present: obligation_present,
                     },
                     Some(_) => ExecutionEvidence::Failed {
-                        seal_contradicted: false,
-                        present: present.clone(),
+                        seal_contradicted: browser.is_some_and(|evidence| evidence.contradicted),
+                        present: obligation_present,
                     },
                     None => ExecutionEvidence::Absent,
                 }
@@ -1555,9 +1666,16 @@ impl QualityService for LiveService {
                 obligation: obligation.id.clone(),
                 oracle_seal: oracle.id.clone(),
                 revision: revision.clone(),
-                program: None,
+                program: browser
+                    .filter(|evidence| evidence.programs.len() == 1)
+                    .and_then(|evidence| evidence.programs.first())
+                    .map(ProgramId::new)
+                    .transpose()
+                    .map_err(|err| BusError::Identity(err.to_string()))?,
                 run: run.as_ref().map(|item| item.id.clone()),
-                observations: Vec::new(),
+                observations: browser
+                    .map(|evidence| evidence.observations.clone())
+                    .unwrap_or_default(),
                 artifacts: artifact_ids.clone(),
                 required_evidence: obligation.required_evidence.clone(),
                 execution,
@@ -1860,7 +1978,16 @@ impl QualityService for LiveService {
                 high_risk: matches!(item.risk, RiskLevel::High | RiskLevel::Critical),
             })
             .collect();
-        let selection = build_live_selection(&self.repo, &static_report, &diff, &obligations)?;
+        let browser_bindings = load_browser_policy(&self.repo, &compiled.obligations)?
+            .as_ref()
+            .map_or_else(Vec::new, browser_test_bindings);
+        let selection = build_live_selection(
+            &self.repo,
+            &static_report,
+            &diff,
+            &obligations,
+            &browser_bindings,
+        )?;
         let selection_complete = selection.complete();
         Ok(SelectReply {
             base: range.base_ref,
@@ -2227,9 +2354,12 @@ fn protection_graph_for_files(
     revision: &RevisionId,
     files: &[String],
 ) -> Result<Value, BusError> {
+    let indexed = WeavatrixProvider
+        .indexed_files(repo)
+        .map_err(|err| BusError::Intelligence(err.to_string()))?;
     let seeds = files
         .iter()
-        .filter(|path| repo.join(path).is_file())
+        .filter(|path| repo.join(path).is_file() && indexed.contains(path.as_str()))
         .map(|path| format!("file:{path}"))
         .collect::<Vec<_>>();
     if seeds.is_empty() {
@@ -2921,6 +3051,290 @@ fn load_test_bindings(repo: &Path) -> Result<Vec<TestBinding>, BusError> {
     Ok(out)
 }
 
+fn load_browser_policy(
+    repo: &Path,
+    obligations: &[TestObligation],
+) -> Result<Option<BrowserPolicy>, BusError> {
+    let path = repo.join(".weavatrix-quality").join("config.yaml");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => {
+            return Err(BusError::Runtime(format!(
+                "cannot read quality policy {}: {err}",
+                path.display()
+            )));
+        }
+    };
+    let value: serde_yaml::Value = serde_yaml::from_str(&raw).map_err(|err| {
+        BusError::Runtime(format!("invalid quality policy {}: {err}", path.display()))
+    })?;
+    let root = value.as_mapping().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} must be a mapping",
+            path.display()
+        ))
+    })?;
+    let version = yaml_get(root, "quality_policy_v")
+        .and_then(serde_yaml::Value::as_u64)
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} is missing quality_policy_v",
+                path.display()
+            ))
+        })?;
+    if version != 1 {
+        return Err(BusError::Runtime(format!(
+            "unknown quality_policy_v {version} in {}",
+            path.display()
+        )));
+    }
+    let Some(browser) = yaml_get(root, "browser") else {
+        return Ok(None);
+    };
+    let browser = browser.as_mapping().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} browser must be a mapping",
+            path.display()
+        ))
+    })?;
+    let mut policy = parse_browser_runtime(repo, &path, browser)?;
+    policy.programs = parse_browser_programs(repo, &path, browser, obligations)?;
+    Ok(Some(policy))
+}
+
+fn parse_browser_runtime(
+    repo: &Path,
+    path: &Path,
+    browser: &serde_yaml::Mapping,
+) -> Result<BrowserPolicy, BusError> {
+    let allowed = [
+        "base_url",
+        "engine",
+        "headless",
+        "timeout_ms",
+        "module_root",
+        "programs",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    if let Some(unknown) = browser
+        .keys()
+        .filter_map(serde_yaml::Value::as_str)
+        .find(|key| !allowed.contains(key))
+    {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser has unknown field {unknown}",
+            path.display()
+        )));
+    }
+    let base_url = yaml_required_runtime_string(browser, "base_url", path)?;
+    if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.base_url must use http or https",
+            path.display()
+        )));
+    }
+    let engine = yaml_get(browser, "engine")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("chromium")
+        .to_owned();
+    if !matches!(engine.as_str(), "chromium" | "firefox" | "webkit") {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} has unknown browser engine {engine}",
+            path.display()
+        )));
+    }
+    let headless = yaml_get(browser, "headless").map_or(Ok(true), |value| {
+        value.as_bool().ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser.headless must be boolean",
+                path.display()
+            ))
+        })
+    })?;
+    let timeout_ms = yaml_get(browser, "timeout_ms").map_or(Ok(30_000), |value| {
+        value
+            .as_u64()
+            .filter(|timeout| (1..=120_000).contains(timeout))
+            .ok_or_else(|| {
+                BusError::Runtime(format!(
+                    "quality policy {} browser.timeout_ms must be between 1 and 120000",
+                    path.display()
+                ))
+            })
+    })?;
+    let module_root_raw = yaml_get(browser, "module_root")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or(".");
+    let (_, module_root) = checked_repo_path(repo, module_root_raw, "browser.module_root")?;
+    if !module_root.join("package.json").is_file() {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.module_root has no package.json: {}",
+            path.display(),
+            module_root.display()
+        )));
+    }
+    Ok(BrowserPolicy {
+        base_url,
+        browser: engine,
+        headless,
+        timeout: Duration::from_millis(timeout_ms),
+        module_root,
+        programs: Vec::new(),
+    })
+}
+
+fn parse_browser_programs(
+    repo: &Path,
+    path: &Path,
+    browser: &serde_yaml::Mapping,
+    obligations: &[TestObligation],
+) -> Result<Vec<ConfiguredBrowserProgram>, BusError> {
+    let programs = yaml_get(browser, "programs")
+        .and_then(serde_yaml::Value::as_sequence)
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser.programs must be a non-empty list",
+                path.display()
+            ))
+        })?;
+    if programs.is_empty() {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.programs must be a non-empty list",
+            path.display()
+        )));
+    }
+    let known = obligations
+        .iter()
+        .map(|obligation| (obligation.id.as_str(), obligation))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen_paths = BTreeSet::new();
+    let mut seen_ids = BTreeSet::new();
+    let mut configured = Vec::new();
+    for (index, item) in programs.iter().enumerate() {
+        let raw_path = item
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                BusError::Runtime(format!(
+                    "quality policy {} browser program {} must be a path string",
+                    path.display(),
+                    index + 1
+                ))
+            })?;
+        let (program_path, absolute) = checked_repo_path(repo, raw_path, "browser program path")?;
+        if !seen_paths.insert(program_path.clone()) {
+            return Err(BusError::Runtime(format!(
+                "quality policy {} repeats browser program {program_path}",
+                path.display()
+            )));
+        }
+        let raw = std::fs::read_to_string(&absolute).map_err(|err| {
+            BusError::Runtime(format!(
+                "cannot read browser TestProgram {}: {err}",
+                absolute.display()
+            ))
+        })?;
+        let program = TestProgram::from_json(&raw)
+            .map_err(|err| BusError::Runtime(format!("{}: {err}", absolute.display())))?;
+        if !seen_ids.insert(program.id.to_string()) {
+            return Err(BusError::Runtime(format!(
+                "duplicate browser TestProgram id {}",
+                program.id
+            )));
+        }
+        let mut oracles = Vec::new();
+        for obligation in &program.obligations {
+            let sealed = known.get(obligation.as_str()).ok_or_else(|| {
+                BusError::Runtime(format!(
+                    "browser TestProgram {} names unknown obligation {obligation}",
+                    program.id
+                ))
+            })?;
+            let expected = sealed.expected.as_ref().ok_or_else(|| {
+                BusError::Runtime(format!(
+                    "browser TestProgram {} cannot assert {obligation}: quality.yaml has no sealed expected predicate",
+                    program.id
+                ))
+            })?;
+            oracles.push(ProgramOracle {
+                obligation: obligation.clone(),
+                condition: sealed
+                    .condition
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+                expected: serde_json::to_value(expected)
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+            });
+        }
+        configured.push(ConfiguredBrowserProgram {
+            path: program_path,
+            program,
+            oracles,
+        });
+    }
+    Ok(configured)
+}
+
+fn browser_test_bindings(policy: &BrowserPolicy) -> Vec<TestBinding> {
+    policy
+        .programs
+        .iter()
+        .map(|configured| TestBinding {
+            path: configured.path.clone(),
+            obligations: configured
+                .program
+                .obligations
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            cost: 500,
+            flake_penalty: 0,
+        })
+        .collect()
+}
+
+fn checked_repo_path(repo: &Path, raw: &str, label: &str) -> Result<(String, PathBuf), BusError> {
+    let normalized = normalize_path(raw);
+    let path = Path::new(&normalized);
+    if normalized.is_empty()
+        || path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return Err(BusError::Runtime(format!(
+            "{label} must stay repository-relative"
+        )));
+    }
+    Ok((normalized.clone(), repo.join(normalized)))
+}
+
+fn yaml_required_runtime_string(
+    mapping: &serde_yaml::Mapping,
+    key: &str,
+    path: &Path,
+) -> Result<String, BusError> {
+    yaml_get(mapping, key)
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser.{key} must be non-empty",
+                path.display()
+            ))
+        })
+}
+
 fn load_model_policy(repo: &Path) -> Result<ModelPolicy, BusError> {
     let path = repo.join(".weavatrix-quality").join("config.yaml");
     let raw = std::fs::read_to_string(&path).map_err(|err| {
@@ -3285,6 +3699,7 @@ fn build_live_selection(
     static_report: &Value,
     diff: &Value,
     obligations: &[ObligationNeed],
+    additional_bindings: &[TestBinding],
 ) -> Result<LiveSelection, BusError> {
     let (static_selected, static_explanations) = static_and_base_tests(static_report, diff);
     let mut explanations = static_selected
@@ -3298,7 +3713,9 @@ fn build_live_selection(
         .map(|obligation| obligation.id.clone())
         .collect::<BTreeSet<_>>();
     let mut merged = BTreeMap::<String, TestBinding>::new();
-    for binding in load_test_bindings(repo)? {
+    let mut configured_bindings = load_test_bindings(repo)?;
+    configured_bindings.extend(additional_bindings.iter().cloned());
+    for binding in configured_bindings {
         if let Some(unknown) = binding
             .obligations
             .iter()
@@ -3383,6 +3800,7 @@ fn build_execution_requests(
     repo: &Path,
     targets: &[ExecutorTarget],
     selection: &LiveSelection,
+    browser_paths: &BTreeSet<String>,
     requested_scope: &str,
 ) -> (Vec<ExecutionRequest>, String, Option<BTreeSet<String>>) {
     if requested_scope != "impacted" || !selection.complete() || selection.selected.is_empty() {
@@ -3391,6 +3809,10 @@ fn build_execution_requests(
     let mut requests = BTreeMap::<(String, String, String), ExecutionRequest>::new();
     let mut executed = BTreeSet::new();
     for selected in &selection.selected {
+        if browser_paths.contains(selected) {
+            executed.insert(selected.clone());
+            continue;
+        }
         let absolute = repo.join(selected);
         if !absolute.is_file() {
             return full_execution_requests(targets);
@@ -3427,7 +3849,7 @@ fn build_execution_requests(
         );
         executed.insert(selected.clone());
     }
-    if requests.is_empty() {
+    if requests.is_empty() && executed.is_empty() {
         full_execution_requests(targets)
     } else {
         (
@@ -3623,6 +4045,221 @@ fn obligation_execution_map(
     })
 }
 
+fn merge_browser_execution(
+    map: &mut Value,
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+) -> Result<(), BusError> {
+    let obligations = map
+        .get_mut("obligations")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| BusError::Runtime("obligation execution map is malformed".into()))?;
+    for (configured, run) in browser_runs {
+        for obligation in run.asserted.iter().chain(&run.contradicted) {
+            let tests = obligations
+                .entry(obligation.clone())
+                .or_insert_with(|| Value::Array(Vec::new()))
+                .as_array_mut()
+                .ok_or_else(|| {
+                    BusError::Runtime(format!(
+                        "obligation execution entry {obligation} is not an array"
+                    ))
+                })?;
+            if !tests
+                .iter()
+                .any(|test| test.as_str() == Some(configured.path.as_str()))
+            {
+                tests.push(Value::String(configured.path.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn persist_browser_runs(
+    store: &Store,
+    run_id: &RunId,
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+    run_evidence_policy: &str,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let keep_normalized = run_evidence_policy != "none";
+    for (program_index, (configured, result)) in browser_runs.iter().enumerate() {
+        let token = safe_file_token(configured.program.id.as_str());
+        let mut observation_handles = Vec::new();
+        if keep_normalized {
+            for (index, observation) in result.observations.iter().enumerate() {
+                let id = format!(
+                    "artifact-{}-browser-{program_index}-observation-{index}",
+                    run_id.as_str()
+                );
+                put_json_run_artifact(
+                    store,
+                    run_id,
+                    &id,
+                    "browser-observation",
+                    observation,
+                    handles,
+                )?;
+                observation_handles.push(id);
+            }
+        }
+        for (index, path) in result.screenshot_paths.iter().enumerate() {
+            if keep_normalized {
+                let bytes = std::fs::read(path).map_err(|err| {
+                    BusError::Runtime(format!(
+                        "cannot import browser screenshot {}: {err}",
+                        path.display()
+                    ))
+                })?;
+                put_run_artifact(
+                    store,
+                    run_id,
+                    &format!(
+                        "artifact-{}-browser-{program_index}-screenshot-{index}",
+                        run_id.as_str()
+                    ),
+                    "screenshot",
+                    &bytes,
+                    handles,
+                )?;
+            }
+            remove_browser_evidence_file(path)?;
+        }
+        if let Some(path) = &result.trace_path {
+            if keep_normalized {
+                let bytes = std::fs::read(path).map_err(|err| {
+                    BusError::Runtime(format!(
+                        "cannot import browser trace {}: {err}",
+                        path.display()
+                    ))
+                })?;
+                put_run_artifact(
+                    store,
+                    run_id,
+                    &format!("artifact-{}-browser-{program_index}-trace", run_id.as_str()),
+                    "playwright-trace",
+                    &bytes,
+                    handles,
+                )?;
+            }
+            remove_browser_evidence_file(path)?;
+        }
+        let evidence = StoredBrowserProgramEvidence {
+            schema_v: 1,
+            program: configured.program.id.to_string(),
+            asserted: result.asserted.clone(),
+            contradicted: result.contradicted.clone(),
+            present: browser_evidence_kinds(configured, result, run_evidence_policy),
+            observations: observation_handles,
+        };
+        put_json_run_artifact(
+            store,
+            run_id,
+            &format!(
+                "artifact-{}-browser-{program_index}-{token}",
+                run_id.as_str()
+            ),
+            "browser-program-evidence",
+            &evidence,
+            handles,
+        )?;
+    }
+    Ok(())
+}
+
+fn browser_evidence_kinds(
+    configured: &ConfiguredBrowserProgram,
+    result: &BrowserProgramRun,
+    run_evidence_policy: &str,
+) -> Vec<EvidenceKind> {
+    let failed = !result.passed;
+    let policy = &configured.program.evidence_policy;
+    let mut present = Vec::new();
+    if result
+        .observations
+        .iter()
+        .any(|observation| observation.a11y_digest.is_some())
+    {
+        present.push(EvidenceKind::Dom);
+    }
+    if browser_capture_active(policy.network, failed, run_evidence_policy) {
+        present.push(EvidenceKind::Network);
+    }
+    if browser_capture_active(policy.console, failed, run_evidence_policy) {
+        present.push(EvidenceKind::Console);
+    }
+    if browser_capture_active(policy.storage, failed, run_evidence_policy)
+        && result
+            .observations
+            .iter()
+            .any(|observation| observation.storage_available)
+    {
+        present.push(EvidenceKind::Storage);
+    }
+    if run_evidence_policy != "none" && !result.screenshot_paths.is_empty() {
+        present.push(EvidenceKind::Screenshot);
+    }
+    if run_evidence_policy != "none" && result.trace_path.is_some() {
+        present.push(EvidenceKind::Trace);
+    }
+    present.sort_by_key(|kind| format!("{kind:?}"));
+    present.dedup();
+    present
+}
+
+fn remove_browser_evidence_file(path: &Path) -> Result<(), BusError> {
+    std::fs::remove_file(path).map_err(|err| {
+        BusError::Runtime(format!(
+            "cannot remove imported browser evidence {}: {err}",
+            path.display()
+        ))
+    })
+}
+
+fn capture_active(policy: CaptureWhen, failed: bool) -> bool {
+    matches!(policy, CaptureWhen::Always) || (failed && matches!(policy, CaptureWhen::OnFailure))
+}
+
+fn browser_capture_active(policy: CaptureWhen, failed: bool, run_policy: &str) -> bool {
+    match run_policy {
+        "standard" => capture_active(policy, failed),
+        "minimal" => failed && !matches!(policy, CaptureWhen::Never),
+        _ => false,
+    }
+}
+
+fn cap_browser_evidence(program: &mut TestProgram, run_policy: &str) {
+    let cap = |capture: CaptureWhen| match run_policy {
+        "minimal" if matches!(capture, CaptureWhen::Always) => CaptureWhen::OnFailure,
+        "standard" | "minimal" => capture,
+        _ => CaptureWhen::Never,
+    };
+    program.evidence_policy.screenshot = cap(program.evidence_policy.screenshot);
+    program.evidence_policy.trace = cap(program.evidence_policy.trace);
+    program.evidence_policy.network = cap(program.evidence_policy.network);
+    program.evidence_policy.console = cap(program.evidence_policy.console);
+    program.evidence_policy.storage = cap(program.evidence_policy.storage);
+}
+
+fn safe_file_token(value: &str) -> String {
+    let token = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .take(100)
+        .collect::<String>();
+    if token.is_empty() {
+        "program".into()
+    } else {
+        token
+    }
+}
+
 fn parse_obligation_execution_map(bytes: &[u8]) -> Result<BTreeMap<String, Vec<String>>, BusError> {
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|err| BusError::Store(format!("invalid obligation execution map: {err}")))?;
@@ -3660,6 +4297,47 @@ fn parse_obligation_execution_map(bytes: &[u8]) -> Result<BTreeMap<String, Vec<S
             Ok((obligation.clone(), tests))
         })
         .collect()
+}
+
+fn merge_browser_proof_evidence(
+    evidence: &mut BTreeMap<String, BrowserProofEvidence>,
+    bytes: &[u8],
+) -> Result<(), BusError> {
+    let stored: StoredBrowserProgramEvidence = serde_json::from_slice(bytes)
+        .map_err(|err| BusError::Store(format!("invalid browser program evidence: {err}")))?;
+    if stored.schema_v != 1 {
+        return Err(BusError::Store(format!(
+            "unknown browser program evidence schema {}",
+            stored.schema_v
+        )));
+    }
+    if stored.asserted.iter().any(|obligation| {
+        stored
+            .contradicted
+            .iter()
+            .any(|contradicted| contradicted == obligation)
+    }) {
+        return Err(BusError::Store(format!(
+            "browser program {} both asserted and contradicted one obligation",
+            stored.program
+        )));
+    }
+    for obligation in stored.asserted.iter().chain(&stored.contradicted) {
+        let entry = evidence.entry(obligation.clone()).or_default();
+        entry.programs.insert(stored.program.clone());
+        for kind in &stored.present {
+            if !entry.present.contains(kind) {
+                entry.present.push(*kind);
+            }
+        }
+        for observation in &stored.observations {
+            if !entry.observations.contains(observation) {
+                entry.observations.push(observation.clone());
+            }
+        }
+        entry.contradicted |= stored.contradicted.contains(obligation);
+    }
+    Ok(())
 }
 
 fn live_impacted_surface(
@@ -4121,6 +4799,7 @@ fn execution_summary(
     evidence_policy: &str,
     outcome: &str,
     records: &[ExecutorRecord],
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
 ) -> Result<Vec<u8>, BusError> {
     let items: Vec<_> = records
         .iter()
@@ -4142,6 +4821,22 @@ fn execution_summary(
             })
         })
         .collect();
+    let browser_items = browser_runs
+        .iter()
+        .map(|(configured, result)| {
+            json!({
+                "program": result.program,
+                "path": configured.path,
+                "passed": result.passed,
+                "asserted": result.asserted,
+                "contradicted": result.contradicted,
+                "observations": result.observations.len(),
+                "screenshots": result.screenshot_paths.len(),
+                "trace": result.trace_path.is_some(),
+                "failure": result.failure,
+            })
+        })
+        .collect::<Vec<_>>();
     serde_json::to_vec_pretty(&json!({
         "schema_v": 1,
         "run_id": run.as_str(),
@@ -4154,6 +4849,7 @@ fn execution_summary(
         "evidence_policy": evidence_policy,
         "outcome": outcome,
         "executors": items,
+        "browser_programs": browser_items,
     }))
     .map_err(|err| BusError::Runtime(format!("cannot encode execution summary: {err}")))
 }
@@ -4587,5 +5283,39 @@ mod tests {
     fn current_utc_date_uses_iso_ordering() {
         let today = utc_date();
         assert!(valid_iso_date(&today));
+    }
+
+    #[test]
+    fn run_policy_caps_program_owned_browser_capture() {
+        let raw = r#"{
+            "schema_v": 1,
+            "id": "capture-policy",
+            "source": "authored",
+            "obligations": ["visible"],
+            "steps": [{"action":"assert","obligation":"visible"}],
+            "evidence_policy": {
+                "screenshot":"always",
+                "trace":"always",
+                "network":"always",
+                "console":"always",
+                "storage":"always"
+            }
+        }"#;
+        let mut minimal = TestProgram::from_json(raw).unwrap();
+        cap_browser_evidence(&mut minimal, "minimal");
+        assert_eq!(minimal.evidence_policy.screenshot, CaptureWhen::OnFailure);
+        assert_eq!(minimal.evidence_policy.trace, CaptureWhen::OnFailure);
+        assert!(!browser_capture_active(
+            CaptureWhen::Always,
+            false,
+            "minimal"
+        ));
+        assert!(browser_capture_active(CaptureWhen::Always, true, "minimal"));
+
+        let mut none = TestProgram::from_json(raw).unwrap();
+        cap_browser_evidence(&mut none, "none");
+        assert_eq!(none.evidence_policy.screenshot, CaptureWhen::Never);
+        assert_eq!(none.evidence_policy.network, CaptureWhen::Never);
+        assert!(!browser_capture_active(CaptureWhen::Always, true, "none"));
     }
 }

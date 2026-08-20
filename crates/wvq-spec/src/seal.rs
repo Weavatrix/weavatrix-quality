@@ -91,7 +91,10 @@ fn hash_requirements(
             return Err(SpecError::InvalidSyntax {
                 file: "oracle-seal".to_owned(),
                 line: 1,
-                message: format!("missing requirement `{}` while sealing", obligation.requirement),
+                message: format!(
+                    "missing requirement `{}` while sealing",
+                    obligation.requirement
+                ),
             });
         };
         hashes.push(sha256_json(&json!({
@@ -165,6 +168,8 @@ fn hash_obligations(obligations: &[TestObligation]) -> Result<Vec<ContentHash>, 
             "requirement": obligation.requirement.as_str(),
             "scenario": obligation.scenario.as_str(),
             "kind": obligation_kind_name(obligation.kind),
+            "condition": obligation.condition,
+            "expected": obligation.expected,
             "required_evidence": evidence,
         }))?);
     }

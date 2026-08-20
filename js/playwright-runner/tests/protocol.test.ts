@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { decodeRequest } from "../src/protocol.ts";
-import { handle } from "../src/main.ts";
-import { filterObservation } from "../src/observe.ts";
+import { decodeRequest } from "../dist/protocol.js";
+import { handle } from "../dist/main.js";
+import { filterObservation } from "../dist/observe.js";
 
 const fixtures = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -48,9 +48,9 @@ test("screenshot omitted unless policy allows", () => {
   assert.equal(filtered.screenshot_handle, undefined);
 });
 
-test("handle initialize", () => {
+test("handle initialize", async () => {
   const reply = JSON.parse(
-    handle(readFileSync(join(fixtures, "protocol.initialize.json"), "utf8").trim()),
+    await handle(readFileSync(join(fixtures, "protocol.initialize.json"), "utf8").trim()),
   );
   assert.equal(reply.type, "ok");
 });

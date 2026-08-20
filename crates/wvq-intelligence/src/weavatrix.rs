@@ -1,5 +1,6 @@
 //! Adapter over [`weavatrix_rust`]. The engine owns the graph; we only quote it.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use serde_json::{Map, Value};
@@ -68,6 +69,14 @@ pub trait CodeEvidenceProvider {
     /// Returns [`IntelligenceError`] for unknown operations, engine failures,
     /// or ambiguous revision identity.
     fn operation(&self, repo: &Path, name: &str, args: &Value) -> Result<Value, IntelligenceError>;
+
+    /// Quote the file nodes that the authoritative Weavatrix snapshot indexed.
+    /// This is a transient ID projection, not a second graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`IntelligenceError`] when the engine cannot analyze the repository.
+    fn indexed_files(&self, repo: &Path) -> Result<BTreeSet<String>, IntelligenceError>;
 }
 
 /// Embeds [`weavatrix_rust`]. No local parser, no local `Graph`.
@@ -92,6 +101,23 @@ impl CodeEvidenceProvider for WeavatrixProvider {
         let mut value = from_engine_value(&report)?;
         attach_identity(&mut value, &repository, revision.as_str())?;
         Ok(value)
+    }
+
+    fn indexed_files(&self, repo: &Path) -> Result<BTreeSet<String>, IntelligenceError> {
+        let engine =
+            Weavatrix::open(repo).map_err(|err| IntelligenceError::Engine(err.to_string()))?;
+        Ok(engine
+            .state()
+            .snapshot()
+            .nodes
+            .iter()
+            .filter_map(|node| {
+                node.id
+                    .as_str()
+                    .strip_prefix("file:")
+                    .map(ToOwned::to_owned)
+            })
+            .collect())
     }
 }
 

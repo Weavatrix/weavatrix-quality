@@ -397,7 +397,11 @@ pub fn promote(trace: &BehaviorTrace, program_id: ProgramId) -> Result<TestProgr
         id: program_id,
         source: ProgramSource::Recorded,
         obligations: trace.obligations.clone(),
+        preconditions: Vec::new(),
         steps,
+        data: BTreeMap::new(),
+        faults: BTreeMap::new(),
+        api_operations: BTreeMap::new(),
         evidence_policy: crate::program::EvidencePolicy::default(),
         deterministic_seed: trace.seed,
     };

@@ -24,6 +24,8 @@ Thumbs.db
 # Node
 node_modules/
 **/dist/
+!js/playwright-runner/dist/
+!js/playwright-runner/dist/**
 
 # Local quality store / CAS
 .weavatrix-quality/

@@ -135,6 +135,207 @@ pub struct RawObligation {
     pub id: ObligationId,
     /// Obligation kind.
     pub kind: ObligationKind,
+    /// Optional predicate that must hold before the expectation is evaluated.
+    #[serde(default)]
+    pub condition: Option<Predicate>,
+    /// Sealed expected behavior. Required when a `TestProgram` asserts this obligation.
+    #[serde(default)]
+    pub expected: Option<Predicate>,
+}
+
+/// Semantic target used by sealed browser predicates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct PredicateTarget {
+    /// ARIA role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Accessible name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accessible_name: Option<String>,
+    /// Associated label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Project-stable test id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_id: Option<String>,
+    /// Last-resort CSS selector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_css: Option<String>,
+    /// Optional semantic scope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Box<PredicateTarget>>,
+}
+
+/// Deterministic predicate sealed independently of implementation repair.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Predicate {
+    /// Target is visible.
+    Visible { target: PredicateTarget },
+    /// Target is hidden or absent.
+    Hidden { target: PredicateTarget },
+    /// Target accepts interaction.
+    Enabled { target: PredicateTarget },
+    /// Target rejects interaction.
+    Disabled { target: PredicateTarget },
+    /// Target text equals the expected string after trimming.
+    TextEquals {
+        target: PredicateTarget,
+        value: String,
+    },
+    /// Target text contains the expected string.
+    TextContains {
+        target: PredicateTarget,
+        value: String,
+    },
+    /// Input value equals the expected string.
+    ValueEquals {
+        target: PredicateTarget,
+        value: String,
+    },
+    /// Current route equals the expected path or URL.
+    RouteEquals { value: String },
+    /// Current route contains the expected fragment.
+    RouteContains { value: String },
+    /// A matching response was observed.
+    NetworkResponse {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        method: Option<String>,
+        url_contains: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status: Option<u16>,
+    },
+    /// No console messages at the error level were observed.
+    NoConsoleErrors,
+    /// Web-storage value equals the expectation.
+    StorageEquals {
+        area: StorageArea,
+        key: String,
+        value: String,
+    },
+    /// Web-storage key is absent.
+    StorageAbsent { area: StorageArea, key: String },
+    /// Named API operation returned the expected status.
+    ApiStatus { operation: String, status: u16 },
+    /// JSON Pointer in a named API response equals a sealed JSON value.
+    ApiJsonEquals {
+        operation: String,
+        pointer: String,
+        value: serde_json::Value,
+    },
+    /// Every nested predicate must hold.
+    All { predicates: Vec<Predicate> },
+    /// At least one nested predicate must hold.
+    Any { predicates: Vec<Predicate> },
+    /// Negate one predicate.
+    Not { predicate: Box<Predicate> },
+}
+
+/// Browser storage namespace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageArea {
+    /// `localStorage`.
+    Local,
+    /// `sessionStorage`.
+    Session,
+}
+
+impl PredicateTarget {
+    fn validate(&self) -> Result<(), String> {
+        let identities = [
+            self.role.as_deref(),
+            self.accessible_name.as_deref(),
+            self.label.as_deref(),
+            self.test_id.as_deref(),
+            self.fallback_css.as_deref(),
+        ];
+        if identities
+            .iter()
+            .flatten()
+            .all(|value| value.trim().is_empty())
+        {
+            return Err("predicate target needs a semantic identity".into());
+        }
+        if identities
+            .iter()
+            .flatten()
+            .any(|value| value.to_ascii_lowercase().contains("xpath"))
+        {
+            return Err("XPath is not a predicate target identity".into());
+        }
+        if let Some(scope) = &self.scope {
+            scope.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl Predicate {
+    fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Visible { target }
+            | Self::Hidden { target }
+            | Self::Enabled { target }
+            | Self::Disabled { target }
+            | Self::TextEquals { target, .. }
+            | Self::TextContains { target, .. }
+            | Self::ValueEquals { target, .. } => target.validate(),
+            Self::RouteEquals { value } | Self::RouteContains { value } => {
+                require_non_empty("route predicate value", value)
+            }
+            Self::NetworkResponse {
+                method,
+                url_contains,
+                status,
+            } => {
+                if let Some(method) = method {
+                    require_non_empty("network method", method)?;
+                }
+                require_non_empty("network URL fragment", url_contains)?;
+                if status.is_some_and(|status| !(100..=599).contains(&status)) {
+                    return Err("network status must be between 100 and 599".into());
+                }
+                Ok(())
+            }
+            Self::NoConsoleErrors => Ok(()),
+            Self::StorageEquals { key, .. } | Self::StorageAbsent { key, .. } => {
+                require_non_empty("storage key", key)
+            }
+            Self::ApiStatus { operation, status } => {
+                require_non_empty("API operation", operation)?;
+                if !(100..=599).contains(status) {
+                    return Err("API status must be between 100 and 599".into());
+                }
+                Ok(())
+            }
+            Self::ApiJsonEquals {
+                operation, pointer, ..
+            } => {
+                require_non_empty("API operation", operation)?;
+                if !pointer.is_empty() && !pointer.starts_with('/') {
+                    return Err("API JSON pointer must be empty or start with `/`".into());
+                }
+                Ok(())
+            }
+            Self::All { predicates } | Self::Any { predicates } => {
+                if predicates.is_empty() {
+                    return Err("predicate group must not be empty".into());
+                }
+                predicates.iter().try_for_each(Self::validate)
+            }
+            Self::Not { predicate } => predicate.validate(),
+        }
+    }
+}
+
+fn require_non_empty(label: &str, value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        Err(format!("{label} must be non-empty"))
+    } else {
+        Ok(())
+    }
 }
 
 /// Spec §7 obligation kinds. Unknown values fail closed via Serde.
@@ -230,21 +431,17 @@ pub fn load_quality_contract(root: &Path, change: &str) -> Result<QualityContrac
         path: path.display().to_string(),
         message: err.to_string(),
     })?;
-    let contract: QualityContract = serde_yaml::from_str(&raw).map_err(|err| {
-        SpecError::InvalidSyntax {
+    let contract: QualityContract =
+        serde_yaml::from_str(&raw).map_err(|err| SpecError::InvalidSyntax {
             file: path.display().to_string(),
             line: 1,
             message: err.to_string(),
-        }
-    })?;
+        })?;
     if contract.quality_contract_v != 1 {
         return Err(SpecError::InvalidSyntax {
             file: path.display().to_string(),
             line: 1,
-            message: format!(
-                "unknown quality_contract_v {}",
-                contract.quality_contract_v
-            ),
+            message: format!("unknown quality_contract_v {}", contract.quality_contract_v),
         });
     }
     if contract.change.as_str() != change {
@@ -256,6 +453,22 @@ pub fn load_quality_contract(root: &Path, change: &str) -> Result<QualityContrac
                 contract.change
             ),
         });
+    }
+    for obligation in contract
+        .requirements
+        .iter()
+        .flat_map(|requirement| &requirement.scenarios)
+        .flat_map(|scenario| &scenario.obligations)
+    {
+        for predicate in obligation.condition.iter().chain(&obligation.expected) {
+            predicate
+                .validate()
+                .map_err(|message| SpecError::InvalidSyntax {
+                    file: path.display().to_string(),
+                    line: 1,
+                    message: format!("obligation {}: {message}", obligation.id),
+                })?;
+        }
     }
     Ok(contract)
 }

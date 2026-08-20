@@ -4,8 +4,10 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{
     BusError, Command, ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT,
@@ -26,6 +28,15 @@ struct TempRepo(PathBuf);
 
 impl Drop for TempRepo {
     fn drop(&mut self) {
+        let node_modules = self.0.join("node_modules");
+        let links_outside = node_modules
+            .canonicalize()
+            .ok()
+            .zip(self.0.canonicalize().ok())
+            .is_some_and(|(target, root)| !target.starts_with(root));
+        if links_outside {
+            let _ = std::fs::remove_dir(&node_modules);
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -149,6 +160,121 @@ fn live_coverage_runner_repo() -> TempRepo {
     TempRepo(root)
 }
 
+fn live_browser_repo(base_url: &str) -> TempRepo {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("wvq-live-browser-{nanos}"));
+    std::fs::create_dir_all(root.join("openspec/changes/live-browser/specs/ui")).unwrap();
+    std::fs::create_dir_all(root.join(".weavatrix-quality/programs")).unwrap();
+    std::fs::write(
+        root.join(".gitignore"),
+        "node_modules/\n.weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n.weavatrix-quality/runtime/\n.weavatrix-quality/browser-evidence/\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"wvq-live-browser","private":true,"dependencies":{"playwright":"1.62.1"}}"#,
+    )
+    .unwrap();
+    link_node_modules(&root);
+    std::fs::write(
+        root.join("openspec/changes/live-browser/specs/ui/spec.md"),
+        "# Delta for UI\n\n## ADDED Requirements\n\n### Requirement: Heading\nThe system SHALL show the WVQ heading.\n\n#### Scenario: Home\n- GIVEN the home page\n- WHEN it loads\n- THEN the WVQ heading is visible\n",
+    )
+    .unwrap();
+    write_browser_quality(&root, "visible");
+    std::fs::write(
+        root.join(".weavatrix-quality/programs/home.json"),
+        r#"{
+  "schema_v": 1,
+  "id": "home-heading",
+  "source": "authored",
+  "obligations": ["heading-visible"],
+  "steps": [
+    {"action": "navigate", "route": "/"},
+    {"action": "assert", "obligation": "heading-visible"}
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "on_failure",
+    "network": "always",
+    "console": "always",
+    "storage": "on_failure"
+  }
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".weavatrix-quality/config.yaml"),
+        format!(
+            "quality_policy_v: 1\n\nbrowser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  timeout_ms: 30000\n  module_root: node_modules/playwright\n  programs:\n    - .weavatrix-quality/programs/home.json\n"
+        ),
+    )
+    .unwrap();
+    git(&root, &["init", "-q"]);
+    git(&root, &["add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+    );
+    TempRepo(root)
+}
+
+fn write_browser_quality(root: &Path, predicate: &str) {
+    std::fs::write(
+        root.join("openspec/changes/live-browser/quality.yaml"),
+        format!(
+            "quality_contract_v: 1\nchange: live-browser\n\nrisk:\n  default: high\n\nrequirements:\n  - capability: ui\n    requirement: heading\n    scenarios:\n      - scenario: home\n        obligations:\n          - id: heading-visible\n            kind: behavioral\n            expected:\n              kind: {predicate}\n              target:\n                role: heading\n                accessible_name: WVQ live browser\n        evidence:\n          required: [dom]\n          on_failure: [screenshot, trace]\n"
+        ),
+    )
+    .unwrap();
+}
+
+fn link_node_modules(root: &Path) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("js/playwright-runner/node_modules");
+    let target = root.join("node_modules");
+    #[cfg(windows)]
+    {
+        let output = ProcessCommand::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "New-Item -ItemType Junction -Path $env:WVQ_TEST_LINK_TARGET -Target $env:WVQ_TEST_LINK_SOURCE | Out-Null",
+            ])
+            .env("WVQ_TEST_LINK_TARGET", &target)
+            .env("WVQ_TEST_LINK_SOURCE", &source)
+            .output()
+            .expect("PowerShell starts");
+        assert!(
+            output.status.success(),
+            "create junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            target.join("playwright/package.json").is_file(),
+            "junction {} -> {} did not expose Playwright; link target: {:?}",
+            target.display(),
+            source.display(),
+            std::fs::read_link(&target)
+        );
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(source, target).unwrap();
+}
+
 fn git(root: &Path, args: &[&str]) {
     let output = ProcessCommand::new("git")
         .args(args)
@@ -186,6 +312,68 @@ fn read_http_request(stream: &mut impl Read) -> Vec<u8> {
         }
         if expected.is_some_and(|expected| request.len() >= expected) {
             return request;
+        }
+    }
+}
+
+struct BrowserFixtureServer {
+    address: std::net::SocketAddr,
+    stop: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl BrowserFixtureServer {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let server_stop = Arc::clone(&stop);
+        let thread = thread::spawn(move || {
+            while !server_stop.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        thread::spawn(move || respond_browser_fixture(stream));
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(err) => panic!("browser fixture server: {err}"),
+                }
+            }
+        });
+        Self {
+            address,
+            stop,
+            thread: Some(thread),
+        }
+    }
+
+    fn url(&self) -> String {
+        format!("http://{}", self.address)
+    }
+}
+
+fn respond_browser_fixture(mut stream: std::net::TcpStream) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut request = [0_u8; 4096];
+    let _ = stream.read(&mut request);
+    let body = b"<!doctype html><html><body><h1>WVQ live browser</h1></body></html>";
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .unwrap();
+    stream.write_all(body).unwrap();
+    stream.flush().unwrap();
+}
+
+impl Drop for BrowserFixtureServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            thread.join().unwrap();
         }
     }
 }
@@ -776,6 +964,71 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
         .unwrap();
     assert_eq!(verified.verdict, "UNPROVEN");
     assert_eq!(verified.exit_code(), 1);
+}
+
+#[test]
+fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
+    let server = BrowserFixtureServer::start();
+    let repo = live_browser_repo(&server.url());
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "live-browser".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed");
+    assert!(
+        run.artifact_handles
+            .iter()
+            .any(|handle| handle.contains("browser-0-home-heading")),
+        "{:?}",
+        run.artifact_handles
+    );
+    let proven = service
+        .verify(&VerifyCommand {
+            change: "live-browser".into(),
+        })
+        .unwrap();
+    assert_eq!(proven.verdict, "PROVEN", "{:?}", proven.proofs);
+
+    write_browser_quality(&repo.0, "hidden");
+    let contradicted_run = service
+        .run(&RunCommand {
+            change: "live-browser".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(contradicted_run.outcome, "failed");
+    assert!(
+        contradicted_run
+            .artifact_handles
+            .iter()
+            .any(|handle| handle.contains("screenshot")),
+        "failure screenshot must be returned as a handle: {:?}",
+        contradicted_run.artifact_handles
+    );
+    assert!(
+        contradicted_run
+            .artifact_handles
+            .iter()
+            .any(|handle| handle.contains("trace")),
+        "failure trace must be returned as a handle: {:?}",
+        contradicted_run.artifact_handles
+    );
+    let contradicted = service
+        .verify(&VerifyCommand {
+            change: "live-browser".into(),
+        })
+        .unwrap();
+    assert_eq!(contradicted.verdict, "CONTRADICTED");
+    assert!(contradicted.blocking);
 }
 
 #[test]

@@ -1,5 +1,7 @@
 //! Task 21: flake fingerprints, deterministic triage, safe healing.
 
+use std::collections::BTreeMap;
+
 use wvq_domain::{ObligationId, OracleSealId, ProgramId};
 use wvq_proof::{
     FailureEvidence, FailureSignal, FlakeClass, HealEdit, HealError, TimingBucket, apply_heal,
@@ -28,6 +30,7 @@ fn program() -> TestProgram {
         id: ProgramId::new("sankey-others-replay").unwrap(),
         source: ProgramSource::Authored,
         obligations: vec![ObligationId::new("others-visible").unwrap()],
+        preconditions: Vec::new(),
         steps: vec![
             TestAction::Navigate {
                 route: "/sankey".into(),
@@ -39,6 +42,9 @@ fn program() -> TestProgram {
                 obligation: ObligationId::new("others-visible").unwrap(),
             },
         ],
+        data: BTreeMap::new(),
+        faults: BTreeMap::new(),
+        api_operations: BTreeMap::new(),
         evidence_policy: wvq_runtime::EvidencePolicy::default(),
         deterministic_seed: Some(7),
     }

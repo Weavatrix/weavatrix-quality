@@ -77,6 +77,7 @@ pub fn recover_target(previous: &Target, observed: &Target) -> Result<Target, He
             .component_hint
             .clone()
             .or_else(|| previous.component_hint.clone()),
+        scope: observed.scope.clone().or_else(|| previous.scope.clone()),
         fallback_css: observed
             .fallback_css
             .clone()

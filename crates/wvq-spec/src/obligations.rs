@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, HashSet};
 use wvq_domain::{ObligationId, RequirementId, ScenarioId};
 
 use crate::openspec::{OpenSpecChange, RequirementOp, SpecError};
-use crate::quality_yaml::{EvidenceKind, ObligationKind, QualityContract, RiskLevel};
+use crate::quality_yaml::{EvidenceKind, ObligationKind, Predicate, QualityContract, RiskLevel};
 
 /// Compiled obligation. Predicates stay with later IR work.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +18,10 @@ pub struct TestObligation {
     pub scenario: ScenarioId,
     /// Kind from the contract.
     pub kind: ObligationKind,
+    /// Optional sealed precondition.
+    pub condition: Option<Predicate>,
+    /// Optional sealed expected behavior.
+    pub expected: Option<Predicate>,
     /// Evidence that must be collected for a `PROVEN` result.
     pub required_evidence: Vec<EvidenceKind>,
     /// Risk inherited from the contract default.
@@ -54,10 +58,10 @@ pub fn compile_obligations(
     for req in &contract.requirements {
         let requirement_id = RequirementId::new(format!("{}.{}", req.capability, req.requirement))
             .map_err(|err| SpecError::InvalidSyntax {
-            file: "quality.yaml".to_owned(),
-            line: 1,
-            message: err.to_string(),
-        })?;
+                file: "quality.yaml".to_owned(),
+                line: 1,
+                message: err.to_string(),
+            })?;
         if !known_requirements.contains(requirement_id.as_str()) {
             return Err(SpecError::InvalidSyntax {
                 file: "quality.yaml".to_owned(),
@@ -66,13 +70,12 @@ pub fn compile_obligations(
             });
         }
         for scenario in &req.scenarios {
-            let scenario_id = ScenarioId::new(&scenario.scenario).map_err(|err| {
-                SpecError::InvalidSyntax {
+            let scenario_id =
+                ScenarioId::new(&scenario.scenario).map_err(|err| SpecError::InvalidSyntax {
                     file: "quality.yaml".to_owned(),
                     line: 1,
                     message: err.to_string(),
-                }
-            })?;
+                })?;
             if !known_scenarios.contains(scenario_id.as_str()) {
                 return Err(SpecError::InvalidSyntax {
                     file: "quality.yaml".to_owned(),
@@ -98,6 +101,8 @@ pub fn compile_obligations(
                     requirement: requirement_id.clone(),
                     scenario: scenario_id.clone(),
                     kind: raw.kind,
+                    condition: raw.condition.clone(),
+                    expected: raw.expected.clone(),
                     required_evidence: required.clone(),
                     risk: contract.risk.default,
                 });
@@ -131,7 +136,11 @@ fn collect_spec_refs(
                     }
                 }
                 RequirementOp::Renamed { to, .. } => {
-                    requirements.insert(format!("{}.{}", cap.capability.replace('/', "."), slug(to)));
+                    requirements.insert(format!(
+                        "{}.{}",
+                        cap.capability.replace('/', "."),
+                        slug(to)
+                    ));
                 }
             }
         }

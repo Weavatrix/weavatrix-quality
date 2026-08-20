@@ -1,5 +1,7 @@
 //! Task 20: same `TestProgram` on base/head; structured axes before pixel.
 
+use std::collections::BTreeMap;
+
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
     DiffAxis, Observation, ProgramError, ProgramSource, ReplayHost, StructuredView, TestAction,
@@ -12,9 +14,18 @@ fn program() -> TestProgram {
         id: ProgramId::new("sankey-others-replay").unwrap(),
         source: ProgramSource::Recorded,
         obligations: vec![ObligationId::new("others-visible").unwrap()],
-        steps: vec![TestAction::Navigate {
-            route: "/sankey".into(),
-        }],
+        preconditions: Vec::new(),
+        steps: vec![
+            TestAction::Navigate {
+                route: "/sankey".into(),
+            },
+            TestAction::Assert {
+                obligation: ObligationId::new("others-visible").unwrap(),
+            },
+        ],
+        data: BTreeMap::new(),
+        faults: BTreeMap::new(),
+        api_operations: BTreeMap::new(),
         evidence_policy: wvq_runtime::EvidencePolicy::default(),
         deterministic_seed: Some(7),
     }
@@ -56,17 +67,17 @@ fn view(route: &str, shot: Option<&str>) -> StructuredView {
 #[test]
 fn same_program_replays_on_base_and_head() {
     let mut base = ScriptedHost {
-        states: vec![state("/sankey")],
+        states: vec![state("/sankey"), state("/sankey")],
         index: 0,
     };
     let mut head = ScriptedHost {
-        states: vec![state("/sankey-v2")],
+        states: vec![state("/sankey-v2"), state("/sankey-v2")],
         index: 0,
     };
     let (base_states, head_states) =
         replay_base_head(&program(), Some(7), &mut base, &mut head).unwrap();
-    assert_eq!(base_states.len(), 1);
-    assert_eq!(head_states.len(), 1);
+    assert_eq!(base_states.len(), 2);
+    assert_eq!(head_states.len(), 2);
     assert_ne!(base_states[0].route, head_states[0].route);
 }
 

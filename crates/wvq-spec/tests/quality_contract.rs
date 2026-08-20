@@ -31,8 +31,12 @@ fn loads_and_compiles_sankey_contract() {
     assert_eq!(obligations[0].id.as_str(), "others-visible");
     assert_eq!(obligations[0].kind, ObligationKind::Behavioral);
     assert_eq!(obligations[1].kind, ObligationKind::Invariant);
-    assert_eq!(obligations[0].requirement.as_str(), "sankey.visual-limit-others");
+    assert_eq!(
+        obligations[0].requirement.as_str(),
+        "sankey.visual-limit-others"
+    );
     assert_eq!(obligations[0].scenario.as_str(), "overflow-grouped");
+    assert!(obligations[0].expected.is_some());
 }
 
 #[test]
@@ -86,4 +90,48 @@ requirements:
         message.contains("laser") || message.contains("unknown variant"),
         "{message}"
     );
+}
+
+#[test]
+fn unknown_predicate_kind_fails_closed() {
+    let err = serde_yaml::from_str::<QualityContract>(
+        r"
+quality_contract_v: 1
+change: sankey-others
+requirements:
+  - capability: sankey
+    requirement: visual-limit-others
+    scenarios:
+      - scenario: overflow-grouped
+        obligations:
+          - id: others-visible
+            kind: behavioral
+            expected:
+              kind: ask_a_model
+",
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("ask_a_model"));
+}
+
+#[test]
+fn empty_predicate_target_fails_closed() {
+    let root = fixture_root();
+    let path = root
+        .join("openspec")
+        .join("changes")
+        .join("sankey-others")
+        .join("quality.yaml");
+    let raw = std::fs::read_to_string(&path).unwrap();
+    let invalid = raw.replace(
+        "role: region\n                accessible_name: Others",
+        "role: ''",
+    );
+    let temp = std::env::temp_dir().join(format!("wvq-empty-predicate-{}", std::process::id()));
+    let contract_dir = temp.join("openspec/changes/sankey-others");
+    std::fs::create_dir_all(&contract_dir).unwrap();
+    std::fs::write(contract_dir.join("quality.yaml"), invalid).unwrap();
+    let err = load_quality_contract(&temp, "sankey-others").unwrap_err();
+    let _ = std::fs::remove_dir_all(&temp);
+    assert!(err.to_string().contains("semantic identity"));
 }

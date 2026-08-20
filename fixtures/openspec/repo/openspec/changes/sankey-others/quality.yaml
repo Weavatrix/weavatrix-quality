@@ -19,6 +19,11 @@ requirements:
         obligations:
           - id: others-visible
             kind: behavioral
+            expected:
+              kind: visible
+              target:
+                role: region
+                accessible_name: Others
           - id: overflow-grouped
             kind: invariant
           - id: others-count
