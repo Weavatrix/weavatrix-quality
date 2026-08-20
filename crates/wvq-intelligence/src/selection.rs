@@ -102,25 +102,22 @@ pub fn flow_aware_candidates(sources: CandidateSources) -> Vec<TestCandidate> {
 
     for (origin, candidates) in labelled {
         for candidate in candidates {
-            match merged.iter_mut().find(|item| item.id == candidate.id) {
-                Some(existing) => {
-                    existing.covers.extend(candidate.covers);
-                    existing.cost = existing.cost.min(candidate.cost);
-                    existing.flake_penalty = existing.flake_penalty.max(candidate.flake_penalty);
-                    for line in candidate.explanation {
-                        if !existing.explanation.contains(&line) {
-                            existing.explanation.push(line);
-                        }
+            if let Some(existing) = merged.iter_mut().find(|item| item.id == candidate.id) {
+                existing.covers.extend(candidate.covers);
+                existing.cost = existing.cost.min(candidate.cost);
+                existing.flake_penalty = existing.flake_penalty.max(candidate.flake_penalty);
+                for line in candidate.explanation {
+                    if !existing.explanation.contains(&line) {
+                        existing.explanation.push(line);
                     }
-                    existing
-                        .explanation
-                        .push(format!("also selected by: {origin}"));
                 }
-                None => {
-                    let mut candidate = candidate;
-                    candidate.explanation.push(format!("selected by: {origin}"));
-                    merged.push(candidate);
-                }
+                existing
+                    .explanation
+                    .push(format!("also selected by: {origin}"));
+            } else {
+                let mut candidate = candidate;
+                candidate.explanation.push(format!("selected by: {origin}"));
+                merged.push(candidate);
             }
         }
     }
