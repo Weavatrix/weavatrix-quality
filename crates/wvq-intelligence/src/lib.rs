@@ -1,4 +1,4 @@
-//! Weavatrix-backed code evidence for Weavatrix Quality.
+﻿//! Weavatrix-backed code evidence for Weavatrix Quality.
 //!
 //! This crate does **not** parse source and does **not** build a second code
 //! graph. [`weavatrix_rust`] is the only repository/code authority. WVQ stores
@@ -10,6 +10,7 @@
 mod checks;
 mod debt;
 mod flow;
+mod hypothesis;
 mod impact_union;
 mod risk;
 mod selection;
@@ -24,6 +25,9 @@ pub use checks::{
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use flow::{
     FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,
+};
+pub use hypothesis::{
+    ChangeSignal, DefectHypothesis, HypothesisWeight, blocking_questions, hypothesise,
 };
 pub use impact_union::{GraphDelta, ImpactedSurface, SurfaceDelta, impacted_surface};
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};
