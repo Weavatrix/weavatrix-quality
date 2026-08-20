@@ -9,4 +9,5 @@ pub const MIGRATIONS: &[&str] = &[
     include_str!("005_ai_budget.sql"),
     include_str!("006_runs.sql"),
     include_str!("007_debt_history.sql"),
+    include_str!("008_test_analytics.sql"),
 ];

@@ -128,6 +128,14 @@ pub struct RunReply {
     pub executor_invocations: u64,
     /// Number of typed browser programs invoked.
     pub browser_programs: u64,
+    /// Number of normalized test-case occurrences recorded for history.
+    pub recorded_test_count: u64,
+    /// Number of failed/error test-case occurrences in this run.
+    pub failed_test_count: u64,
+    /// Number of current test identities with both pass and fail/error history.
+    pub flaky_test_count: u64,
+    /// Failures not classified by deterministic evidence.
+    pub unknown_failure_count: u64,
     /// Artifact handles produced (possibly empty).
     pub artifact_handles: Vec<String>,
 }

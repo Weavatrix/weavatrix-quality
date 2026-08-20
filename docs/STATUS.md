@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-20
-Session: live shadow benchmark, Playwright authoring, and JS/npm distribution
+Session: live shadow benchmark, distribution, and test analytics
 
 ## Now
 
@@ -12,6 +12,8 @@ Release state: the live-producer implementation (`ce2a9d5`) and Linux portabilit
 Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
 
 Unreleased state: the authoring vertical, actual selected-vs-full benchmark runner, and typed JS/npm distribution are implemented locally. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
+
+Live test analytics are now wired rather than model-only. Every normalized JUnit/Go case and typed browser program is persisted with exact run/revision identity, outcome, and duration. Failure occurrences use stable fingerprints and the deterministic flake triage; mixed pass plus fail/error history is the only condition that marks an identity flaky. Each run emits a bounded CAS-backed `test-analytics` artifact with current outcomes, failure clusters, flaky histories, and the twenty slowest reported durations with historical means. `RunReply` exposes recorded/failed/flaky/unknown counts. This path uses zero runtime LLM tokens.
 
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation bound a generated program to the existing `OracleSeal` without persisting it.
 
@@ -29,7 +31,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Final local validation: 347 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied.
+Current validation: 349 Rust tests, 7 Playwright-runner tests, and 5 JS package tests passed with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied.
 
 ## JS/npm distribution
 
@@ -51,6 +53,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | graph impact | Persists `graph_diff`, change impact, static selection, and `Impact(base) ∪ Impact(head) ∪ removed` at one exact revision |
 | coverage | Normalizes fresh LCOV/Go evidence, maps it to changed graph nodes, and persists a revision-bound `ProtectionSnapshot` |
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
+| test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
 | proof | Uses only the latest same-change, same-revision run; a green suite proves only obligations explicitly bound to executed tests |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
@@ -79,4 +82,4 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Run the competitor matrix against current official product documentation, reproduce the most important remaining gaps, and turn each confirmed gap into an independently reviewable implementation slice. Do not duplicate Rust policy/proof semantics in TypeScript.
+Finish the remaining reproduced competitor gaps: predictive selection confidence/defensive learning, persisted generated-test promotion and healing, and live mutation/behavior producers. Do not duplicate Rust policy/proof semantics in TypeScript.

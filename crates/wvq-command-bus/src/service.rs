@@ -19,15 +19,16 @@ use wvq_intelligence::{
 };
 use wvq_proof::{
     AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, DeltaContext, ExecutionEvidence,
-    FlowProtection, FlowView, LocalModelConfig, LocalModelRequest, ProofVerdict,
-    ProtectionCheckInput, ProtectionPolicy, ProtectionSnapshot, ProtectionView, TestChange,
-    TestLineageView, assemble, call_local_model, gate_protection, protection_delta, snapshot,
+    FailureEvidence, FlakeClass, FlowProtection, FlowView, LocalModelConfig, LocalModelRequest,
+    ProofVerdict, ProtectionCheckInput, ProtectionPolicy, ProtectionSnapshot, ProtectionView,
+    TestChange, TestLineageView, TimingBucket, assemble, call_local_model, fingerprint_id,
+    gate_protection, protection_delta, snapshot, triage,
 };
 use wvq_runtime::{
     BrowserProgramRun, BrowserRunConfig, CaptureWhen, CoverageArtifact, ExecutionResult,
-    ExecutorRegistry, ExecutorTarget, PrepareRequest, ProgramOracle, TestProgram, default_limits,
-    discover_executor_targets, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov,
-    run_browser_program,
+    ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest, ProgramOracle,
+    TestProgram, TestStatus, default_limits, discover_executor_targets, parse_go_coverprofile,
+    parse_go_json, parse_junit, parse_lcov, run_browser_program,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -38,7 +39,9 @@ use wvq_spec_recovery::{
     IntentEvidence, NarrativeInput, PublicSurfaceDelta, RecoveryDesk, RecoveryInput,
     TestIntentSummary, TestsDelta, VerifyContext, cluster, narrate,
 };
-use wvq_store::{Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem};
+use wvq_store::{
+    Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem, StoredTestCaseResult,
+};
 
 use crate::commands::{
     AuthorDraftCommand, AuthorPreviewCommand, AuthorValidateCommand, ChangesCommand, Command,
@@ -405,6 +408,10 @@ impl QualityService for FakeService {
             available_test_count: 2,
             executor_invocations: 0,
             browser_programs: 0,
+            recorded_test_count: 0,
+            failed_test_count: 0,
+            flaky_test_count: 0,
+            unknown_failure_count: 0,
             artifact_handles: state.handles,
         })
     }
@@ -1651,6 +1658,16 @@ impl QualityService for LiveService {
             &cmd.evidence_policy,
             &mut handles,
         )?;
+        let test_analytics =
+            persist_test_analytics(&store, &run_id, &before, &records, &browser_runs)?;
+        put_run_artifact(
+            &store,
+            &run_id,
+            &format!("artifact-{}-test-analytics", run_id.as_str()),
+            "test-analytics",
+            &test_analytics.bytes,
+            &mut handles,
+        )?;
         if let Some(protection) = live_protection_snapshot(&before, &protection_graph, &records)? {
             put_json_run_artifact(
                 &store,
@@ -1710,6 +1727,10 @@ impl QualityService for LiveService {
             available_test_count: u64::try_from(available_test_count).unwrap_or(u64::MAX),
             executor_invocations: u64::try_from(records.len()).unwrap_or(u64::MAX),
             browser_programs: u64::try_from(browser_runs.len()).unwrap_or(u64::MAX),
+            recorded_test_count: test_analytics.recorded_test_count,
+            failed_test_count: test_analytics.failed_test_count,
+            flaky_test_count: test_analytics.flaky_test_count,
+            unknown_failure_count: test_analytics.unknown_failure_count,
             artifact_handles: handles,
         })
     }
@@ -5617,6 +5638,285 @@ fn surface_labels(nodes: &[Value]) -> Vec<String> {
         .collect()
 }
 
+#[derive(Debug)]
+struct PersistedTestAnalytics {
+    recorded_test_count: u64,
+    failed_test_count: u64,
+    flaky_test_count: u64,
+    unknown_failure_count: u64,
+    bytes: Vec<u8>,
+}
+
+#[derive(serde::Serialize)]
+struct TestAnalyticsDocument {
+    schema_v: u32,
+    run_id: String,
+    revision: String,
+    recorded_cases: u64,
+    outcomes: TestOutcomeCounts,
+    failure_occurrences: Vec<Value>,
+    flaky_tests: Vec<Value>,
+    slowest_tests: Vec<Value>,
+    runtime_llm_tokens: u64,
+}
+
+#[derive(serde::Serialize)]
+struct TestOutcomeCounts {
+    passed: u64,
+    failed: u64,
+    errors: u64,
+    skipped: u64,
+}
+
+#[derive(Debug)]
+struct ObservedTestCase {
+    executor: String,
+    suite: String,
+    name: String,
+    status: TestStatus,
+    duration_ms: Option<u64>,
+    message: Option<String>,
+}
+
+fn collect_observed_test_cases(
+    records: &[ExecutorRecord],
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+) -> Result<Vec<ObservedTestCase>, BusError> {
+    let mut observed = Vec::new();
+    for record in records {
+        for artifact in record
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "normalized-test-run")
+        {
+            let normalized: NormalizedTestRun =
+                serde_json::from_slice(&artifact.bytes).map_err(|err| {
+                    BusError::Runtime(format!(
+                        "cannot decode {} from {}: {err}",
+                        artifact.kind, artifact.path
+                    ))
+                })?;
+            observed.extend(normalized.cases.into_iter().map(|case| ObservedTestCase {
+                executor: record.executor.clone(),
+                suite: case.suite,
+                name: case.name,
+                status: case.status,
+                duration_ms: case.duration_ms,
+                message: case.message,
+            }));
+        }
+        if let Some(error) = &record.error {
+            observed.push(ObservedTestCase {
+                executor: record.executor.clone(),
+                suite: record.cwd.clone(),
+                name: "<executor invocation>".into(),
+                status: TestStatus::Error,
+                duration_ms: None,
+                message: Some(error.clone()),
+            });
+        }
+    }
+    observed.extend(
+        browser_runs
+            .iter()
+            .map(|(configured, result)| ObservedTestCase {
+                executor: "playwright-browser".into(),
+                suite: configured.path.clone(),
+                name: result.program.clone(),
+                status: if result.passed {
+                    TestStatus::Pass
+                } else {
+                    TestStatus::Fail
+                },
+                duration_ms: None,
+                message: result.failure.clone(),
+            }),
+    );
+    Ok(observed)
+}
+
+fn persist_failure(
+    store: &Store,
+    run: &RunId,
+    index: usize,
+    case: &ObservedTestCase,
+    status: &str,
+) -> Result<(wvq_domain::ContentHash, FlakeClass, u64), BusError> {
+    let message = case.message.as_deref().unwrap_or(status);
+    let evidence = FailureEvidence {
+        program: format!("{}::{}", case.suite, case.name),
+        executor: case.executor.clone(),
+        stack_digest: Some(sha256_hex(message.as_bytes())),
+        timing_bucket: failure_timing_bucket(message),
+        ..FailureEvidence::default()
+    };
+    let digest = fingerprint_id(&evidence).map_err(|err| BusError::Runtime(err.to_string()))?;
+    let previous = store
+        .failure_cluster_size(&digest)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    let classification = triage(&evidence, previous > 0).class;
+    store
+        .put_failure_fingerprint(&digest, flake_class_token(classification))
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    store
+        .put_failure_occurrence(&format!("{}-failure-{index}", run.as_str()), &digest)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    Ok((digest, classification, previous))
+}
+
+#[allow(clippy::too_many_lines)]
+fn persist_test_analytics(
+    store: &Store,
+    run: &RunId,
+    revision: &RevisionId,
+    records: &[ExecutorRecord],
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+) -> Result<PersistedTestAnalytics, BusError> {
+    let observed = collect_observed_test_cases(records, browser_runs)?;
+
+    let mut passed = 0_u64;
+    let mut failed = 0_u64;
+    let mut errors = 0_u64;
+    let mut skipped = 0_u64;
+    let mut unknown_failures = 0_u64;
+    let mut failures = Vec::new();
+    let mut flaky = BTreeMap::<(String, String, String), Value>::new();
+    let mut durations = Vec::<(u64, Value)>::new();
+
+    for (index, case) in observed.iter().enumerate() {
+        match case.status {
+            TestStatus::Pass => passed = passed.saturating_add(1),
+            TestStatus::Fail => failed = failed.saturating_add(1),
+            TestStatus::Error => errors = errors.saturating_add(1),
+            TestStatus::Skip => skipped = skipped.saturating_add(1),
+        }
+        let status = test_status_token(case.status);
+        let failure = if matches!(case.status, TestStatus::Fail | TestStatus::Error) {
+            let (digest, classification, previous) =
+                persist_failure(store, run, index, case, status)?;
+            if classification == FlakeClass::Unknown {
+                unknown_failures = unknown_failures.saturating_add(1);
+            }
+            failures.push(json!({
+                "executor": case.executor,
+                "suite": case.suite,
+                "name": case.name,
+                "status": status,
+                "fingerprint": digest.as_str(),
+                "classification": flake_class_token(classification),
+                "previous_occurrences": previous,
+            }));
+            Some(digest)
+        } else {
+            None
+        };
+        store
+            .put_test_case_result(&StoredTestCaseResult {
+                id: format!("{}-test-{index}", run.as_str()),
+                run_id: run.clone(),
+                revision: revision.clone(),
+                executor: case.executor.clone(),
+                suite: case.suite.clone(),
+                name: case.name.clone(),
+                status: status.into(),
+                duration_ms: case.duration_ms,
+                fingerprint: failure,
+            })
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        let history = store
+            .test_case_stats(&case.executor, &case.suite, &case.name)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        let identity = (case.executor.clone(), case.suite.clone(), case.name.clone());
+        if history.flaky {
+            flaky.insert(
+                identity.clone(),
+                json!({
+                    "executor": case.executor,
+                    "suite": case.suite,
+                    "name": case.name,
+                    "runs": history.runs,
+                    "passes": history.passes,
+                    "failures": history.failures,
+                    "errors": history.errors,
+                }),
+            );
+        }
+        if let Some(duration_ms) = case.duration_ms {
+            durations.push((
+                duration_ms,
+                json!({
+                    "executor": case.executor,
+                    "suite": case.suite,
+                    "name": case.name,
+                    "duration_ms": duration_ms,
+                    "historical_average_ms": history.average_duration_ms,
+                }),
+            ));
+        }
+    }
+    durations.sort_by(|left, right| right.0.cmp(&left.0));
+    durations.truncate(20);
+    let recorded = u64::try_from(observed.len()).unwrap_or(u64::MAX);
+    let flaky_values = flaky.into_values().collect::<Vec<_>>();
+    let flaky_count = u64::try_from(flaky_values.len()).unwrap_or(u64::MAX);
+    let bytes = serde_json::to_vec_pretty(&TestAnalyticsDocument {
+        schema_v: 1,
+        run_id: run.to_string(),
+        revision: revision.to_string(),
+        recorded_cases: recorded,
+        outcomes: TestOutcomeCounts {
+            passed,
+            failed,
+            errors,
+            skipped,
+        },
+        failure_occurrences: failures,
+        flaky_tests: flaky_values,
+        slowest_tests: durations.into_iter().map(|(_, value)| value).collect(),
+        runtime_llm_tokens: 0,
+    })
+    .map_err(|err| BusError::Runtime(format!("cannot encode test analytics: {err}")))?;
+    Ok(PersistedTestAnalytics {
+        recorded_test_count: recorded,
+        failed_test_count: failed.saturating_add(errors),
+        flaky_test_count: flaky_count,
+        unknown_failure_count: unknown_failures,
+        bytes,
+    })
+}
+
+fn test_status_token(status: TestStatus) -> &'static str {
+    match status {
+        TestStatus::Pass => "pass",
+        TestStatus::Fail => "fail",
+        TestStatus::Skip => "skip",
+        TestStatus::Error => "error",
+    }
+}
+
+fn failure_timing_bucket(message: &str) -> Option<TimingBucket> {
+    let message = message.to_ascii_lowercase();
+    (message.contains("timed out")
+        || message.contains("timeout")
+        || message.contains("deadline exceeded"))
+    .then_some(TimingBucket::Timeout)
+}
+
+fn flake_class_token(class: FlakeClass) -> &'static str {
+    match class {
+        FlakeClass::Known => "known",
+        FlakeClass::ProductRegression => "product_regression",
+        FlakeClass::Ordering => "ordering",
+        FlakeClass::Timing => "timing",
+        FlakeClass::Network => "network",
+        FlakeClass::Environment => "environment",
+        FlakeClass::SelectorDrift => "selector_drift",
+        FlakeClass::Seed => "seed",
+        FlakeClass::TestOrder => "test_order",
+        FlakeClass::Unknown => "unknown",
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execution_summary(
     run: &RunId,
@@ -6030,6 +6330,87 @@ mod tests {
             stderr: Vec::new(),
             artifacts: Vec::new(),
         }
+    }
+
+    #[test]
+    fn live_test_analytics_persist_failures_durations_and_flaky_history() {
+        let root = TempDir::new("live-test-analytics");
+        let store = Store::open(&root.0).unwrap();
+        let revision = RevisionId::new("revision-test-analytics").unwrap();
+
+        let failed_run = RunId::new("run-test-analytics-failed").unwrap();
+        store
+            .put_run(&StoredRun {
+                id: failed_run.clone(),
+                change_id: "test-analytics".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: false,
+                outcome: "failed".into(),
+            })
+            .unwrap();
+        let mut failed_record = record("vitest");
+        failed_record.passed = false;
+        failed_record.artifacts.push(ProducedArtifact {
+            kind: "normalized-test-run".into(),
+            path: "junit.xml#normalized".into(),
+            bytes: serde_json::to_vec(&NormalizedTestRun {
+                cases: vec![wvq_runtime::TestCaseResult {
+                    name: "loads the cart".into(),
+                    suite: "src/cart.test.ts".into(),
+                    status: TestStatus::Fail,
+                    duration_ms: Some(8_000),
+                    message: Some("timed out waiting for response".into()),
+                }],
+                coverage: None,
+                raw_artifacts: Vec::new(),
+            })
+            .unwrap(),
+        });
+        let failed =
+            persist_test_analytics(&store, &failed_run, &revision, &[failed_record], &[]).unwrap();
+        assert_eq!(failed.recorded_test_count, 1);
+        assert_eq!(failed.failed_test_count, 1);
+        assert_eq!(failed.flaky_test_count, 0);
+        assert_eq!(failed.unknown_failure_count, 0);
+
+        let passed_run = RunId::new("run-test-analytics-passed").unwrap();
+        store
+            .put_run(&StoredRun {
+                id: passed_run.clone(),
+                change_id: "test-analytics".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: true,
+                outcome: "passed".into(),
+            })
+            .unwrap();
+        let mut passed_record = record("vitest");
+        passed_record.artifacts.push(ProducedArtifact {
+            kind: "normalized-test-run".into(),
+            path: "junit.xml#normalized".into(),
+            bytes: serde_json::to_vec(&NormalizedTestRun {
+                cases: vec![wvq_runtime::TestCaseResult {
+                    name: "loads the cart".into(),
+                    suite: "src/cart.test.ts".into(),
+                    status: TestStatus::Pass,
+                    duration_ms: Some(2_000),
+                    message: None,
+                }],
+                coverage: None,
+                raw_artifacts: Vec::new(),
+            })
+            .unwrap(),
+        });
+        let passed =
+            persist_test_analytics(&store, &passed_run, &revision, &[passed_record], &[]).unwrap();
+        assert_eq!(passed.recorded_test_count, 1);
+        assert_eq!(passed.failed_test_count, 0);
+        assert_eq!(passed.flaky_test_count, 1);
+        assert_eq!(passed.unknown_failure_count, 0);
+
+        let value: Value = serde_json::from_slice(&passed.bytes).unwrap();
+        assert_eq!(value["slowest_tests"][0]["historical_average_ms"], 5_000);
     }
 
     #[test]

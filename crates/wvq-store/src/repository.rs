@@ -117,6 +117,48 @@ pub struct StoredRunItem {
     pub passed: bool,
 }
 
+/// One normalized test-case result bound to an exact run and revision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredTestCaseResult {
+    /// Stable occurrence identity.
+    pub id: String,
+    /// Parent aggregate run.
+    pub run_id: RunId,
+    /// Exact repository revision observed by the runner.
+    pub revision: RevisionId,
+    /// Frozen executor registry id.
+    pub executor: String,
+    /// Runner-reported suite, package, or file.
+    pub suite: String,
+    /// Runner-reported case name.
+    pub name: String,
+    /// `pass`, `fail`, `skip`, or `error`.
+    pub status: String,
+    /// Runner-reported duration, when available.
+    pub duration_ms: Option<u64>,
+    /// Stable failure fingerprint, when this occurrence failed.
+    pub fingerprint: Option<ContentHash>,
+}
+
+/// Historical analytics for one executor/suite/test identity.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TestCaseStats {
+    /// Total recorded occurrences.
+    pub runs: u64,
+    /// Successful occurrences.
+    pub passes: u64,
+    /// Assertion failures.
+    pub failures: u64,
+    /// Runner/infrastructure errors.
+    pub errors: u64,
+    /// Skipped occurrences.
+    pub skips: u64,
+    /// Mean of runner-reported durations, excluding missing durations.
+    pub average_duration_ms: Option<u64>,
+    /// True only after this exact identity has both passed and failed/errored.
+    pub flaky: bool,
+}
+
 impl Store {
     /// Open `<repo>/.weavatrix-quality/quality.db` and the CAS.
     ///
@@ -313,6 +355,90 @@ impl Store {
             )
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         Ok(())
+    }
+
+    /// Persist one normalized case result for historical test analytics.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown status tokens and returns SQL/identity failures.
+    pub fn put_test_case_result(&self, item: &StoredTestCaseResult) -> Result<(), StoreError> {
+        if !matches!(item.status.as_str(), "pass" | "fail" | "skip" | "error") {
+            return Err(StoreError::Invalid(format!(
+                "unknown test case status `{}`",
+                item.status
+            )));
+        }
+        let duration_ms = item.duration_ms.map(to_i64).transpose()?;
+        self.conn
+            .execute(
+                "INSERT INTO test_case_results \
+                 (id, run_id, revision, executor, suite, name, status, duration_ms, fingerprint) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    item.id,
+                    item.run_id.as_str(),
+                    item.revision.as_str(),
+                    item.executor,
+                    item.suite,
+                    item.name,
+                    item.status,
+                    duration_ms,
+                    item.fingerprint.as_ref().map(ContentHash::as_str),
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Aggregate duration and pass/fail history for one exact test identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] if the analytics table cannot be read.
+    pub fn test_case_stats(
+        &self,
+        executor: &str,
+        suite: &str,
+        name: &str,
+    ) -> Result<TestCaseStats, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*), \
+                 COALESCE(SUM(CASE WHEN status = 'pass' THEN 1 ELSE 0 END), 0), \
+                 COALESCE(SUM(CASE WHEN status = 'fail' THEN 1 ELSE 0 END), 0), \
+                 COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0), \
+                 COALESCE(SUM(CASE WHEN status = 'skip' THEN 1 ELSE 0 END), 0), \
+                 COALESCE(SUM(duration_ms), 0), COUNT(duration_ms) \
+                 FROM test_case_results WHERE executor = ?1 AND suite = ?2 AND name = ?3",
+                params![executor, suite, name],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let passes = to_u64(row.1);
+        let failures = to_u64(row.2);
+        let errors = to_u64(row.3);
+        let duration_count = to_u64(row.6);
+        Ok(TestCaseStats {
+            runs: to_u64(row.0),
+            passes,
+            failures,
+            errors,
+            skips: to_u64(row.4),
+            average_duration_ms: (duration_count > 0).then(|| to_u64(row.5) / duration_count),
+            flaky: passes > 0 && failures.saturating_add(errors) > 0,
+        })
     }
 
     /// Link an artifact to its producing run.

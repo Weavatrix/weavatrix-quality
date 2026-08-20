@@ -46,6 +46,10 @@ export interface RunReply {
     available_test_count: number
     executor_invocations: number
     browser_programs: number
+    recorded_test_count: number
+    failed_test_count: number
+    flaky_test_count: number
+    unknown_failure_count: number
     artifact_handles: string[]
 }
 

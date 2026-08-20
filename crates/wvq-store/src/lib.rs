@@ -10,6 +10,6 @@ mod sqlite;
 pub use cas::Cas;
 pub use repository::{
     ArtifactRecord, Store, StoredAiUsage, StoredHumanDecision, StoredProof, StoredRun,
-    StoredRunItem, StoredSession,
+    StoredRunItem, StoredSession, StoredTestCaseResult, TestCaseStats,
 };
 pub use sqlite::StoreError;

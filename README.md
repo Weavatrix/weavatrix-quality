@@ -58,6 +58,8 @@ A Rust, TS/JS, Bun, Go, or Playwright repository can:
 
 An `impacted` run uses a filtered JS/Bun/Playwright subset only when every obligation is covered and every selected path maps safely to a supported filter. Otherwise it widens to `all`; it never labels skipped protection as a successful impacted run. Every run returns `scope_reason`, selected/available test counts, and executor/browser invocation counts. File paths stay file-path argv values rather than becoming test-title regexes, and paths for one runner are batched into bounded processes (at most 128 filters and 24 KiB per process). More than sixteen batches widens to the full suite to avoid process amplification.
 
+Fresh normalized JUnit, Go, and typed browser results also feed persistent test analytics. WVQ records each exact executor/suite/test identity with its revision, outcome, and reported duration; clusters repeated failures by a stable fingerprint; and reports the slowest current cases with their historical mean. A test is called flaky only after the same identity has both passed and failed/errored in recorded history. The bounded `test-analytics` artifact stays in CAS, while `run` returns recorded, failed, flaky, and deterministically unclassified counts. This path makes no model call.
+
 ## CLI
 
 ```text

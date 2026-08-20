@@ -6,7 +6,9 @@ use wvq_domain::{
     ArtifactId, HumanDecision, HumanDecisionId, HumanRole, NewDecision, ObligationId, OracleSealId,
     ProofId, RevisionId, VerificationDecision,
 };
-use wvq_store::{Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem};
+use wvq_store::{
+    Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem, StoredTestCaseResult,
+};
 
 fn open_temp() -> Store {
     let nanos = SystemTime::now()
@@ -21,7 +23,53 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 7);
+    assert_eq!(store.schema_version().unwrap(), 8);
+}
+
+#[test]
+fn test_case_history_exposes_duration_and_real_flakiness() {
+    let store = open_temp();
+    let revision = RevisionId::new("rev-test-analytics").unwrap();
+    for (run, status, duration_ms) in [
+        ("run-test-analytics-1", "pass", 20),
+        ("run-test-analytics-2", "fail", 40),
+    ] {
+        let run_id = wvq_domain::RunId::new(run).unwrap();
+        store
+            .put_run(&StoredRun {
+                id: run_id.clone(),
+                change_id: "test-analytics".into(),
+                revision: revision.clone(),
+                status: "complete".into(),
+                passed: status == "pass",
+                outcome: if status == "pass" { "passed" } else { "failed" }.into(),
+            })
+            .unwrap();
+        store
+            .put_test_case_result(&StoredTestCaseResult {
+                id: format!("{run}-case-1"),
+                run_id,
+                revision: revision.clone(),
+                executor: "vitest".into(),
+                suite: "src/cart.test.ts".into(),
+                name: "preserves an applied voucher".into(),
+                status: status.into(),
+                duration_ms: Some(duration_ms),
+                fingerprint: None,
+            })
+            .unwrap();
+    }
+
+    let stats = store
+        .test_case_stats("vitest", "src/cart.test.ts", "preserves an applied voucher")
+        .unwrap();
+    assert_eq!(stats.runs, 2);
+    assert_eq!(stats.passes, 1);
+    assert_eq!(stats.failures, 1);
+    assert_eq!(stats.errors, 0);
+    assert_eq!(stats.skips, 0);
+    assert_eq!(stats.average_duration_ms, Some(30));
+    assert!(stats.flaky);
 }
 
 #[test]
