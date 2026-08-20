@@ -27,7 +27,8 @@ pub use flow::{
     FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,
 };
 pub use hypothesis::{
-    ChangeSignal, DefectHypothesis, HypothesisWeight, blocking_questions, hypothesise,
+    ChangeSignal, DefectHypothesis, HypothesisWeight, SignalConfidence, blocking_questions,
+    hypothesise,
 };
 pub use impact_union::{GraphDelta, ImpactedSurface, SurfaceDelta, impacted_surface};
 pub use risk::{RiskEvidence, RiskEvidenceKind, RiskLevel, risk_evidence};

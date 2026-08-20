@@ -1,7 +1,8 @@
-//! Deterministic defect hypotheses: concrete probes, and no busywork.
+﻿//! Deterministic defect hypotheses: concrete probes, and no busywork.
 
 use wvq_intelligence::{
-    ChangeSignal, DefectHypothesis, HypothesisWeight, blocking_questions, hypothesise,
+    ChangeSignal, DefectHypothesis, HypothesisWeight, SignalConfidence, blocking_questions,
+    hypothesise,
 };
 
 fn find<'a>(hypotheses: &'a [DefectHypothesis], id: &str) -> &'a DefectHypothesis {
@@ -168,9 +169,37 @@ fn the_heaviest_question_is_read_first() {
     assert_eq!(hypotheses[0].weight, HypothesisWeight::High);
     assert_eq!(hypotheses[0].id, "WVQ-HYP-003");
 
-    let blocking = blocking_questions(&hypotheses);
+    let blocking = blocking_questions(&hypotheses, SignalConfidence::Confirmed);
     assert_eq!(blocking.len(), 1, "only the high-weight question blocks");
     assert_eq!(blocking[0].id, "WVQ-HYP-003");
+}
+
+#[test]
+fn an_unmeasured_detector_advises_but_never_blocks() {
+    // The shadow run measured textual detectors firing on 42% of accepted,
+    // bug-free commits. Until a detector is graph-backed it must not gate CI.
+    let hypotheses = hypothesise(&[
+        ChangeSignal::PermissionPredicateChanged {
+            subject: "viewer".into(),
+        },
+        ChangeSignal::PersistedKeyRetired {
+            key: "mode".into(),
+            scope: "config".into(),
+        },
+    ]);
+    assert!(
+        !hypotheses.is_empty(),
+        "the questions are still asked, and still shown"
+    );
+    assert!(
+        blocking_questions(&hypotheses, SignalConfidence::Inferred).is_empty(),
+        "but a pattern match on the word `viewer` must never fail a build"
+    );
+    assert_eq!(
+        blocking_questions(&hypotheses, SignalConfidence::Confirmed).len(),
+        2,
+        "the same questions do gate once the signal is graph-backed"
+    );
 }
 
 #[test]

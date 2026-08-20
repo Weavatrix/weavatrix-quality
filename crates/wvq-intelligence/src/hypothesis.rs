@@ -137,6 +137,44 @@ pub fn hypothesise(signals: &[ChangeSignal]) -> Vec<DefectHypothesis> {
 
 fn one(signal: &ChangeSignal) -> Vec<DefectHypothesis> {
     match signal {
+        ChangeSignal::MembershipGuardAdded {
+            subject,
+            members,
+            domain,
+        } => vec![membership_hypothesis(subject, members, domain)],
+        other => simple(other),
+    }
+}
+
+/// The membership guard needs the domain difference, so it is built apart.
+fn membership_hypothesis(subject: &str, members: &[String], domain: &[String]) -> DefectHypothesis {
+    let mut probes: Vec<String> = domain
+        .iter()
+        .filter(|item| !members.contains(item))
+        .map(|item| format!("`{subject}` = {item} — is the guard's answer right?"))
+        .collect();
+    probes.push(format!(
+        "`{subject}` absent — `has(undefined)` is false, is that intended?"
+    ));
+    probes.push(format!(
+        "a value added to the domain later falls outside {{{}}} by default",
+        members.join(", ")
+    ));
+    hypothesis(
+        "WVQ-HYP-002",
+        HypothesisWeight::High,
+        format!(
+            "Is every value of `{subject}` outside {{{}}} genuinely meant to take the other branch?",
+            members.join(", ")
+        ),
+        format!("a membership guard on `{subject}` was introduced"),
+        probes,
+    )
+}
+
+fn simple(signal: &ChangeSignal) -> Vec<DefectHypothesis> {
+    match signal {
+        ChangeSignal::MembershipGuardAdded { .. } => Vec::new(),
         ChangeSignal::DefaultSensitivityFlipped {
             subject,
             before,
@@ -155,39 +193,6 @@ fn one(signal: &ChangeSignal) -> Vec<DefectHypothesis> {
                 format!("what is the declared default of `{subject}`, and do all readers agree?"),
             ],
         )],
-
-        ChangeSignal::MembershipGuardAdded {
-            subject,
-            members,
-            domain,
-        } => {
-            let outside: Vec<String> = domain
-                .iter()
-                .filter(|item| !members.contains(item))
-                .cloned()
-                .collect();
-            let mut probes: Vec<String> = outside
-                .iter()
-                .map(|item| format!("`{subject}` = {item} — is the guard's answer right?"))
-                .collect();
-            probes.push(format!(
-                "`{subject}` absent — `has(undefined)` is false, is that intended?"
-            ));
-            probes.push(format!(
-                "a value added to the domain later falls outside {{{}}} by default",
-                members.join(", ")
-            ));
-            vec![hypothesis(
-                "WVQ-HYP-002",
-                HypothesisWeight::High,
-                format!(
-                    "Is every value of `{subject}` outside {{{}}} genuinely meant to take the other branch?",
-                    members.join(", ")
-                ),
-                format!("a membership guard on `{subject}` was introduced"),
-                probes,
-            )]
-        }
 
         ChangeSignal::PersistedKeyRetired { key, scope } => vec![hypothesis(
             "WVQ-HYP-003",
@@ -273,9 +278,35 @@ fn one(signal: &ChangeSignal) -> Vec<DefectHypothesis> {
     }
 }
 
-/// Hypotheses heavy enough to warrant a check before merging.
+/// How sure we are the signal really occurred, as opposed to how much it would
+/// matter. Spec §59 Stage C: a category is promoted only once its precision is
+/// measured on the repository.
+///
+/// A shadow run over 60 accepted, bug-free commits showed textual detectors
+/// firing on a third to a half of them. Consequence and detection quality are
+/// therefore tracked apart, and an unmeasured detector never blocks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignalConfidence {
+    /// Pattern-matched from text. Precision unmeasured; advisory only.
+    Inferred,
+    /// Backed by graph or schema evidence that names the exact symbol.
+    Confirmed,
+}
+
+/// Hypotheses that should stop a change before it merges.
+///
+/// Both conditions must hold: the consequence must be `High`, and the signal
+/// must be `Confirmed`. A high-stakes question raised by a detector whose
+/// precision nobody has measured is advice, not a gate.
 #[must_use]
-pub fn blocking_questions(hypotheses: &[DefectHypothesis]) -> Vec<&DefectHypothesis> {
+pub fn blocking_questions(
+    hypotheses: &[DefectHypothesis],
+    confidence: SignalConfidence,
+) -> Vec<&DefectHypothesis> {
+    if confidence != SignalConfidence::Confirmed {
+        return Vec::new();
+    }
     hypotheses
         .iter()
         .filter(|item| item.weight == HypothesisWeight::High)
