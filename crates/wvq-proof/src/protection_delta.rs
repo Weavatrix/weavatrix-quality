@@ -218,71 +218,7 @@ fn compare(
                 (ProtectionDeltaState::NewUnprotected, Vec::new(), Vec::new())
             }
         }
-        (Some(base), Some(head)) => {
-            let lost_critical = critical_losses(base, &head.covered_branches, context);
-            let lost_obligations = difference(&base.proven_obligations, &head.proven_obligations);
-
-            // Spec §77: this check comes first and cannot be outvoted by a gain.
-            if !lost_critical.is_empty() {
-                reasons.push(format!(
-                    "critical branch(es) {} lost all dynamic execution",
-                    lost_critical.join(", ")
-                ));
-                reasons.push("a global coverage gain does not offset this".into());
-                (ProtectionDeltaState::Lost, lost_critical, lost_obligations)
-            } else if !head.is_protected() {
-                reasons.push("no test or session reaches this flow any more".into());
-                (ProtectionDeltaState::Lost, lost_critical, lost_obligations)
-            } else if !lost_obligations.is_empty() {
-                reasons.push(format!(
-                    "obligation(s) {} are no longer proved",
-                    lost_obligations.join(", ")
-                ));
-                (
-                    ProtectionDeltaState::Degraded,
-                    lost_critical,
-                    lost_obligations,
-                )
-            } else if relocated {
-                reasons.push("implementation moved and protection followed it".into());
-                (
-                    ProtectionDeltaState::Relocated,
-                    lost_critical,
-                    lost_obligations,
-                )
-            } else if base.tests != head.tests {
-                reasons.push(
-                    "different tests prove the same obligations and flow with equivalent evidence"
-                        .into(),
-                );
-                (
-                    ProtectionDeltaState::Replaced,
-                    lost_critical,
-                    lost_obligations,
-                )
-            } else if strictly_more(&head.covered_branches, &base.covered_branches) {
-                reasons.push("same protection plus additional measured branches".into());
-                (
-                    ProtectionDeltaState::Improved,
-                    lost_critical,
-                    lost_obligations,
-                )
-            } else if difference(&base.covered_branches, &head.covered_branches).is_empty() {
-                reasons.push("equivalent runtime evidence for the same obligations".into());
-                (
-                    ProtectionDeltaState::Preserved,
-                    lost_critical,
-                    lost_obligations,
-                )
-            } else {
-                reasons.push("fewer branches are exercised than before".into());
-                (
-                    ProtectionDeltaState::Degraded,
-                    lost_critical,
-                    lost_obligations,
-                )
-            }
-        }
+        (Some(base), Some(head)) => compare_present(base, head, relocated, context, &mut reasons),
         (None, None) => {
             reasons.push("no evidence on either revision".into());
             (ProtectionDeltaState::Unknown, Vec::new(), Vec::new())
@@ -298,6 +234,57 @@ fn compare(
         lost_obligations,
         reasons,
     }
+}
+
+/// Both revisions measured this flow. Decide what changed.
+///
+/// The order of the branches is the policy: the critical-branch check runs
+/// first so no later gain can outvote it.
+fn compare_present(
+    base: &FlowProtection,
+    head: &FlowProtection,
+    relocated: bool,
+    context: &DeltaContext,
+    reasons: &mut Vec<String>,
+) -> (ProtectionDeltaState, Vec<String>, Vec<String>) {
+    let lost_critical = critical_losses(base, &head.covered_branches, context);
+    let lost_obligations = difference(&base.proven_obligations, &head.proven_obligations);
+
+    let state = if !lost_critical.is_empty() {
+        reasons.push(format!(
+            "critical branch(es) {} lost all dynamic execution",
+            lost_critical.join(", ")
+        ));
+        reasons.push("a global coverage gain does not offset this".into());
+        ProtectionDeltaState::Lost
+    } else if !head.is_protected() {
+        reasons.push("no test or session reaches this flow any more".into());
+        ProtectionDeltaState::Lost
+    } else if !lost_obligations.is_empty() {
+        reasons.push(format!(
+            "obligation(s) {} are no longer proved",
+            lost_obligations.join(", ")
+        ));
+        ProtectionDeltaState::Degraded
+    } else if relocated {
+        reasons.push("implementation moved and protection followed it".into());
+        ProtectionDeltaState::Relocated
+    } else if base.tests != head.tests {
+        reasons.push(
+            "different tests prove the same obligations and flow with equivalent evidence".into(),
+        );
+        ProtectionDeltaState::Replaced
+    } else if strictly_more(&head.covered_branches, &base.covered_branches) {
+        reasons.push("same protection plus additional measured branches".into());
+        ProtectionDeltaState::Improved
+    } else if difference(&base.covered_branches, &head.covered_branches).is_empty() {
+        reasons.push("equivalent runtime evidence for the same obligations".into());
+        ProtectionDeltaState::Preserved
+    } else {
+        reasons.push("fewer branches are exercised than before".into());
+        ProtectionDeltaState::Degraded
+    };
+    (state, lost_critical, lost_obligations)
 }
 
 fn critical_losses(
