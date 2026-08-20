@@ -92,6 +92,63 @@ fn live_runner_repo() -> TempRepo {
     TempRepo(root)
 }
 
+fn live_coverage_runner_repo() -> TempRepo {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("wvq-live-coverage-{nanos}"));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("openspec/changes/live-js/specs/arithmetic")).unwrap();
+    std::fs::create_dir_all(root.join(".weavatrix-quality")).unwrap();
+    std::fs::write(root.join(".gitignore"), "coverage/\n.weavatrix-quality/\n").unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"wvq-live-coverage","private":true,"type":"module","scripts":{"test":"node test.mjs"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/add.js"),
+        "export function add(a, b) {\n  return a + b;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("test.mjs"),
+        "import fs from 'node:fs';\nimport { add } from './src/add.js';\nif (add(2, 3) !== 5) process.exit(1);\nfs.mkdirSync('coverage', { recursive: true });\nfs.writeFileSync('coverage/lcov.info', 'TN:\\nSF:src/add.js\\nDA:1,1\\nDA:2,1\\nend_of_record\\n');\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("openspec/changes/live-js/specs/arithmetic/spec.md"),
+        "# Delta for Arithmetic\n\n## ADDED Requirements\n\n### Requirement: Addition\nThe system SHALL add two numbers.\n\n#### Scenario: Sum\n- GIVEN two numbers\n- WHEN addition is requested\n- THEN their sum is returned\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("openspec/changes/live-js/quality.yaml"),
+        "quality_contract_v: 1\nchange: live-js\n\nrisk:\n  default: high\n\nrequirements:\n  - capability: arithmetic\n    requirement: addition\n    scenarios:\n      - scenario: sum\n        obligations:\n          - id: addition-behavior\n            kind: behavioral\n        evidence:\n          required: [coverage]\n          on_failure: []\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".weavatrix-quality/config.yaml"),
+        "quality_policy_v: 1\n\ntest_bindings:\n  - path: test.mjs\n    obligations: [addition-behavior]\n    cost: 10\n    flake_penalty: 0\n",
+    )
+    .unwrap();
+    git(&root, &["init", "-q"]);
+    git(&root, &["add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "baseline",
+        ],
+    );
+    TempRepo(root)
+}
+
 fn git(root: &Path, args: &[&str]) {
     let output = ProcessCommand::new("git")
         .args(args)
@@ -446,6 +503,32 @@ fn live_recovery_is_populated_from_git_and_weavatrix() {
     assert!(!packet.code_delta_summary.changed_symbols.is_empty());
     assert!(!packet.capability_clusters.is_empty());
     assert_eq!(desk.review().change, "live-add");
+}
+
+#[test]
+fn live_protection_replays_base_and_head_coverage() {
+    let repo = live_coverage_runner_repo();
+    std::fs::write(
+        repo.0.join("src/add.js"),
+        "export function add(a, b) {\n  return Number(a) + Number(b);\n}\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let view = service
+        .protection_view("live-js", "HEAD", "WORKTREE")
+        .unwrap();
+    assert!(
+        !view.flows.is_empty(),
+        "live coverage must create flow views"
+    );
+    assert!(
+        view.deltas
+            .iter()
+            .any(|delta| delta.state.as_str() == "preserved"),
+        "same measured branch should be preserved: {:?}",
+        view.deltas
+    );
+    assert!(!view.report().blocking);
 }
 
 #[test]

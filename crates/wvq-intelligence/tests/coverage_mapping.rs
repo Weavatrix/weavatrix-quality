@@ -1,9 +1,7 @@
 //! Task 12: LCOV ranges overlay Weavatrix spans; missing ≠ uncovered.
 
 use serde_json::json;
-use wvq_intelligence::{
-    CoverageMeasurement, DebtBaseline, gate_coverage, map_coverage_to_nodes,
-};
+use wvq_intelligence::{CoverageMeasurement, DebtBaseline, gate_coverage, map_coverage_to_nodes};
 use wvq_runtime::{CoverageArtifact, FileCoverage, LineRange};
 
 fn coverage(path: &str, covered: &[(u32, u32)], uncovered: &[(u32, u32)]) -> CoverageArtifact {
@@ -22,7 +20,13 @@ fn coverage(path: &str, covered: &[(u32, u32)], uncovered: &[(u32, u32)]) -> Cov
     }
 }
 
-fn node(id: &str, file: &str, start: u32, end: u32, extra: &serde_json::Value) -> serde_json::Value {
+fn node(
+    id: &str,
+    file: &str,
+    start: u32,
+    end: u32,
+    extra: &serde_json::Value,
+) -> serde_json::Value {
     let mut value = json!({
         "id": id,
         "span": { "file": file, "start_line": start, "end_line": end }
@@ -35,6 +39,19 @@ fn node(id: &str, file: &str, start: u32, end: u32, extra: &serde_json::Value) -
         }
     }
     value
+}
+
+#[test]
+fn measured_file_nodes_do_not_need_a_symbol_span() {
+    let report = coverage("src/add.js", &[(1, 2)], &[]);
+    let mapped = map_coverage_to_nodes(
+        Some(&report),
+        &json!({"nodes": [{"id": "file:src/add.js", "kind": "file", "label": "src/add.js"}]}),
+    )
+    .unwrap();
+    assert_eq!(mapped.len(), 1);
+    assert_eq!(mapped[0].measurement, CoverageMeasurement::Covered);
+    assert_eq!(mapped[0].covered_lines, 2);
 }
 
 #[test]
@@ -112,7 +129,11 @@ fn impacted_coverage_regression_quotes_base_and_head() {
         .iter()
         .find(|item| item.check.as_str() == "WVQ-COV-003")
         .expect("regression");
-    assert!(finding.summary.contains("10/10 → 5/10"), "{}", finding.summary);
+    assert!(
+        finding.summary.contains("10/10 → 5/10"),
+        "{}",
+        finding.summary
+    );
 }
 
 #[test]

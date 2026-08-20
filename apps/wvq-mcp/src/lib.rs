@@ -28,6 +28,8 @@ pub enum HostProfile {
     Default,
     /// Six-tool human-reviewed brownfield recovery profile.
     Recovery,
+    /// Three-tool base/head protection continuity profile.
+    Protection,
 }
 
 /// Strict host options. These affect startup only and never become shell argv.
@@ -74,6 +76,7 @@ pub fn parse_host_args(args: &[String]) -> Result<HostOptions, String> {
     let profile = match flags.get("profile").map_or("default", String::as_str) {
         "default" => HostProfile::Default,
         "recovery" => HostProfile::Recovery,
+        "protection" => HostProfile::Protection,
         other => return Err(format!("unknown MCP profile `{other}`")),
     };
     Ok(HostOptions {

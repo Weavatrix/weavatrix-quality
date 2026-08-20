@@ -5,7 +5,7 @@
 //! proved, and when the last passing proof was. Every entry is revision-bound —
 //! evidence that cannot name its revision is refused rather than assumed good.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wvq_domain::RevisionId;
 
@@ -45,7 +45,7 @@ pub enum ProtectionError {
 }
 
 /// What protected one flow at one revision. Spec §72.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowProtection {
     /// Flow identity.
     pub flow: String,
@@ -80,7 +80,7 @@ impl FlowProtection {
 }
 
 /// Everything that protected the affected surface at one revision.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtectionSnapshot {
     /// Revision this snapshot describes.
     pub revision: String,

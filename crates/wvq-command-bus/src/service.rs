@@ -18,9 +18,10 @@ use wvq_intelligence::{
     select_minimal_plan,
 };
 use wvq_proof::{
-    AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, ExecutionEvidence,
-    FlowProtection, LocalModelConfig, LocalModelRequest, ProofVerdict, assemble, call_local_model,
-    snapshot,
+    AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, DeltaContext, ExecutionEvidence,
+    FlowProtection, FlowView, LocalModelConfig, LocalModelRequest, ProofVerdict,
+    ProtectionCheckInput, ProtectionPolicy, ProtectionSnapshot, ProtectionView, TestChange,
+    TestLineageView, assemble, call_local_model, gate_protection, protection_delta, snapshot,
 };
 use wvq_runtime::{
     CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget, PrepareRequest,
@@ -601,6 +602,141 @@ impl LiveService {
         Ok(desk)
     }
 
+    /// Replay measured coverage on base and head and build the live protection
+    /// continuity view used by MCP and Studio.
+    ///
+    /// # Errors
+    ///
+    /// Missing revision-bound coverage, a failed runner, or incomplete graph
+    /// evidence is refused rather than converted into an unprotected result.
+    pub fn protection_view(
+        &self,
+        change: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<ProtectionView, BusError> {
+        let compiled = self.compiled(change)?;
+        let range = self.revision_range(base, head)?;
+        let files = changed_files(&self.repo, &range)?;
+        let all_files = files.all();
+        if all_files.is_empty() {
+            return Err(BusError::Intelligence(format!(
+                "revision range `{base}` -> `{head}` has no files to measure"
+            )));
+        }
+        let revision = self.revision()?;
+        let diff = self.weavatrix_operation(
+            &revision,
+            "graph_diff",
+            &json!({
+                "base_ref": range.base_ref,
+                "detail": "edges",
+                "max_results": 100_000
+            }),
+        )?;
+        ensure_complete_diff(&diff)?;
+        let head_graph = protection_graph_for_files(&self.repo, &revision, &all_files)?;
+        let head_run = self.run(&RunCommand {
+            change: compiled.change.clone(),
+            base: range.base_ref.clone(),
+            head: range.head_ref.clone(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })?;
+        if head_run.outcome != "passed" {
+            return Err(BusError::Runtime(format!(
+                "head protection run {} did not pass ({})",
+                head_run.run_id, head_run.outcome
+            )));
+        }
+        let head_snapshot = self.stored_protection_snapshot(&head_run.run_id)?;
+        let (base_snapshot, base_graph) = self.measure_base_protection(&range, &all_files)?;
+        Ok(build_protection_view(
+            &compiled.obligations,
+            &diff,
+            &base_snapshot,
+            &head_snapshot,
+            &base_graph,
+            &head_graph,
+            &files,
+        ))
+    }
+
+    fn stored_protection_snapshot(&self, run: &str) -> Result<ProtectionSnapshot, BusError> {
+        let run = RunId::new(run).map_err(|err| BusError::Identity(err.to_string()))?;
+        let store = self.store()?;
+        let mut found = None;
+        for artifact in store
+            .run_artifacts(&run)
+            .map_err(|err| BusError::Store(err.to_string()))?
+        {
+            let (record, bytes) = store
+                .read_artifact(&artifact)
+                .map_err(|err| BusError::Store(err.to_string()))?;
+            if record.kind != "protection-snapshot" {
+                continue;
+            }
+            if found.is_some() {
+                return Err(BusError::Store(format!(
+                    "run {run} has more than one protection snapshot"
+                )));
+            }
+            found = Some(serde_json::from_slice(&bytes).map_err(|err| {
+                BusError::Store(format!("invalid protection snapshot on run {run}: {err}"))
+            })?);
+        }
+        found.ok_or_else(|| {
+            BusError::Runtime(format!(
+                "run {run} produced no measured protection snapshot; coverage is required"
+            ))
+        })
+    }
+
+    fn measure_base_protection(
+        &self,
+        range: &RevisionRange,
+        files: &[String],
+    ) -> Result<(ProtectionSnapshot, Value), BusError> {
+        if let Some(err) = &self.executor_init_error {
+            return Err(BusError::Runtime(format!(
+                "registered executor initialization failed: {err}"
+            )));
+        }
+        let worktree = TemporaryWorktree::create(&self.repo, &range.base_commit)?;
+        let evidence = WeavatrixProvider
+            .analyze(&worktree.path)
+            .map_err(|err| BusError::Intelligence(err.to_string()))?;
+        let graph = protection_graph_for_files(&worktree.path, &evidence.revision, files)?;
+        let targets = discover_executor_targets(&worktree.path)
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        if targets.is_empty() {
+            return Err(BusError::Runtime(
+                "base revision has no supported registered executor".into(),
+            ));
+        }
+        let records = execute_full_targets(
+            &self.executors,
+            &worktree.path,
+            &targets,
+            &Arc::new(AtomicBool::new(false)),
+        )?;
+        if records
+            .iter()
+            .any(|record| !record.passed || record.error.is_some())
+        {
+            return Err(BusError::Runtime(
+                "base protection replay did not pass every registered runner".into(),
+            ));
+        }
+        let protection = live_protection_snapshot(&evidence.revision, &graph, &records)?
+            .ok_or_else(|| {
+                BusError::Runtime(
+                    "base protection replay produced no coverage for the impacted graph".into(),
+                )
+            })?;
+        Ok((protection, graph))
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<RunState>> {
         self.state
             .lock()
@@ -802,6 +938,66 @@ impl ChangedFiles {
         tests.added.dedup();
         tests.added
     }
+
+    fn all(&self) -> Vec<String> {
+        let mut files = self.added.clone();
+        files.extend(self.changed.iter().cloned());
+        files.extend(self.removed.iter().cloned());
+        files.sort();
+        files.dedup();
+        files
+    }
+}
+
+struct TemporaryWorktree {
+    repo: PathBuf,
+    path: PathBuf,
+}
+
+impl TemporaryWorktree {
+    fn create(repo: &Path, commit: &str) -> Result<Self, BusError> {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|err| BusError::Identity(err.to_string()))?
+            .as_nanos();
+        let short = commit.get(..12).unwrap_or(commit);
+        let path =
+            std::env::temp_dir().join(format!("wvq-base-{}-{}-{nanos}", std::process::id(), short));
+        if path.exists() {
+            return Err(BusError::Runtime(format!(
+                "temporary base worktree path already exists: {}",
+                path.display()
+            )));
+        }
+        git_output(
+            repo,
+            &[
+                "worktree".into(),
+                "add".into(),
+                "--detach".into(),
+                path.display().to_string(),
+                commit.to_owned(),
+            ],
+        )?;
+        Ok(Self {
+            repo: repo.to_path_buf(),
+            path,
+        })
+    }
+}
+
+impl Drop for TemporaryWorktree {
+    fn drop(&mut self) {
+        let _ = ProcessCommand::new("git")
+            .args(["worktree", "remove", "--force"])
+            .arg(&self.path)
+            .current_dir(&self.repo)
+            .output();
+        let _ = ProcessCommand::new("git")
+            .args(["worktree", "prune"])
+            .current_dir(&self.repo)
+            .output();
+    }
 }
 
 #[derive(Debug)]
@@ -942,8 +1138,10 @@ impl QualityService for LiveService {
             ));
         }
         let range = self.revision_range(&cmd.base, &cmd.head)?;
+        let changed = changed_files(&self.repo, &range)?;
         let store = self.store()?;
         let before = self.revision()?;
+        let protection_graph = protection_graph_for_files(&self.repo, &before, &changed.all())?;
         let graph_diff = self.weavatrix_operation(
             &before,
             "graph_diff",
@@ -1089,6 +1287,14 @@ impl QualityService for LiveService {
         put_json_run_artifact(
             &store,
             &run_id,
+            &format!("artifact-{}-protection-graph", run_id.as_str()),
+            "weavatrix-protection-graph",
+            &protection_graph,
+            &mut handles,
+        )?;
+        put_json_run_artifact(
+            &store,
+            &run_id,
             &format!("artifact-{}-graph-diff", run_id.as_str()),
             "weavatrix-graph-diff",
             &graph_diff,
@@ -1176,7 +1382,7 @@ impl QualityService for LiveService {
                 )?;
             }
         }
-        if let Some(protection) = live_protection_snapshot(&before, &graph_diff, &records)? {
+        if let Some(protection) = live_protection_snapshot(&before, &protection_graph, &records)? {
             put_json_run_artifact(
                 &store,
                 &run_id,
@@ -2014,6 +2220,66 @@ fn changed_files(repo: &Path, range: &RevisionRange) -> Result<ChangedFiles, Bus
         list.dedup();
     }
     Ok(out)
+}
+
+fn protection_graph_for_files(
+    repo: &Path,
+    revision: &RevisionId,
+    files: &[String],
+) -> Result<Value, BusError> {
+    let seeds = files
+        .iter()
+        .filter(|path| repo.join(path).is_file())
+        .map(|path| format!("file:{path}"))
+        .collect::<Vec<_>>();
+    if seeds.is_empty() {
+        return Ok(json!({"nodes": [], "edges": [], "revision": revision.as_str()}));
+    }
+    let report = WeavatrixProvider
+        .operation(
+            repo,
+            "query_graph",
+            &json!({
+                "seed_files": seeds,
+                "depth": 8,
+                "max_nodes": 100_000,
+                "flow_direction": "both",
+                "mode": "bfs"
+            }),
+        )
+        .map_err(|err| BusError::Intelligence(err.to_string()))?;
+    let found = report
+        .get("revision")
+        .and_then(Value::as_str)
+        .ok_or_else(|| BusError::Intelligence("query_graph omitted revision identity".into()))?;
+    if found != revision.as_str() {
+        return Err(BusError::Ambiguous(format!(
+            "query_graph evidence belongs to revision `{found}`, expected `{revision}`"
+        )));
+    }
+    if report
+        .get("truncated")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(BusError::Intelligence(
+            "protection graph exceeded its bounded query; refusing partial coverage mapping".into(),
+        ));
+    }
+    let mut nodes = report
+        .get("nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("node").cloned())
+        .collect::<Vec<_>>();
+    nodes.sort_by_key(graph_node_id);
+    nodes.dedup_by(|left, right| graph_node_id(left) == graph_node_id(right));
+    Ok(json!({
+        "nodes": nodes,
+        "edges": report.get("edges").cloned().unwrap_or_else(|| json!([])),
+        "revision": revision.as_str()
+    }))
 }
 
 fn recovery_code_delta(diff: &Value) -> (CodeDeltaSummary, PublicSurfaceDelta) {
@@ -3190,6 +3456,65 @@ fn full_execution_requests(
     )
 }
 
+fn execute_full_targets(
+    executors: &ExecutorRegistry,
+    repo: &Path,
+    targets: &[ExecutorTarget],
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<ExecutorRecord>, BusError> {
+    let mut records = Vec::new();
+    for target in targets {
+        std::fs::create_dir_all(target.cwd.join(".weavatrix-quality")).map_err(|err| {
+            BusError::Runtime(format!(
+                "cannot prepare runner evidence directory in {}: {err}",
+                target.cwd.display()
+            ))
+        })?;
+        let prepared = executors
+            .prepare(PrepareRequest {
+                executor: target.executor.clone(),
+                cwd: target.cwd.clone(),
+                filter: None,
+                extra: BTreeMap::new(),
+                limits: default_limits(),
+                cancel: Arc::clone(cancel),
+            })
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let started = SystemTime::now();
+        let mut record = match executors.execute(&prepared) {
+            Ok(ExecutionResult {
+                status_code,
+                stdout,
+                stderr,
+            }) => ExecutorRecord {
+                executor: target.executor.as_str().to_owned(),
+                cwd: relative_or_display(repo, &target.cwd),
+                selection: None,
+                status_code,
+                passed: status_code == Some(0),
+                error: None,
+                stdout,
+                stderr,
+                artifacts: Vec::new(),
+            },
+            Err(err) => ExecutorRecord {
+                executor: target.executor.as_str().to_owned(),
+                cwd: relative_or_display(repo, &target.cwd),
+                selection: None,
+                status_code: None,
+                passed: false,
+                error: Some(err.to_string()),
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+                artifacts: Vec::new(),
+            },
+        };
+        attach_normalized_artifacts(repo, &target.cwd, started, &mut record);
+        records.push(record);
+    }
+    Ok(records)
+}
+
 fn test_path_from_node_id(id: &str) -> Option<String> {
     let raw = id.strip_prefix("file:").unwrap_or(id);
     let path = raw.split('#').next().unwrap_or(raw);
@@ -3436,36 +3761,45 @@ fn ensure_complete_diff(diff: &Value) -> Result<(), BusError> {
 
 fn live_protection_snapshot(
     revision: &RevisionId,
-    diff: &Value,
+    graph: &Value,
     records: &[ExecutorRecord],
 ) -> Result<Option<wvq_proof::ProtectionSnapshot>, BusError> {
-    let graph = head_coverage_graph(diff);
     let Some(nodes) = graph.get("nodes").and_then(Value::as_array) else {
         return Ok(None);
     };
     if nodes.is_empty() {
         return Ok(None);
     }
-    let mut flows = BTreeMap::<String, FlowProtection>::new();
+    let (flows, coverage_files) = measured_protection_flows(revision, graph, nodes, records)?;
+    if flows.is_empty() {
+        if !coverage_files.is_empty() {
+            return Err(coverage_graph_mismatch(nodes, coverage_files));
+        }
+        return Ok(None);
+    }
+    let snapshot = snapshot(revision, flows.into_values().collect())
+        .map_err(|err| BusError::Runtime(err.to_string()))?;
+    Ok(Some(snapshot))
+}
+
+fn measured_protection_flows(
+    revision: &RevisionId,
+    graph: &Value,
+    nodes: &[Value],
+    records: &[ExecutorRecord],
+) -> Result<(BTreeMap<String, FlowProtection>, BTreeSet<String>), BusError> {
+    let mut known_nodes = BTreeSet::new();
     for node in nodes {
         let Some(id) = graph_node_id(node) else {
             return Err(BusError::Intelligence(
                 "impacted head graph contains a node without identity".into(),
             ));
         };
-        flows.entry(id.clone()).or_insert_with(|| FlowProtection {
-            flow: id,
-            revision: revision.to_string(),
-            tests: Vec::new(),
-            sessions: Vec::new(),
-            covered_nodes: Vec::new(),
-            covered_branches: Vec::new(),
-            proven_obligations: Vec::new(),
-            proofs: Vec::new(),
-        });
+        known_nodes.insert(id);
     }
 
-    let mut measured = false;
+    let mut flows = BTreeMap::<String, FlowProtection>::new();
+    let mut coverage_files = BTreeSet::new();
     for record in records.iter().filter(|record| record.passed) {
         for artifact in record
             .artifacts
@@ -3479,48 +3813,267 @@ fn live_protection_snapshot(
                         artifact.path
                     ))
                 })?;
-            let mapped = map_coverage_to_nodes(Some(&coverage), &graph)
+            coverage_files.extend(coverage.files.iter().map(|file| file.path.clone()));
+            let mapped = map_coverage_to_nodes(Some(&coverage), graph)
                 .map_err(|err| BusError::Intelligence(err.to_string()))?;
-            measured = true;
             for node in mapped
                 .into_iter()
-                .filter(|node| node.measurement == CoverageMeasurement::Covered)
+                .filter(|node| node.measurement != CoverageMeasurement::Unmeasured)
             {
-                let flow = flows.get_mut(&node.node_id).ok_or_else(|| {
-                    BusError::Intelligence(format!(
-                        "coverage mapped unknown graph node {}",
-                        node.node_id
-                    ))
-                })?;
-                let test = format!("executor:{}@{}", record.executor, record.cwd);
+                let node_id = node.node_id;
+                if !known_nodes.contains(&node_id) {
+                    return Err(BusError::Intelligence(format!(
+                        "coverage mapped unknown graph node {node_id}"
+                    )));
+                }
+                let flow = flows
+                    .entry(node_id.clone())
+                    .or_insert_with(|| FlowProtection {
+                        flow: node_id.clone(),
+                        revision: revision.to_string(),
+                        tests: Vec::new(),
+                        sessions: Vec::new(),
+                        covered_nodes: Vec::new(),
+                        covered_branches: Vec::new(),
+                        proven_obligations: Vec::new(),
+                        proofs: Vec::new(),
+                    });
+                if node.measurement != CoverageMeasurement::Covered {
+                    continue;
+                }
+                let test = record
+                    .selection
+                    .clone()
+                    .unwrap_or_else(|| format!("executor:{}@{}", record.executor, record.cwd));
                 if !flow.tests.contains(&test) {
                     flow.tests.push(test);
                 }
-                if !flow.covered_nodes.contains(&node.node_id) {
-                    flow.covered_nodes.push(node.node_id);
+                if !flow.covered_nodes.contains(&node_id) {
+                    flow.covered_nodes.push(node_id);
                 }
             }
         }
     }
-    if !measured {
-        return Ok(None);
-    }
-    let snapshot = snapshot(revision, flows.into_values().collect())
-        .map_err(|err| BusError::Runtime(err.to_string()))?;
-    Ok(Some(snapshot))
+    Ok((flows, coverage_files))
 }
 
-fn head_coverage_graph(diff: &Value) -> Value {
-    let mut nodes = Vec::new();
-    nodes.extend(values_at(diff, "/nodes/added").iter().cloned());
-    nodes.extend(
-        values_at(diff, "/nodes/changed")
-            .iter()
-            .filter_map(|changed| changed.get("after").cloned()),
-    );
-    nodes.sort_by_key(graph_node_id);
-    nodes.dedup_by(|left, right| graph_node_id(left) == graph_node_id(right));
-    json!({"nodes": nodes})
+fn coverage_graph_mismatch(nodes: &[Value], coverage_files: BTreeSet<String>) -> BusError {
+    let graph_files = nodes
+        .iter()
+        .filter_map(|node| {
+            node.pointer("/span/file")
+                .or_else(|| node.get("file"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect::<BTreeSet<_>>();
+    let graph_spans = nodes
+        .iter()
+        .filter_map(|node| {
+            Some(format!(
+                "{}:{}-{}",
+                node.pointer("/span/file")
+                    .or_else(|| node.get("file"))?
+                    .as_str()?,
+                node.pointer("/span/start_line")
+                    .or_else(|| node.get("start_line"))?
+                    .as_u64()?,
+                node.pointer("/span/end_line")
+                    .or_else(|| node.get("end_line"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            ))
+        })
+        .take(20)
+        .collect::<Vec<_>>();
+    let graph_sample = nodes.iter().take(3).cloned().collect::<Vec<_>>();
+    BusError::Intelligence(format!(
+        "coverage files [{}] do not overlap measured protection spans [{}] in graph files [{}]; graph sample {}",
+        coverage_files.into_iter().collect::<Vec<_>>().join(", "),
+        graph_spans.join(", "),
+        graph_files.into_iter().collect::<Vec<_>>().join(", "),
+        Value::Array(graph_sample)
+    ))
+}
+
+fn build_protection_view(
+    obligations: &[TestObligation],
+    diff: &Value,
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+    base_graph: &Value,
+    head_graph: &Value,
+    files: &ChangedFiles,
+) -> ProtectionView {
+    let context = DeltaContext {
+        critical_branches: Vec::new(),
+        intentionally_removed: Vec::new(),
+        relocations: graph_relocations(diff),
+    };
+    let deltas = protection_delta(base, head, &context);
+    let lineage = protection_lineage(base, head);
+    let changed_tests = files.changed_tests().into_iter().collect::<BTreeSet<_>>();
+    let tests = lineage
+        .iter()
+        .flat_map(|item| {
+            item.lost_flows.iter().map(|flow| TestChange {
+                test: item.test.clone(),
+                flow: flow.clone(),
+                survives: item.state != "removed",
+                lost_flows: item.lost_flows.clone(),
+                lost_obligations: Vec::new(),
+                replaced_by: None,
+                assertions_weakened: false,
+                changed_with_implementation: changed_tests.contains(&item.test),
+                new_oracle_seal: false,
+                declared_spec_delta: false,
+            })
+        })
+        .collect::<Vec<_>>();
+    let any_high_risk = obligations
+        .iter()
+        .any(|item| matches!(item.risk, RiskLevel::High | RiskLevel::Critical));
+    let high_risk_flows = if any_high_risk {
+        deltas.iter().map(|item| item.flow.clone()).collect()
+    } else {
+        Vec::new()
+    };
+    let findings = gate_protection(&ProtectionCheckInput {
+        deltas: deltas.clone(),
+        tests,
+        trends: Vec::new(),
+        policy: ProtectionPolicy {
+            high_risk_flows,
+            substitution_ratio: 10,
+        },
+    });
+    let flows = deltas
+        .iter()
+        .map(|delta| {
+            let before = base.flow(&delta.flow);
+            let head_name = context
+                .relocations
+                .iter()
+                .find(|(source, _)| source == &delta.flow)
+                .map_or(delta.flow.as_str(), |(_, target)| target.as_str());
+            let after = head.flow(head_name);
+            FlowView {
+                flow: delta.flow.clone(),
+                base_path: graph_singleton_path(base_graph, &delta.flow),
+                head_path: graph_singleton_path(head_graph, head_name),
+                requirements: before
+                    .into_iter()
+                    .flat_map(|item| item.proven_obligations.iter().cloned())
+                    .chain(
+                        after
+                            .into_iter()
+                            .flat_map(|item| item.proven_obligations.iter().cloned()),
+                    )
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
+                tests_before: before.map(|item| item.tests.clone()).unwrap_or_default(),
+                tests_after: after.map(|item| item.tests.clone()).unwrap_or_default(),
+                coverage_before: before
+                    .map(|item| item.covered_branches.clone())
+                    .unwrap_or_default(),
+                coverage_after: after
+                    .map(|item| item.covered_branches.clone())
+                    .unwrap_or_default(),
+                proof_before: before.map(|item| item.proofs.clone()).unwrap_or_default(),
+                proof_after: after.map(|item| item.proofs.clone()).unwrap_or_default(),
+            }
+        })
+        .collect();
+    ProtectionView {
+        deltas,
+        findings,
+        lineage,
+        flows,
+    }
+}
+
+fn graph_relocations(diff: &Value) -> Vec<(String, String)> {
+    let mut relocations = values_at(diff, "/nodes/changed")
+        .iter()
+        .filter_map(|changed| {
+            let before = changed.get("before").and_then(graph_node_id)?;
+            let after = changed.get("after").and_then(graph_node_id)?;
+            (before != after).then_some((before, after))
+        })
+        .collect::<Vec<_>>();
+    relocations.sort();
+    relocations.dedup();
+    relocations
+}
+
+fn protection_lineage(
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+) -> Vec<TestLineageView> {
+    let mut base_flows = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut head_flows = BTreeMap::<String, BTreeSet<String>>::new();
+    for flow in &base.flows {
+        for test in &flow.tests {
+            base_flows
+                .entry(test.clone())
+                .or_default()
+                .insert(flow.flow.clone());
+        }
+    }
+    for flow in &head.flows {
+        for test in &flow.tests {
+            head_flows
+                .entry(test.clone())
+                .or_default()
+                .insert(flow.flow.clone());
+        }
+    }
+    let tests = base_flows
+        .keys()
+        .chain(head_flows.keys())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    tests
+        .into_iter()
+        .map(|test| {
+            let before = base_flows.get(&test).cloned().unwrap_or_default();
+            let after = head_flows.get(&test).cloned().unwrap_or_default();
+            let lost_flows = before.difference(&after).cloned().collect::<Vec<_>>();
+            let gained_flows = after.difference(&before).cloned().collect::<Vec<_>>();
+            TestLineageView {
+                state: match (before.is_empty(), after.is_empty()) {
+                    (false, false) => "unchanged",
+                    (false, true) => "removed",
+                    (true, false) => "added",
+                    (true, true) => "unknown",
+                }
+                .into(),
+                matched_on: "exact test identity".into(),
+                protection_changed: !lost_flows.is_empty() || !gained_flows.is_empty(),
+                phantom: !after.is_empty() && after.iter().all(|flow| head.flow(flow).is_none()),
+                test,
+                lost_flows,
+                gained_flows,
+            }
+        })
+        .collect()
+}
+
+fn graph_singleton_path(graph: &Value, flow: &str) -> Vec<String> {
+    if graph
+        .get("nodes")
+        .and_then(Value::as_array)
+        .is_some_and(|nodes| {
+            nodes
+                .iter()
+                .any(|node| graph_node_id(node).as_deref() == Some(flow))
+        })
+    {
+        vec![flow.to_owned()]
+    } else {
+        Vec::new()
+    }
 }
 
 fn values_at<'a>(value: &'a Value, pointer: &str) -> &'a [Value] {
@@ -3821,13 +4374,16 @@ fn stdout_kind(executor: &str) -> &'static str {
 }
 
 fn relative_or_display(repo: &Path, path: &Path) -> String {
-    path.strip_prefix(repo)
-        .ok()
-        .filter(|relative| !relative.as_os_str().is_empty())
-        .map_or_else(
-            || path.display().to_string(),
-            |relative| relative.display().to_string(),
-        )
+    path.strip_prefix(repo).ok().map_or_else(
+        || path.display().to_string(),
+        |relative| {
+            if relative.as_os_str().is_empty() {
+                ".".into()
+            } else {
+                relative.display().to_string()
+            }
+        },
+    )
 }
 
 fn evidence_from_bytes(handle: &str, bytes: &[u8]) -> EvidenceReply {
@@ -4000,7 +4556,8 @@ mod tests {
             bytes: serde_json::to_vec(&coverage).unwrap(),
         });
         let revision = RevisionId::new("revision-1").unwrap();
-        let protection = live_protection_snapshot(&revision, &diff, &[record])
+        let graph = json!({"nodes": [diff["nodes"]["changed"][0]["after"].clone()]});
+        let protection = live_protection_snapshot(&revision, &graph, &[record])
             .unwrap()
             .unwrap();
         let flow = protection.flow("symbol:add").unwrap();

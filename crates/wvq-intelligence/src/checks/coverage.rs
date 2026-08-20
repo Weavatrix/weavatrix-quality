@@ -46,7 +46,7 @@ pub fn map_coverage_to_nodes(
     for node in graph_nodes(graph) {
         let id = node_id(node)
             .ok_or_else(|| IntelligenceError::InvalidEvidence("coverage node missing id".into()))?;
-        let Some(span) = node_span(node) else {
+        let Some(span) = node_span(node).or_else(|| file_node_span(node, coverage)) else {
             out.push(NodeCoverage {
                 node_id: id,
                 measurement: CoverageMeasurement::Unmeasured,
@@ -58,6 +58,31 @@ pub fn map_coverage_to_nodes(
         out.push(measure(coverage, &id, &span));
     }
     Ok(out)
+}
+
+fn file_node_span(node: &Value, coverage: Option<&CoverageArtifact>) -> Option<NodeSpan> {
+    if node.get("kind").and_then(Value::as_str) != Some("file") {
+        return None;
+    }
+    let path = node.get("label").and_then(Value::as_str).or_else(|| {
+        node.get("id")
+            .and_then(Value::as_str)?
+            .strip_prefix("file:")
+    })?;
+    let file = coverage?
+        .files
+        .iter()
+        .find(|file| paths_eq(&file.path, path))?;
+    let mut ranges = file.covered.iter().chain(file.uncovered.iter());
+    let first = *ranges.next()?;
+    let (start_line, end_line) = ranges.fold((first.start, first.end), |(start, end), range| {
+        (start.min(range.start), end.max(range.end))
+    });
+    Some(NodeSpan {
+        file: path.replace('\\', "/"),
+        start_line,
+        end_line,
+    })
 }
 
 /// Coverage findings for a dual-revision packet.

@@ -158,6 +158,19 @@ fn new_behaviour_without_a_test_is_new_unprotected() {
 }
 
 #[test]
+fn measured_but_unprotected_on_both_revisions_is_unknown_not_lost() {
+    let base = snap("rev-base", vec![flow("f", "rev-base", &[], &[], &[])]);
+    let head = snap("rev-head", vec![flow("f", "rev-head", &[], &[], &[])]);
+    let delta = only(
+        &protection_delta(&base, &head, &DeltaContext::default()),
+        "f",
+    );
+
+    assert_eq!(delta.state, ProtectionDeltaState::Unknown);
+    assert!(!delta.state.is_regression());
+}
+
+#[test]
 fn an_approved_removal_is_obsolete_not_lost() {
     let base = snap(
         "rev-base",

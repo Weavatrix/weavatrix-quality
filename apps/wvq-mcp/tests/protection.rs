@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use mcport::{ConcurrentToolServer, Value};
 use wvq_command_bus::{FakeService, QualityService};
-use wvq_mcp::{SharedProtection, protection_server, quality_server};
+use wvq_mcp::{HostProfile, SharedProtection, parse_host_args, protection_server, quality_server};
 use wvq_proof::{FlowView, ProtectionView, TestLineageView};
 
 const PROTECTION_TOOLS: [&str; 3] = ["quality_protection", "quality_test_lineage", "quality_flow"];
@@ -52,6 +52,28 @@ fn the_protection_profile_exposes_its_three_tools() {
     for tool in PROTECTION_TOOLS {
         assert!(names.iter().any(|name| name == tool), "missing {tool}");
     }
+}
+
+#[test]
+fn host_selects_a_live_protection_range_explicitly() {
+    let options = parse_host_args(
+        &[
+            "--profile",
+            "protection",
+            "--change",
+            "checkout",
+            "--base",
+            "origin/main",
+            "--head",
+            "HEAD",
+        ]
+        .map(str::to_owned),
+    )
+    .unwrap();
+    assert_eq!(options.profile, HostProfile::Protection);
+    assert_eq!(options.change, "checkout");
+    assert_eq!(options.base, "origin/main");
+    assert_eq!(options.head, "HEAD");
 }
 
 #[test]

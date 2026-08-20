@@ -250,7 +250,13 @@ fn compare_present(
     let lost_critical = critical_losses(base, &head.covered_branches, context);
     let lost_obligations = difference(&base.proven_obligations, &head.proven_obligations);
 
-    let state = if !lost_critical.is_empty() {
+    let state = if !base.is_protected() && !head.is_protected() {
+        reasons.push("flow is measured but unprotected on both revisions".into());
+        ProtectionDeltaState::Unknown
+    } else if !base.is_protected() && head.is_protected() {
+        reasons.push("previously unprotected flow gained measured protection".into());
+        ProtectionDeltaState::Improved
+    } else if !lost_critical.is_empty() {
         reasons.push(format!(
             "critical branch(es) {} lost all dynamic execution",
             lost_critical.join(", ")

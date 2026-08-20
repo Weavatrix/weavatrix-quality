@@ -18,7 +18,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|item| item == "--help" || item == "-h") {
         println!(
-            "qualityd — Weavatrix Quality Studio\n\nUsage:\n  qualityd [--repo PATH] [--addr HOST:PORT] [--recovery-change ID] [--base REF] [--head REF|WORKTREE]\n"
+            "qualityd — Weavatrix Quality Studio\n\nUsage:\n  qualityd [--repo PATH] [--addr HOST:PORT] [--recovery-change ID] [--protection-change ID] [--base REF] [--head REF|WORKTREE]\n"
         );
         return ExitCode::SUCCESS;
     }
@@ -46,6 +46,18 @@ fn main() -> ExitCode {
             }
         };
         studio = studio.with_recovery(Arc::new(Mutex::new(desk)));
+    }
+    if let Some(change) = flag(&args, "--protection-change") {
+        let base = flag(&args, "--base").unwrap_or_else(|| "HEAD".into());
+        let head = flag(&args, "--head").unwrap_or_else(|| "WORKTREE".into());
+        let view = match live.protection_view(&change, &base, &head) {
+            Ok(view) => view,
+            Err(err) => {
+                eprintln!("qualityd: cannot prepare protection view: {err}");
+                return ExitCode::FAILURE;
+            }
+        };
+        studio = studio.with_protection(Arc::new(Mutex::new(view)));
     }
 
     let listener = match TcpListener::bind(&addr) {
