@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/wvq-domain",
     "crates/wvq-spec",
+    "crates/wvq-spec-recovery",
     "crates/wvq-intelligence",
     "crates/wvq-runtime",
     "crates/wvq-store",
@@ -16,6 +17,7 @@ members = [
 default-members = [
     "crates/wvq-domain",
     "crates/wvq-spec",
+    "crates/wvq-spec-recovery",
     "crates/wvq-intelligence",
     "crates/wvq-runtime",
     "crates/wvq-store",
@@ -41,6 +43,7 @@ publish = false
 [workspace.dependencies]
 wvq-domain = { path = "crates/wvq-domain", version = "0.0.1" }
 wvq-spec = { path = "crates/wvq-spec", version = "0.0.1" }
+wvq-spec-recovery = { path = "crates/wvq-spec-recovery", version = "0.0.1" }
 wvq-intelligence = { path = "crates/wvq-intelligence", version = "0.0.1" }
 wvq-runtime = { path = "crates/wvq-runtime", version = "0.0.1" }
 wvq-store = { path = "crates/wvq-store", version = "0.0.1" }

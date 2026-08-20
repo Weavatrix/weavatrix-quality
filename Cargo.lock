@@ -632,6 +632,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "wvq-spec-recovery"
+version = "0.0.1"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "wvq-store"
 version = "0.0.1"
 dependencies = [
