@@ -1,15 +1,56 @@
 # STATUS — Weavatrix Quality
 
-Last updated: 2026-08-20
-Session: live BehaviorGraph production from Playwright observations
+Last updated: 2026-08-21
+Session: exact execution evidence and merge-base provenance
 
 ## Now
 
-All 35 tasks in `docs/development-plan.md` are implemented. The previously disconnected production paths are part of `LiveService`. This session adds an opt-in agent authoring path on top of that live vertical.
+The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-Release state: the complete live vertical through BehaviorGraph production (`7ed6db4`) is published on `main`. GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) passed clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+### Maturity matrix
 
-Local release validation: 313 tests passed with zero failures; workspace Clippy passed for all targets with warnings denied.
+`✅` means the column is implemented and exercised. `🟡` means the path is partial, opt-in, or depends on repository-supplied evidence. `❌` means that layer is not implemented.
+
+| Capability | Contract | Library | Wired | Real execution |
+| --- | --- | --- | --- | --- |
+| OpenSpec parser | ✅ | ✅ | ✅ | ✅ |
+| `quality.yaml` | ✅ | ✅ | ✅ | ✅ |
+| OracleSeal integrity | ✅ | ✅ | ✅ | ✅ |
+| Executable oracle | ✅ | ✅ | ✅ | ✅ Playwright |
+| Committed/worktree revision range | ✅ | ✅ | ✅ | ✅ base SHA + head SHA + merge-base |
+| Weavatrix embed | ✅ | ✅ | ✅ | ✅ |
+| Quality Debt Ratchet | ✅ | ✅ | ✅ | ✅ |
+| Test selection | ✅ | ✅ | ✅ | ✅ Cargo/Vitest shadow runs |
+| Exact case-level proof binding | ✅ | ✅ | ✅ | ✅ Cargo/Playwright; 🟡 repository JUnit/Go |
+| Runner-specific file filtering | ✅ | ✅ | ✅ | ✅ Vitest/Jest/Bun/Playwright; generic npm widens |
+| Executor registry | ✅ | ✅ | ✅ | ✅ Cargo/npm/Vitest/Jest/Bun/Go/Playwright |
+| Runner normalization | ✅ | ✅ | ✅ | ✅ Cargo/JUnit/Go/browser |
+| SQLite/CAS | ✅ | ✅ | ✅ | ✅ |
+| Proof assembly and provenance | ✅ | ✅ | ✅ | ✅ exact case/assertion + CAS links |
+| MCP default surface | ✅ | ✅ | ✅ | ✅ |
+| AI Cost Firewall | ✅ | ✅ | ✅ | ✅ loopback local model |
+| BehaviorGraph | ✅ | ✅ | ✅ | ✅ browser observations |
+| Delta Triangle | ✅ | ✅ | ❌ default | ❌ live base/head verdict |
+| Spec Recovery | ✅ | ✅ | ✅ opt-in | ✅ Git + Weavatrix, QA-gated |
+| Test lineage | ✅ | ✅ | ✅ protection path | ✅ measured coverage path |
+| ProtectionSnapshot/Delta | ✅ | ✅ | ✅ opt-in | ✅ base/head coverage replay |
+| Protection MCP/Studio | ✅ | ✅ | 🟡 opt-in profile/view | ✅ when measured coverage exists |
+| Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + sealed assertions + observations |
+| Manual record → promoted replay | ✅ | 🟡 | 🟡 preview/promotion | 🟡 replay yes, manual recorder no |
+| Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
+| Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
+| Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
+| Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
+| Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
+| Composite ChangeQualityVerdict | ✅ idea | ❌ | ❌ | ❌ |
+
+Current implementation: exact execution evidence and merge-base proof provenance are committed on `main` as `43d6e02`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+
+Local validation for `43d6e02`: 365 Rust tests, 7 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
+
+`quality_verify` no longer turns a green file path into obligation proof. A configured binding must name a runner and exact case that appears in normalized evidence. Cargo/libtest output is now normalized to target + case identities; browser proof records the exact assertion step and its corresponding observation. A missing case remains `UNPROVEN`, and an otherwise passing bound case cannot hide a failed runner invocation.
+
+Every Git-backed command now resolves the requested base commit, checked-out head commit, and their merge-base. All diffs, Weavatrix base/head operations, recovery ranges, and base protection replay use that common ancestor. `RunReply`, execution evidence, and immutable proof provenance retain all three identities. Proof-to-artifact links are inserted atomically instead of being discarded after in-memory assembly.
 
 The authoring vertical, actual selected-vs-full benchmark runner, typed JS/npm distribution, safe healing, live analytics/selection feedback, and Playwright-backed BehaviorGraph producer are all published on `main`. The benchmark executes both scopes through `LiveService`; the previous labelled fixture costs are no longer presented as measured wall-clock time.
 
@@ -42,7 +83,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 358 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 365 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 
@@ -68,7 +109,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
-| proof | Uses only the latest same-change, same-revision run; a green suite proves only obligations explicitly bound to executed tests |
+| proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
 
@@ -91,9 +132,9 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Repository maintenance debt
 
-- `cargo fmt --all -- --check` has roughly forty pre-existing formatting differences. This session formats only touched files so that unrelated churn is not mixed into the release.
+- `cargo fmt --all -- --check` has roughly forty pre-existing formatting differences. Repo-wide formatting remains deferred so unrelated churn is not mixed into the release; touched code passes workspace Clippy with warnings denied.
 - `[profile.dev] debug = "line-tables-only"` remains in the workspace manifest to keep local build artifacts bounded.
 
 ## Load next
 
-Finish the remaining reproduced competitor gaps: live mutation producer and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.
+Build the composite change verdict and make measured protection loss part of default `quality_verify`; then prove it with the committed base/head monorepo fixture. After that, finish the live mutation producer and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.

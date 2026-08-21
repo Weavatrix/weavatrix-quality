@@ -17,15 +17,16 @@ Humans review unresolved product intent instead of ordinary green runs.
 
 ## Status
 
-All 35 tasks in the canonical development plan are implemented. The live vertical is connected end to end:
+The canonical development checklist is implemented, but its items have different maturity levels. The core live vertical is connected; the [maturity matrix](docs/STATUS.md#maturity-matrix) distinguishes contracts and library primitives from wired, measured execution:
 
 - repository manifests discover only frozen, bounded executors;
+- every Git range resolves requested base SHA, checked-out head SHA, and merge-base; Weavatrix deltas use that common ancestor;
 - Weavatrix produces revision-bound `graph_diff`, change impact, test selection, and immutable debt comparison;
 - impact is `base ∪ head ∪ removed`, never head-only;
-- JUnit, LCOV, `go test -json`, and Go coverprofiles become normalized evidence;
-- measured coverage maps onto changed graph nodes and produces a `ProtectionSnapshot`;
-- SQLite + CAS preserve runs, evidence, debt history, AI usage, and immutable proofs across processes;
-- a passing suite proves only obligations explicitly bound to tests in policy;
+- Cargo/libtest, JUnit, LCOV, `go test -json`, and Go coverprofiles become normalized evidence;
+- measured coverage maps onto changed graph nodes and produces opt-in base/head `ProtectionSnapshot` evidence;
+- SQLite + CAS preserve runs, evidence, proof-artifact provenance, debt history, AI usage, and immutable proofs across processes;
+- proof requires the exact configured runner case or Playwright assertion, not a green file path;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 - every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.
