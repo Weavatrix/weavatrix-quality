@@ -74,6 +74,31 @@ pub struct ProgramOracle {
     pub expected: Value,
 }
 
+/// Exact result of one sealed assertion step and its corresponding observation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserAssertionObservation {
+    /// Sealed obligation asserted by the step.
+    pub obligation: String,
+    /// Zero-based [`TestProgram`] step index.
+    pub step: usize,
+    /// Zero-based observation captured immediately after that step.
+    pub observation: usize,
+    /// Passed, contradicted, or failed before establishing the expected behavior.
+    pub status: BrowserAssertionStatus,
+}
+
+/// Outcome of an individual browser assertion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserAssertionStatus {
+    /// The sealed expectation was observed.
+    Passed,
+    /// The sealed expectation was evaluated and contradicted.
+    Contradicted,
+    /// The assertion could not establish its precondition or otherwise failed.
+    Failed,
+}
+
 /// One complete browser-program result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BrowserProgramRun {
@@ -85,6 +110,8 @@ pub struct BrowserProgramRun {
     pub asserted: Vec<String>,
     /// Obligations whose sealed expectation was contradicted.
     pub contradicted: Vec<String>,
+    /// Per-assertion result with exact step and observation identity.
+    pub assertions: Vec<BrowserAssertionObservation>,
     /// Structured observations after each attempted step.
     pub observations: Vec<Observation>,
     /// Screenshot files produced under [`BrowserRunConfig::evidence_dir`].
@@ -169,21 +196,12 @@ pub fn run_browser_program(
     let mut failure = None;
     let mut asserted = Vec::new();
     let mut contradicted = Vec::new();
+    let mut assertions = Vec::new();
     let mut observations = Vec::new();
     let mut screenshot_paths = Vec::new();
     for (index, step) in program.steps.iter().enumerate() {
         let step_result = bridge.request("execute_step", &json!({"index": index}));
-        if let TestAction::Assert { obligation } = step {
-            match &step_result {
-                Ok(_) => asserted.push(obligation.to_string()),
-                Err(BrowserBridgeError::Remote(message))
-                    if message.starts_with(&format!("assertion_failed:{obligation}:")) =>
-                {
-                    contradicted.push(obligation.to_string());
-                }
-                _ => {}
-            }
-        }
+        let assertion = classify_assertion(step, &step_result, &mut asserted, &mut contradicted);
         if let Err(err) = step_result {
             match err {
                 BrowserBridgeError::Remote(message) => {
@@ -201,6 +219,14 @@ pub fn run_browser_program(
             serde_json::from_value(body)
                 .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?,
         );
+        if let Some((obligation, status)) = assertion {
+            assertions.push(BrowserAssertionObservation {
+                obligation,
+                step: index,
+                observation: observations.len().saturating_sub(1),
+                status,
+            });
+        }
         if !passed {
             break;
         }
@@ -219,11 +245,37 @@ pub fn run_browser_program(
         passed,
         asserted,
         contradicted,
+        assertions,
         observations,
         screenshot_paths,
         trace_path,
         failure,
     })
+}
+
+fn classify_assertion(
+    step: &TestAction,
+    result: &Result<Value, BrowserBridgeError>,
+    asserted: &mut Vec<String>,
+    contradicted: &mut Vec<String>,
+) -> Option<(String, BrowserAssertionStatus)> {
+    let TestAction::Assert { obligation } = step else {
+        return None;
+    };
+    let status = match result {
+        Ok(_) => {
+            asserted.push(obligation.to_string());
+            BrowserAssertionStatus::Passed
+        }
+        Err(BrowserBridgeError::Remote(message))
+            if message.starts_with(&format!("assertion_failed:{obligation}:")) =>
+        {
+            contradicted.push(obligation.to_string());
+            BrowserAssertionStatus::Contradicted
+        }
+        Err(_) => BrowserAssertionStatus::Failed,
+    };
+    Some((obligation.to_string(), status))
 }
 
 fn validate_config(config: &BrowserRunConfig) -> Result<(), BrowserBridgeError> {

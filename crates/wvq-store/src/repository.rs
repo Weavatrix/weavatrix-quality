@@ -1036,6 +1036,82 @@ impl Store {
         Ok(())
     }
 
+    /// Atomically insert an immutable proof and every evidence link it claims.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on invalid references or database failure.
+    pub fn put_proof_with_artifacts(
+        &self,
+        proof: &StoredProof,
+        artifacts: &[ArtifactId],
+    ) -> Result<(), StoreError> {
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute(
+            "INSERT INTO proofs (id, revision, obligation, oracle_seal, verdict) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                proof.id.as_str(),
+                proof.revision.as_str(),
+                proof.obligation.as_str(),
+                proof.oracle_seal.as_str(),
+                proof.verdict.as_str()
+            ],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        for artifact in artifacts {
+            tx.execute(
+                "INSERT INTO proof_artifacts (proof, artifact) VALUES (?1, ?2)",
+                params![proof.id.as_str(), artifact.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        tx.commit()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Link immutable evidence to an already inserted proof.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on an unknown proof/artifact or database failure.
+    pub fn attach_proof_artifact(
+        &self,
+        proof: &ProofId,
+        artifact: &ArtifactId,
+    ) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT INTO proof_artifacts (proof, artifact) VALUES (?1, ?2)",
+                params![proof.as_str(), artifact.as_str()],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(())
+    }
+
+    /// Artifact ids linked to a proof, in stable order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn proof_artifacts(&self, proof: &ProofId) -> Result<Vec<ArtifactId>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT artifact FROM proof_artifacts WHERE proof = ?1 ORDER BY artifact")
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([proof.as_str()], |row| row.get::<_, String>(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        rows.map(|row| {
+            let raw = row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            ArtifactId::new(raw).map_err(|err| StoreError::Invalid(err.to_string()))
+        })
+        .collect()
+    }
+
     /// Attempt to mutate a proof (must fail).
     ///
     /// # Errors

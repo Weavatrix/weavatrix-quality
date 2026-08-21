@@ -25,10 +25,11 @@ use wvq_proof::{
     call_local_model, fingerprint_id, gate_protection, protection_delta, snapshot, triage,
 };
 use wvq_runtime::{
-    BehaviorState, BrowserProgramRun, BrowserRunConfig, CaptureWhen, CoverageArtifact,
-    ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest,
-    ProgramOracle, TestAction, TestProgram, TestStatus, default_limits, discover_executor_targets,
-    parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, run_browser_program,
+    BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
+    CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun,
+    PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus, default_limits,
+    discover_executor_targets, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit,
+    parse_lcov, run_browser_program,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -440,6 +441,9 @@ impl QualityService for FakeService {
             change: cmd.change.clone(),
             base: cmd.base.clone(),
             head: cmd.head.clone(),
+            base_commit: "fake-base-commit".into(),
+            head_commit: "fake-head-commit".into(),
+            merge_base: "fake-merge-base".into(),
             requested_scope: cmd.scope.clone(),
             scope: cmd.scope.clone(),
             scope_reason: format!("{} scope requested by caller", cmd.scope),
@@ -820,7 +824,7 @@ impl LiveService {
             &revision,
             "graph_diff",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "detail": "edges",
                 "max_results": 100_000
             }),
@@ -857,7 +861,7 @@ impl LiveService {
         let clusters = cluster(&commits);
         let narrative = narrate(NarrativeInput {
             change_cluster: change.to_owned(),
-            base_revision: range.base_commit.clone(),
+            base_revision: range.merge_base.clone(),
             head_revision,
             evidence: evidence.clone(),
             code_delta: code_delta.clone(),
@@ -919,7 +923,7 @@ impl LiveService {
             &revision,
             "graph_diff",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "detail": "edges",
                 "max_results": 100_000
             }),
@@ -992,7 +996,7 @@ impl LiveService {
                 "registered executor initialization failed: {err}"
             )));
         }
-        let worktree = TemporaryWorktree::create(&self.repo, &range.base_commit)?;
+        let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
         let evidence = WeavatrixProvider
             .analyze(&worktree.path)
             .map_err(|err| BusError::Intelligence(err.to_string()))?;
@@ -1090,12 +1094,43 @@ impl LiveService {
             requested_head
         };
         let base_commit = self.resolve_commit(base)?;
+        let merge_base = self.resolve_merge_base(&base_commit, &head_commit)?;
         Ok(RevisionRange {
             base_ref: base.to_owned(),
             base_commit,
             head_ref: head.to_owned(),
             head_commit,
+            merge_base,
         })
+    }
+
+    fn resolve_merge_base(&self, base: &str, head: &str) -> Result<String, BusError> {
+        let output = ProcessCommand::new("git")
+            .args(["merge-base", "--", base, head])
+            .current_dir(&self.repo)
+            .output()
+            .map_err(|err| BusError::Intelligence(format!("cannot resolve Git merge-base: {err}")))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(BusError::Intelligence(format!(
+                "cannot resolve a common ancestor for `{base}` and `{head}`{}",
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {detail}")
+                }
+            )));
+        }
+        let commit = String::from_utf8(output.stdout).map_err(|err| {
+            BusError::Intelligence(format!("Git returned a non-UTF-8 merge-base: {err}"))
+        })?;
+        let commit = commit.trim();
+        if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(BusError::Intelligence(format!(
+                "Git returned an invalid merge-base `{commit}`"
+            )));
+        }
+        Ok(commit.to_owned())
     }
 
     fn resolve_commit(&self, reference: &str) -> Result<String, BusError> {
@@ -1183,6 +1218,7 @@ struct RevisionRange {
     base_commit: String,
     head_ref: String,
     head_commit: String,
+    merge_base: String,
 }
 
 #[derive(Default)]
@@ -1313,6 +1349,9 @@ struct ProducedArtifact {
 #[derive(Debug, Clone)]
 struct TestBinding {
     path: String,
+    runner: Option<String>,
+    suite: Option<String>,
+    case: Option<String>,
     obligations: BTreeSet<String>,
     cost: u64,
     flake_penalty: u64,
@@ -1339,8 +1378,59 @@ struct StoredBrowserProgramEvidence {
     program: String,
     asserted: Vec<String>,
     contradicted: Vec<String>,
+    assertions: Vec<StoredBrowserAssertionEvidence>,
     present: Vec<EvidenceKind>,
     observations: Vec<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredBrowserAssertionEvidence {
+    obligation: String,
+    step: usize,
+    status: String,
+    observation: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredObligationExecutionMap {
+    schema_v: u32,
+    obligations: BTreeMap<String, Vec<StoredObligationExecution>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredObligationExecution {
+    executor: String,
+    path: String,
+    suite: String,
+    case: String,
+    status: String,
+    invocation_passed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assertion: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    observation: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRevisionRangeEvidence {
+    schema_v: u32,
+    base: StoredRevisionEndpoint,
+    head: StoredRevisionEndpoint,
+    merge_base: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRevisionEndpoint {
+    #[serde(rename = "ref")]
+    reference: String,
+    commit: String,
+    #[serde(default)]
+    content_revision: Option<String>,
 }
 
 #[derive(Default)]
@@ -1348,6 +1438,8 @@ struct BrowserProofEvidence {
     programs: BTreeSet<String>,
     present: Vec<EvidenceKind>,
     observations: Vec<String>,
+    passed: bool,
+    failed: bool,
     contradicted: bool,
 }
 
@@ -1512,7 +1604,7 @@ impl QualityService for LiveService {
             &before,
             "graph_diff",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "detail": "edges",
                 "max_results": 100_000
             }),
@@ -1521,7 +1613,7 @@ impl QualityService for LiveService {
             &before,
             "change_impact",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "depth": 6,
                 "max_nodes": 100_000,
                 "precision": "graph"
@@ -1531,7 +1623,7 @@ impl QualityService for LiveService {
             &before,
             "select_tests",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "depth": 6,
                 "max_nodes": 2000,
                 "max_tests": 500,
@@ -1697,13 +1789,14 @@ impl QualityService for LiveService {
             &format!("artifact-{}-revision-range", run_id.as_str()),
             "revision-range",
             &json!({
-                "schema_v": 1,
+                "schema_v": 2,
                 "base": {"ref": range.base_ref, "commit": range.base_commit},
                 "head": {
                     "ref": range.head_ref,
                     "commit": range.head_commit,
                     "content_revision": before.as_str()
-                }
+                },
+                "merge_base": range.merge_base
             }),
             &mut handles,
         )?;
@@ -1731,13 +1824,14 @@ impl QualityService for LiveService {
             &graph_diff,
             &mut handles,
         )?;
-        let mut obligation_execution = obligation_execution_map(
+        let obligation_execution = obligation_execution_map(
             &self.repo,
-            &targets,
             &live_selection.bindings,
-            executed_tests.as_ref(),
-        );
-        merge_browser_execution(&mut obligation_execution, &browser_runs)?;
+            &records,
+            &run_id,
+            &browser_runs,
+            &cmd.evidence_policy,
+        )?;
         put_json_run_artifact(
             &store,
             &run_id,
@@ -1883,6 +1977,9 @@ impl QualityService for LiveService {
             change: compiled.change,
             base: range.base_ref,
             head: range.head_ref,
+            base_commit: range.base_commit,
+            head_commit: range.head_commit,
+            merge_base: range.merge_base,
             requested_scope: cmd.scope.clone(),
             scope: effective_scope,
             scope_reason,
@@ -1982,7 +2079,8 @@ impl QualityService for LiveService {
             None => Vec::new(),
         };
         let mut present = Vec::new();
-        let mut obligation_execution = BTreeMap::<String, Vec<String>>::new();
+        let mut obligation_execution =
+            BTreeMap::<String, Vec<StoredObligationExecution>>::new();
         let mut browser_evidence = BTreeMap::<String, BrowserProofEvidence>::new();
         for artifact in &artifact_ids {
             let (record, bytes) = store
@@ -2023,19 +2121,38 @@ impl QualityService for LiveService {
                     }
                 }
             }
-            let execution = if obligation_execution
+            let exact = obligation_execution
                 .get(obligation.id.as_str())
-                .is_some_and(|tests| !tests.is_empty())
-            {
-                match &run {
-                    Some(run) if run.passed => ExecutionEvidence::Passed {
-                        present: obligation_present,
-                    },
-                    Some(_) => ExecutionEvidence::Failed {
-                        seal_contradicted: browser.is_some_and(|evidence| evidence.contradicted),
-                        present: obligation_present,
-                    },
-                    None => ExecutionEvidence::Absent,
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let contradicted = exact
+                .iter()
+                .any(|entry| entry.status == "contradicted")
+                || browser.is_some_and(|evidence| evidence.contradicted);
+            let failed = exact
+                .iter()
+                .any(|entry| {
+                    !entry.invocation_passed
+                        || matches!(entry.status.as_str(), "failed" | "error")
+                })
+                || browser.is_some_and(|evidence| evidence.failed);
+            let passed = exact
+                .iter()
+                .any(|entry| entry.invocation_passed && entry.status == "passed")
+                || browser.is_some_and(|evidence| evidence.passed);
+            let execution = if contradicted {
+                ExecutionEvidence::Failed {
+                    seal_contradicted: true,
+                    present: obligation_present,
+                }
+            } else if failed {
+                ExecutionEvidence::Failed {
+                    seal_contradicted: false,
+                    present: obligation_present,
+                }
+            } else if passed {
+                ExecutionEvidence::Passed {
+                    present: obligation_present,
                 }
             } else {
                 ExecutionEvidence::Absent
@@ -2071,13 +2188,16 @@ impl QualityService for LiveService {
                     .is_none()
             {
                 store
-                    .put_proof(&StoredProof {
+                    .put_proof_with_artifacts(
+                        &StoredProof {
                         id,
                         revision: revision.clone(),
                         obligation: obligation.id.clone(),
                         oracle_seal: oracle.id.clone(),
                         verdict: assembled.proof.verdict.as_str().into(),
-                    })
+                        },
+                        &assembled.proof.artifacts,
+                    )
                     .map_err(|err| BusError::Store(err.to_string()))?;
             }
             verdicts.push(assembled.proof.verdict);
@@ -2094,22 +2214,9 @@ impl QualityService for LiveService {
     fn explain(&self, cmd: &ExplainCommand) -> Result<ExplainReply, BusError> {
         let store = self.store()?;
         if let Ok(id) = ProofId::new(&cmd.id)
-            && let Some(proof) = store
-                .get_proof(&id)
-                .map_err(|err| BusError::Store(err.to_string()))?
+            && let Some(reply) = explain_stored_proof(&store, &id, &cmd.id)?
         {
-            return Ok(ExplainReply {
-                id: cmd.id.clone(),
-                kind: "proof".into(),
-                summary: format!(
-                    "proof {} is {} for obligation {}",
-                    proof.id, proof.verdict, proof.obligation
-                ),
-                provenance: vec![
-                    format!("revision {}", proof.revision),
-                    format!("oracle seal {}", proof.oracle_seal),
-                ],
-            });
+            return Ok(reply);
         }
         if let Ok(id) = RunId::new(&cmd.id)
             && let Some(run) = store
@@ -2246,7 +2353,7 @@ impl QualityService for LiveService {
         let report = self.weavatrix_operation(
             &revision,
             "run_audit",
-            &json!({"base_ref": range.base_ref, "debt": "all", "max_findings": 5000}),
+            &json!({"base_ref": range.merge_base, "debt": "all", "max_findings": 5000}),
         )?;
         let debt = report
             .get("debt")
@@ -2335,7 +2442,7 @@ impl QualityService for LiveService {
             &revision,
             "select_tests",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "max_tests": 500,
                 "depth": 6,
                 "max_nodes": 2000
@@ -2345,7 +2452,7 @@ impl QualityService for LiveService {
             &revision,
             "graph_diff",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "detail": "edges",
                 "max_results": 2000,
                 "token_budget": 20000
@@ -2355,7 +2462,7 @@ impl QualityService for LiveService {
             &revision,
             "change_impact",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "depth": 6,
                 "max_nodes": 100_000,
                 "precision": "graph"
@@ -2479,7 +2586,7 @@ impl QualityService for LiveService {
             &revision,
             "graph_diff",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "detail": "edges",
                 "max_results": 100_000
             }),
@@ -2489,7 +2596,7 @@ impl QualityService for LiveService {
             &revision,
             "change_impact",
             &json!({
-                "base_ref": range.base_ref,
+                "base_ref": range.merge_base,
                 "depth": 6,
                 "max_nodes": 100_000,
                 "precision": "graph"
@@ -3440,7 +3547,7 @@ fn changed_files(repo: &Path, range: &RevisionRange) -> Result<ChangedFiles, Bus
         "diff".into(),
         "--name-status".into(),
         "-M".into(),
-        range.base_commit.clone(),
+        range.merge_base.clone(),
     ];
     if range.head_ref != "WORKTREE" {
         args.push(range.head_commit.clone());
@@ -3627,7 +3734,7 @@ fn recovery_evidence(
             symbol,
             format!(
                 "Weavatrix graph_diff {}..{}",
-                range.base_commit, range.head_ref
+                range.merge_base, range.head_ref
             ),
         ));
     }
@@ -3676,7 +3783,7 @@ struct RecoveryLogRecord {
 }
 
 fn recovery_log(repo: &Path, range: &RevisionRange) -> Result<Vec<RecoveryLogRecord>, BusError> {
-    let revset = format!("{}..{}", range.base_commit, range.head_commit);
+    let revset = format!("{}..{}", range.merge_base, range.head_commit);
     let raw = git_output(
         repo,
         &[
@@ -3893,6 +4000,54 @@ fn verify_from_token(change: &str, verdict: &str) -> VerifyReply {
             verdict: verdict.to_owned(),
         }],
     }
+}
+
+fn explain_stored_proof(
+    store: &Store,
+    id: &ProofId,
+    requested_id: &str,
+) -> Result<Option<ExplainReply>, BusError> {
+    let Some(proof) = store
+        .get_proof(id)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let artifacts = store
+        .proof_artifacts(&proof.id)
+        .map_err(|err| BusError::Store(err.to_string()))?;
+    let mut provenance = vec![
+        format!("revision {}", proof.revision),
+        format!("oracle seal {}", proof.oracle_seal),
+    ];
+    let mut revision_range_seen = false;
+    for artifact in &artifacts {
+        let (record, bytes) = store
+            .read_artifact(artifact)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        if record.kind == "revision-range" {
+            if revision_range_seen {
+                return Err(BusError::Store(
+                    "proof has more than one revision-range artifact".into(),
+                ));
+            }
+            revision_range_seen = true;
+            let range = parse_revision_range_evidence(&bytes)?;
+            provenance.push(format!("base {} ({})", range.base_commit, range.base_ref));
+            provenance.push(format!("head {} ({})", range.head_commit, range.head_ref));
+            provenance.push(format!("merge base {}", range.merge_base));
+        }
+        provenance.push(format!("evidence {artifact}"));
+    }
+    Ok(Some(ExplainReply {
+        id: requested_id.to_owned(),
+        kind: "proof".into(),
+        summary: format!(
+            "proof {} is {} for obligation {}",
+            proof.id, proof.verdict, proof.obligation
+        ),
+        provenance,
+    }))
 }
 
 fn combine_verify(
@@ -4134,6 +4289,42 @@ fn load_test_bindings(repo: &Path) -> Result<Vec<TestBinding>, BusError> {
                 index + 1
             )));
         }
+        let runner = yaml_optional_binding_string(binding, "runner", &path, index)?;
+        if let Some(runner) = runner.as_deref()
+            && !matches!(
+                runner,
+                "cargo-test"
+                    | "vitest"
+                    | "jest"
+                    | "bun-test"
+                    | "go-test"
+                    | "playwright"
+                    | "npm-test"
+            )
+        {
+            return Err(BusError::Runtime(format!(
+                "quality policy {} test binding {} has unknown runner {runner}",
+                path.display(),
+                index + 1
+            )));
+        }
+        let suite = yaml_optional_binding_string(binding, "suite", &path, index)?
+            .map(|suite| normalize_path(&suite));
+        let case = yaml_optional_binding_string(binding, "case", &path, index)?;
+        if suite.is_some() && case.is_none() {
+            return Err(BusError::Runtime(format!(
+                "quality policy {} test binding {} cannot name suite without case",
+                path.display(),
+                index + 1
+            )));
+        }
+        if case.is_some() && runner.is_none() {
+            return Err(BusError::Runtime(format!(
+                "quality policy {} test binding {} requires runner with case",
+                path.display(),
+                index + 1
+            )));
+        }
         let obligations = yaml_get(binding, "obligations")
             .and_then(serde_yaml::Value::as_sequence)
             .ok_or_else(|| {
@@ -4185,6 +4376,9 @@ fn load_test_bindings(repo: &Path) -> Result<Vec<TestBinding>, BusError> {
         })?;
         out.push(TestBinding {
             path: test_path,
+            runner,
+            suite,
+            case,
             obligations,
             cost,
             flake_penalty,
@@ -4475,6 +4669,9 @@ fn browser_test_bindings(policy: &BrowserPolicy) -> Vec<TestBinding> {
         .iter()
         .map(|configured| TestBinding {
             path: configured.path.clone(),
+            runner: Some("playwright-browser".into()),
+            suite: Some(configured.path.clone()),
+            case: Some(configured.program.id.to_string()),
             obligations: configured
                 .program
                 .obligations
@@ -4690,6 +4887,27 @@ fn yaml_string(
                 index + 1
             ))
         })
+}
+
+fn yaml_optional_binding_string(
+    mapping: &serde_yaml::Mapping,
+    key: &str,
+    path: &Path,
+    index: usize,
+) -> Result<Option<String>, BusError> {
+    yaml_get(mapping, key).map_or(Ok(None), |value| {
+        value
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| Some(value.to_owned()))
+            .ok_or_else(|| {
+                BusError::Runtime(format!(
+                    "quality policy {} test binding {} requires non-empty {key}",
+                    path.display(),
+                    index + 1
+                ))
+            })
+    })
 }
 
 fn valid_iso_date(date: &str) -> bool {
@@ -4954,52 +5172,8 @@ fn build_live_selection(
         .iter()
         .map(|obligation| obligation.id.clone())
         .collect::<BTreeSet<_>>();
-    let mut merged = BTreeMap::<String, TestBinding>::new();
-    let mut configured_bindings = load_test_bindings(repo)?;
-    configured_bindings.extend(additional_bindings.iter().cloned());
-    for binding in configured_bindings {
-        if let Some(unknown) = binding
-            .obligations
-            .iter()
-            .find(|obligation| !known.contains(*obligation))
-        {
-            return Err(BusError::Runtime(format!(
-                "test binding {} names unknown obligation {unknown}",
-                binding.path
-            )));
-        }
-        let entry = merged
-            .entry(binding.path.clone())
-            .or_insert_with(|| TestBinding {
-                path: binding.path.clone(),
-                obligations: BTreeSet::new(),
-                cost: binding.cost,
-                flake_penalty: binding.flake_penalty,
-            });
-        entry.obligations.extend(binding.obligations);
-        entry.cost = entry.cost.min(binding.cost);
-        entry.flake_penalty = entry.flake_penalty.max(binding.flake_penalty);
-    }
-    let bindings = merged.into_values().collect::<Vec<_>>();
-    let candidates = bindings
-        .iter()
-        .filter(|binding| repo.join(&binding.path).is_file())
-        .map(|binding| TestCandidate {
-            id: binding.path.clone(),
-            cost: binding.cost,
-            flake_penalty: binding.flake_penalty,
-            covers: binding.obligations.clone(),
-            explanation: vec![format!(
-                "quality policy binds this test to: {}",
-                binding
-                    .obligations
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )],
-        })
-        .collect();
+    let bindings = merged_test_bindings(repo, &known, additional_bindings)?;
+    let candidates = selection_candidates(repo, &bindings);
     let plan = select_minimal_plan(SelectionInput {
         candidates,
         obligations: obligations.to_owned(),
@@ -5014,7 +5188,11 @@ fn build_live_selection(
     }
     let covered = bindings
         .iter()
-        .filter(|binding| selected.contains(&binding.path) && repo.join(&binding.path).is_file())
+        .filter(|binding| {
+            binding.case.is_some()
+                && selected.contains(&binding.path)
+                && repo.join(&binding.path).is_file()
+        })
         .flat_map(|binding| binding.obligations.iter().cloned())
         .collect::<BTreeSet<_>>();
     let uncovered_all = known.difference(&covered).cloned().collect::<Vec<_>>();
@@ -5038,6 +5216,80 @@ fn build_live_selection(
     })
 }
 
+fn merged_test_bindings(
+    repo: &Path,
+    known: &BTreeSet<String>,
+    additional_bindings: &[TestBinding],
+) -> Result<Vec<TestBinding>, BusError> {
+    let mut merged = BTreeMap::<
+        (String, Option<String>, Option<String>, Option<String>),
+        TestBinding,
+    >::new();
+    let mut configured_bindings = load_test_bindings(repo)?;
+    configured_bindings.extend(additional_bindings.iter().cloned());
+    for binding in configured_bindings {
+        if let Some(unknown) = binding
+            .obligations
+            .iter()
+            .find(|obligation| !known.contains(*obligation))
+        {
+            return Err(BusError::Runtime(format!(
+                "test binding {} names unknown obligation {unknown}",
+                binding.path
+            )));
+        }
+        let key = (
+            binding.path.clone(),
+            binding.runner.clone(),
+            binding.suite.clone(),
+            binding.case.clone(),
+        );
+        let entry = merged
+            .entry(key)
+            .or_insert_with(|| TestBinding {
+                path: binding.path.clone(),
+                runner: binding.runner.clone(),
+                suite: binding.suite.clone(),
+                case: binding.case.clone(),
+                obligations: BTreeSet::new(),
+                cost: binding.cost,
+                flake_penalty: binding.flake_penalty,
+            });
+        entry.obligations.extend(binding.obligations);
+        entry.cost = entry.cost.min(binding.cost);
+        entry.flake_penalty = entry.flake_penalty.max(binding.flake_penalty);
+    }
+    Ok(merged.into_values().collect())
+}
+
+fn selection_candidates(repo: &Path, bindings: &[TestBinding]) -> Vec<TestCandidate> {
+    let mut candidates = BTreeMap::<String, TestCandidate>::new();
+    for binding in bindings
+        .iter()
+        .filter(|binding| binding.case.is_some() && repo.join(&binding.path).is_file())
+    {
+        let entry = candidates
+            .entry(binding.path.clone())
+            .or_insert_with(|| TestCandidate {
+                id: binding.path.clone(),
+                cost: binding.cost,
+                flake_penalty: binding.flake_penalty,
+                covers: BTreeSet::new(),
+                explanation: Vec::new(),
+            });
+        entry.cost = entry.cost.min(binding.cost);
+        entry.flake_penalty = entry.flake_penalty.max(binding.flake_penalty);
+        entry.covers.extend(binding.obligations.iter().cloned());
+    }
+    for candidate in candidates.values_mut() {
+        candidate.explanation.push(format!(
+            "quality policy binds exact test case evidence to: {}",
+            candidate.covers.iter().cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    candidates.into_values().collect()
+}
+
 fn live_selection_report(selection: &LiveSelection, historical_candidates: usize) -> Value {
     let selected = selection
         .selected
@@ -5051,7 +5303,7 @@ fn live_selection_report(selection: &LiveSelection, historical_candidates: usize
         })
         .collect::<Vec<_>>();
     json!({
-        "schema_v": 1,
+        "schema_v": 2,
         "algorithm": "weavatrix-base-head-history-union+greedy-weighted-set-cover",
         "selected": selected,
         "historical_candidates": historical_candidates,
@@ -5486,7 +5738,7 @@ fn batch_filter_groups(grouped: FilterGroups) -> Vec<ExecutionRequest> {
 fn supports_path_filters(executor: &str) -> bool {
     matches!(
         executor,
-        "npm-test" | "vitest" | "jest" | "bun-test" | "playwright"
+        "vitest" | "jest" | "bun-test" | "playwright"
     )
 }
 
@@ -5692,62 +5944,128 @@ fn put_json_run_artifact<T: serde::Serialize>(
 
 fn obligation_execution_map(
     repo: &Path,
-    targets: &[ExecutorTarget],
     bindings: &[TestBinding],
-    executed_tests: Option<&BTreeSet<String>>,
-) -> Value {
-    let mut obligations = BTreeMap::<String, BTreeSet<String>>::new();
-    for binding in bindings {
-        if executed_tests.is_some_and(|tests| !tests.contains(&binding.path)) {
-            continue;
-        }
-        let path = repo.join(&binding.path);
-        if !path.is_file() || !targets.iter().any(|target| path.starts_with(&target.cwd)) {
-            continue;
-        }
-        for obligation in &binding.obligations {
-            obligations
-                .entry(obligation.clone())
-                .or_default()
-                .insert(binding.path.clone());
-        }
-    }
-    json!({
-        "schema_v": 1,
-        "obligations": obligations.into_iter().map(|(id, tests)| {
-            (id, tests.into_iter().collect::<Vec<_>>())
-        }).collect::<BTreeMap<_, _>>()
-    })
-}
-
-fn merge_browser_execution(
-    map: &mut Value,
+    records: &[ExecutorRecord],
+    run_id: &RunId,
     browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
-) -> Result<(), BusError> {
-    let obligations = map
-        .get_mut("obligations")
-        .and_then(Value::as_object_mut)
-        .ok_or_else(|| BusError::Runtime("obligation execution map is malformed".into()))?;
-    for (configured, run) in browser_runs {
-        for obligation in run.asserted.iter().chain(&run.contradicted) {
-            let tests = obligations
-                .entry(obligation.clone())
-                .or_insert_with(|| Value::Array(Vec::new()))
-                .as_array_mut()
-                .ok_or_else(|| {
+    run_evidence_policy: &str,
+) -> Result<StoredObligationExecutionMap, BusError> {
+    let mut obligations = BTreeMap::<String, BTreeSet<StoredObligationExecution>>::new();
+    for record in records {
+        for artifact in record
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "normalized-test-run")
+        {
+            let normalized: NormalizedTestRun = serde_json::from_slice(&artifact.bytes).map_err(
+                |err| {
                     BusError::Runtime(format!(
-                        "obligation execution entry {obligation} is not an array"
+                        "cannot decode normalized evidence from {}: {err}",
+                        artifact.path
                     ))
-                })?;
-            if !tests
-                .iter()
-                .any(|test| test.as_str() == Some(configured.path.as_str()))
-            {
-                tests.push(Value::String(configured.path.clone()));
+                },
+            )?;
+            for binding in bindings.iter().filter(|binding| {
+                binding.case.is_some()
+                    && binding
+                        .runner
+                        .as_deref()
+                        .is_none_or(|runner| runner == record.executor)
+            }) {
+                for case in normalized.cases.iter().filter(|case| {
+                    binding.case.as_deref() == Some(case.name.as_str())
+                        && normalized_suite_matches(repo, record, binding, &case.suite)
+                }) {
+                    let evidence = StoredObligationExecution {
+                        executor: record.executor.clone(),
+                        path: binding.path.clone(),
+                        suite: case.suite.clone(),
+                        case: case.name.clone(),
+                        status: normalized_status(case.status).into(),
+                        invocation_passed: record.passed,
+                        assertion: None,
+                        observation: None,
+                    };
+                    for obligation in &binding.obligations {
+                        obligations
+                            .entry(obligation.clone())
+                            .or_default()
+                            .insert(evidence.clone());
+                    }
+                }
             }
         }
     }
-    Ok(())
+
+    for (program_index, (configured, run)) in browser_runs.iter().enumerate() {
+        for assertion in &run.assertions {
+            let status = match assertion.status {
+                BrowserAssertionStatus::Passed => "passed",
+                BrowserAssertionStatus::Contradicted => "contradicted",
+                BrowserAssertionStatus::Failed => "failed",
+            };
+            let observation = (run_evidence_policy != "none").then(|| {
+                format!(
+                    "artifact-{}-browser-{program_index}-observation-{}",
+                    run_id.as_str(),
+                    assertion.observation
+                )
+            });
+            obligations
+                .entry(assertion.obligation.clone())
+                .or_default()
+                .insert(StoredObligationExecution {
+                    executor: "playwright-browser".into(),
+                    path: configured.path.clone(),
+                    suite: configured.path.clone(),
+                    case: run.program.clone(),
+                    status: status.into(),
+                    invocation_passed: run.passed,
+                    assertion: Some(format!("step:{}", assertion.step)),
+                    observation,
+                });
+        }
+    }
+
+    Ok(StoredObligationExecutionMap {
+        schema_v: 2,
+        obligations: obligations
+            .into_iter()
+            .map(|(obligation, evidence)| (obligation, evidence.into_iter().collect()))
+            .collect(),
+    })
+}
+
+fn normalized_suite_matches(
+    repo: &Path,
+    record: &ExecutorRecord,
+    binding: &TestBinding,
+    observed_suite: &str,
+) -> bool {
+    let expected = binding.suite.as_deref().unwrap_or(&binding.path);
+    if normalize_path(observed_suite) == normalize_path(expected) {
+        return true;
+    }
+    let observed = Path::new(observed_suite);
+    let observed = if observed.is_absolute() {
+        observed.to_path_buf()
+    } else {
+        repo.join(&record.cwd).join(observed)
+    };
+    let expected = repo.join(&binding.path);
+    std::fs::canonicalize(observed)
+        .ok()
+        .zip(std::fs::canonicalize(expected).ok())
+        .is_some_and(|(observed, expected)| observed == expected)
+}
+
+fn normalized_status(status: TestStatus) -> &'static str {
+    match status {
+        TestStatus::Pass => "passed",
+        TestStatus::Fail => "failed",
+        TestStatus::Skip => "skipped",
+        TestStatus::Error => "error",
+    }
 }
 
 fn persist_browser_runs(
@@ -5759,87 +6077,190 @@ fn persist_browser_runs(
 ) -> Result<(), BusError> {
     let keep_normalized = run_evidence_policy != "none";
     for (program_index, (configured, result)) in browser_runs.iter().enumerate() {
-        let token = safe_file_token(configured.program.id.as_str());
-        let mut observation_handles = Vec::new();
-        if keep_normalized {
-            for (index, observation) in result.observations.iter().enumerate() {
-                let id = format!(
-                    "artifact-{}-browser-{program_index}-observation-{index}",
-                    run_id.as_str()
-                );
-                put_json_run_artifact(
-                    store,
-                    run_id,
-                    &id,
-                    "browser-observation",
-                    observation,
-                    handles,
-                )?;
-                observation_handles.push(id);
-            }
-        }
-        for (index, path) in result.screenshot_paths.iter().enumerate() {
-            if keep_normalized {
-                let bytes = std::fs::read(path).map_err(|err| {
-                    BusError::Runtime(format!(
-                        "cannot import browser screenshot {}: {err}",
-                        path.display()
-                    ))
-                })?;
-                put_run_artifact(
-                    store,
-                    run_id,
-                    &format!(
-                        "artifact-{}-browser-{program_index}-screenshot-{index}",
-                        run_id.as_str()
-                    ),
-                    "screenshot",
-                    &bytes,
-                    handles,
-                )?;
-            }
-            remove_browser_evidence_file(path)?;
-        }
-        if let Some(path) = &result.trace_path {
-            if keep_normalized {
-                let bytes = std::fs::read(path).map_err(|err| {
-                    BusError::Runtime(format!(
-                        "cannot import browser trace {}: {err}",
-                        path.display()
-                    ))
-                })?;
-                put_run_artifact(
-                    store,
-                    run_id,
-                    &format!("artifact-{}-browser-{program_index}-trace", run_id.as_str()),
-                    "playwright-trace",
-                    &bytes,
-                    handles,
-                )?;
-            }
-            remove_browser_evidence_file(path)?;
-        }
-        let evidence = StoredBrowserProgramEvidence {
-            schema_v: 1,
-            program: configured.program.id.to_string(),
-            asserted: result.asserted.clone(),
-            contradicted: result.contradicted.clone(),
-            present: browser_evidence_kinds(configured, result, run_evidence_policy),
-            observations: observation_handles,
-        };
-        put_json_run_artifact(
+        persist_browser_run(
             store,
             run_id,
-            &format!(
-                "artifact-{}-browser-{program_index}-{token}",
-                run_id.as_str()
-            ),
-            "browser-program-evidence",
-            &evidence,
+            program_index,
+            configured,
+            result,
+            run_evidence_policy,
+            keep_normalized,
             handles,
         )?;
     }
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_browser_run(
+    store: &Store,
+    run_id: &RunId,
+    program_index: usize,
+    configured: &ConfiguredBrowserProgram,
+    result: &BrowserProgramRun,
+    run_evidence_policy: &str,
+    keep_normalized: bool,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let token = safe_file_token(configured.program.id.as_str());
+    let observation_handles = persist_browser_observations(
+        store,
+        run_id,
+        program_index,
+        result,
+        keep_normalized,
+        handles,
+    )?;
+    persist_browser_files(
+        store,
+        run_id,
+        program_index,
+        result,
+        keep_normalized,
+        handles,
+    )?;
+    let assertions = stored_browser_assertions(result, keep_normalized, &observation_handles)?;
+    let evidence = StoredBrowserProgramEvidence {
+        schema_v: 2,
+        program: configured.program.id.to_string(),
+        asserted: result.asserted.clone(),
+        contradicted: result.contradicted.clone(),
+        assertions,
+        present: browser_evidence_kinds(configured, result, run_evidence_policy),
+        observations: observation_handles,
+    };
+    put_json_run_artifact(
+        store,
+        run_id,
+        &format!(
+            "artifact-{}-browser-{program_index}-{token}",
+            run_id.as_str()
+        ),
+        "browser-program-evidence",
+        &evidence,
+        handles,
+    )
+}
+
+fn persist_browser_observations(
+    store: &Store,
+    run_id: &RunId,
+    program_index: usize,
+    result: &BrowserProgramRun,
+    keep: bool,
+    handles: &mut Vec<String>,
+) -> Result<Vec<String>, BusError> {
+    let mut observation_handles = Vec::new();
+    if !keep {
+        return Ok(observation_handles);
+    }
+    for (index, observation) in result.observations.iter().enumerate() {
+        let id = format!(
+            "artifact-{}-browser-{program_index}-observation-{index}",
+            run_id.as_str()
+        );
+        put_json_run_artifact(
+            store,
+            run_id,
+            &id,
+            "browser-observation",
+            observation,
+            handles,
+        )?;
+        observation_handles.push(id);
+    }
+    Ok(observation_handles)
+}
+
+fn persist_browser_files(
+    store: &Store,
+    run_id: &RunId,
+    program_index: usize,
+    result: &BrowserProgramRun,
+    keep: bool,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    for (index, path) in result.screenshot_paths.iter().enumerate() {
+        if keep {
+            let bytes = std::fs::read(path).map_err(|err| {
+                BusError::Runtime(format!(
+                    "cannot import browser screenshot {}: {err}",
+                    path.display()
+                ))
+            })?;
+            put_run_artifact(
+                store,
+                run_id,
+                &format!(
+                    "artifact-{}-browser-{program_index}-screenshot-{index}",
+                    run_id.as_str()
+                ),
+                "screenshot",
+                &bytes,
+                handles,
+            )?;
+        }
+        remove_browser_evidence_file(path)?;
+    }
+    if let Some(path) = &result.trace_path {
+        if keep {
+            let bytes = std::fs::read(path).map_err(|err| {
+                BusError::Runtime(format!(
+                    "cannot import browser trace {}: {err}",
+                    path.display()
+                ))
+            })?;
+            put_run_artifact(
+                store,
+                run_id,
+                &format!("artifact-{}-browser-{program_index}-trace", run_id.as_str()),
+                "playwright-trace",
+                &bytes,
+                handles,
+            )?;
+        }
+        remove_browser_evidence_file(path)?;
+    }
+    Ok(())
+}
+
+fn stored_browser_assertions(
+    result: &BrowserProgramRun,
+    keep: bool,
+    observation_handles: &[String],
+) -> Result<Vec<StoredBrowserAssertionEvidence>, BusError> {
+    result
+        .assertions
+        .iter()
+        .map(|assertion| {
+            let status = match assertion.status {
+                BrowserAssertionStatus::Passed => "passed",
+                BrowserAssertionStatus::Contradicted => "contradicted",
+                BrowserAssertionStatus::Failed => "failed",
+            };
+            let observation = if keep {
+                Some(
+                    observation_handles
+                        .get(assertion.observation)
+                        .cloned()
+                        .ok_or_else(|| {
+                            BusError::Runtime(format!(
+                                "browser assertion step {} references missing observation {}",
+                                assertion.step, assertion.observation
+                            ))
+                        })?,
+                )
+            } else {
+                None
+            };
+            Ok(StoredBrowserAssertionEvidence {
+                obligation: assertion.obligation.clone(),
+                step: assertion.step,
+                status: status.into(),
+                observation,
+            })
+        })
+        .collect()
 }
 
 const BEHAVIOR_SAMPLE_LIMIT: usize = 500;
@@ -6188,43 +6609,69 @@ fn safe_file_token(value: &str) -> String {
     }
 }
 
-fn parse_obligation_execution_map(bytes: &[u8]) -> Result<BTreeMap<String, Vec<String>>, BusError> {
-    let value: Value = serde_json::from_slice(bytes)
+fn parse_obligation_execution_map(
+    bytes: &[u8],
+) -> Result<BTreeMap<String, Vec<StoredObligationExecution>>, BusError> {
+    let stored: StoredObligationExecutionMap = serde_json::from_slice(bytes)
         .map_err(|err| BusError::Store(format!("invalid obligation execution map: {err}")))?;
-    if value.get("schema_v").and_then(Value::as_u64) != Some(1) {
+    if stored.schema_v != 2 {
         return Err(BusError::Store(
             "unknown obligation execution map schema".into(),
         ));
     }
-    let entries = value
-        .get("obligations")
-        .and_then(Value::as_object)
-        .ok_or_else(|| BusError::Store("obligation execution map omitted obligations".into()))?;
-    entries
-        .iter()
-        .map(|(obligation, tests)| {
-            let tests = tests
-                .as_array()
-                .ok_or_else(|| {
-                    BusError::Store(format!(
-                        "obligation execution map {obligation} must be an array"
-                    ))
-                })?
-                .iter()
-                .map(|test| {
-                    test.as_str()
-                        .filter(|test| !test.is_empty())
-                        .map(ToOwned::to_owned)
-                        .ok_or_else(|| {
-                            BusError::Store(format!(
-                                "obligation execution map {obligation} has invalid test identity"
-                            ))
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok((obligation.clone(), tests))
-        })
-        .collect()
+    for (obligation, entries) in &stored.obligations {
+        if obligation.is_empty() {
+            return Err(BusError::Store(
+                "obligation execution map has an empty obligation identity".into(),
+            ));
+        }
+        for entry in entries {
+            if entry.executor.is_empty()
+                || entry.path.is_empty()
+                || entry.suite.is_empty()
+                || entry.case.is_empty()
+                || !matches!(
+                    entry.status.as_str(),
+                    "passed" | "failed" | "skipped" | "error" | "contradicted"
+                )
+                || entry.assertion.as_deref().is_some_and(str::is_empty)
+                || entry.observation.as_deref().is_some_and(str::is_empty)
+            {
+                return Err(BusError::Store(format!(
+                    "obligation execution map {obligation} has invalid exact evidence"
+                )));
+            }
+        }
+    }
+    Ok(stored.obligations)
+}
+
+fn parse_revision_range_evidence(bytes: &[u8]) -> Result<RevisionRange, BusError> {
+    let stored: StoredRevisionRangeEvidence = serde_json::from_slice(bytes)
+        .map_err(|err| BusError::Store(format!("invalid revision-range evidence: {err}")))?;
+    if stored.schema_v != 2
+        || stored.base.reference.is_empty()
+        || stored.head.reference.is_empty()
+        || stored.head.content_revision.as_deref().is_none_or(str::is_empty)
+        || !valid_commit_id(&stored.base.commit)
+        || !valid_commit_id(&stored.head.commit)
+        || !valid_commit_id(&stored.merge_base)
+    {
+        return Err(BusError::Store(
+            "revision-range evidence has invalid exact provenance".into(),
+        ));
+    }
+    Ok(RevisionRange {
+        base_ref: stored.base.reference,
+        base_commit: stored.base.commit,
+        head_ref: stored.head.reference,
+        head_commit: stored.head.commit,
+        merge_base: stored.merge_base,
+    })
+}
+
+fn valid_commit_id(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn merge_browser_proof_evidence(
@@ -6233,37 +6680,79 @@ fn merge_browser_proof_evidence(
 ) -> Result<(), BusError> {
     let stored: StoredBrowserProgramEvidence = serde_json::from_slice(bytes)
         .map_err(|err| BusError::Store(format!("invalid browser program evidence: {err}")))?;
-    if stored.schema_v != 1 {
+    if stored.schema_v != 2 {
         return Err(BusError::Store(format!(
             "unknown browser program evidence schema {}",
             stored.schema_v
         )));
     }
-    if stored.asserted.iter().any(|obligation| {
-        stored
-            .contradicted
-            .iter()
-            .any(|contradicted| contradicted == obligation)
-    }) {
+    if stored.program.is_empty() {
+        return Err(BusError::Store(
+            "browser program evidence omitted program identity".into(),
+        ));
+    }
+    let expected_asserted = stored
+        .assertions
+        .iter()
+        .filter(|assertion| assertion.status == "passed")
+        .map(|assertion| assertion.obligation.clone())
+        .collect::<BTreeSet<_>>();
+    let expected_contradicted = stored
+        .assertions
+        .iter()
+        .filter(|assertion| assertion.status == "contradicted")
+        .map(|assertion| assertion.obligation.clone())
+        .collect::<BTreeSet<_>>();
+    if expected_asserted != stored.asserted.iter().cloned().collect()
+        || expected_contradicted != stored.contradicted.iter().cloned().collect()
+    {
         return Err(BusError::Store(format!(
-            "browser program {} both asserted and contradicted one obligation",
+            "browser program {} aggregate assertion lists do not match exact evidence",
             stored.program
         )));
     }
-    for obligation in stored.asserted.iter().chain(&stored.contradicted) {
-        let entry = evidence.entry(obligation.clone()).or_default();
+    for assertion in &stored.assertions {
+        if assertion.obligation.is_empty()
+            || !matches!(
+                assertion.status.as_str(),
+                "passed" | "contradicted" | "failed"
+            )
+            || assertion
+                .observation
+                .as_ref()
+                .is_some_and(|observation| !stored.observations.contains(observation))
+        {
+            return Err(BusError::Store(format!(
+                "browser program {} has invalid exact assertion evidence",
+                stored.program
+            )));
+        }
+        let entry = evidence.entry(assertion.obligation.clone()).or_default();
         entry.programs.insert(stored.program.clone());
         for kind in &stored.present {
             if !entry.present.contains(kind) {
                 entry.present.push(*kind);
             }
         }
-        for observation in &stored.observations {
-            if !entry.observations.contains(observation) {
-                entry.observations.push(observation.clone());
-            }
+        if let Some(observation) = &assertion.observation
+            && !entry.observations.contains(observation)
+        {
+            entry.observations.push(observation.clone());
         }
-        entry.contradicted |= stored.contradicted.contains(obligation);
+        match assertion.status.as_str() {
+            "passed" => entry.passed = true,
+            "failed" => entry.failed = true,
+            "contradicted" => entry.contradicted = true,
+            _ => unreachable!("validated browser assertion status"),
+        }
+    }
+    for observation in &stored.observations {
+        if observation.is_empty() {
+            return Err(BusError::Store(format!(
+                "browser program {} has an empty observation handle",
+                stored.program
+            )));
+        }
     }
     Ok(())
 }
@@ -7101,6 +7590,7 @@ fn execution_summary(
         "revision": revision.as_str(),
         "base": {"ref": range.base_ref, "commit": range.base_commit},
         "head": {"ref": range.head_ref, "commit": range.head_commit},
+        "merge_base": range.merge_base,
         "requested_scope": requested_scope,
         "effective_scope": effective_scope,
         "scope_reason": scope_reason,
@@ -7142,6 +7632,30 @@ fn attach_normalized_artifacts(
     started: SystemTime,
     record: &mut ExecutorRecord,
 ) {
+    if record.executor == "cargo-test" && (!record.stdout.is_empty() || !record.stderr.is_empty()) {
+        match std::str::from_utf8(&record.stdout)
+            .map_err(|err| format!("cargo-test stdout is not UTF-8: {err}"))
+            .and_then(|stdout| {
+                std::str::from_utf8(&record.stderr)
+                    .map_err(|err| format!("cargo-test stderr is not UTF-8: {err}"))
+                    .map(|stderr| (stdout, stderr))
+            })
+            .and_then(|(stdout, stderr)| {
+                parse_cargo_test(stdout, stderr).map_err(|err| err.to_string())
+            })
+            .and_then(|run| {
+                serde_json::to_vec_pretty(&run)
+                    .map_err(|err| format!("cannot encode normalized cargo-test: {err}"))
+            }) {
+            Ok(bytes) => record.artifacts.push(ProducedArtifact {
+                kind: "normalized-test-run".into(),
+                path: "cargo-test#normalized".into(),
+                bytes,
+            }),
+            Err(err) => set_record_error(record, err),
+        }
+    }
+
     if record.executor == "go-test" && !record.stdout.is_empty() {
         match std::str::from_utf8(&record.stdout)
             .map_err(|err| format!("go-json output is not UTF-8: {err}"))
@@ -7433,6 +7947,46 @@ mod tests {
     }
 
     #[test]
+    fn normalized_suite_identity_resolves_from_a_nested_runner_root() {
+        let root = TempDir::new("nested-suite-identity");
+        std::fs::create_dir_all(root.0.join("frontend/tests")).unwrap();
+        std::fs::write(root.0.join("frontend/tests/cart.test.ts"), "test").unwrap();
+        let record = ExecutorRecord {
+            executor: "vitest".into(),
+            cwd: "frontend".into(),
+            selection: Vec::new(),
+            status_code: Some(0),
+            passed: true,
+            error: None,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            artifacts: Vec::new(),
+        };
+        let binding = TestBinding {
+            path: "frontend/tests/cart.test.ts".into(),
+            runner: Some("vitest".into()),
+            suite: None,
+            case: Some("viewer cannot delete".into()),
+            obligations: BTreeSet::from(["viewer-deny".into()]),
+            cost: 10,
+            flake_penalty: 0,
+        };
+
+        assert!(normalized_suite_matches(
+            &root.0,
+            &record,
+            &binding,
+            "tests/cart.test.ts"
+        ));
+        assert!(!normalized_suite_matches(
+            &root.0,
+            &record,
+            &binding,
+            "tests/other.test.ts"
+        ));
+    }
+
+    #[test]
     fn large_file_selection_batches_into_one_bounded_runner_process() {
         let root = TempDir::new("filter-amplification");
         let selected = (0..17)
@@ -7451,7 +8005,7 @@ mod tests {
             bindings: Vec::new(),
         };
         let targets = vec![ExecutorTarget {
-            executor: wvq_runtime::ExecutorId::new("npm-test").unwrap(),
+            executor: wvq_runtime::ExecutorId::new("vitest").unwrap(),
             cwd: root.0.clone(),
         }];
         let (requests, scope, reason, executed) =
@@ -7463,6 +8017,32 @@ mod tests {
         assert_eq!(executed.as_ref().map(BTreeSet::len), Some(17));
         assert!(reason.contains("17 test paths"), "{reason}");
         assert!(reason.contains("1 bounded runner process"), "{reason}");
+    }
+
+    #[test]
+    fn generic_npm_script_widens_instead_of_assuming_path_filter_support() {
+        let root = TempDir::new("npm-filter-safety");
+        std::fs::create_dir_all(root.0.join("tests")).unwrap();
+        std::fs::write(root.0.join("tests/case.test.ts"), "test").unwrap();
+        let selection = LiveSelection {
+            selected: vec!["tests/case.test.ts".into()],
+            explanations: Vec::new(),
+            uncovered_mandatory: Vec::new(),
+            uncovered_all: Vec::new(),
+            bindings: Vec::new(),
+        };
+        let targets = vec![ExecutorTarget {
+            executor: wvq_runtime::ExecutorId::new("npm-test").unwrap(),
+            cwd: root.0.clone(),
+        }];
+
+        let (requests, scope, reason, executed) =
+            build_execution_requests(&root.0, &targets, &selection, &BTreeSet::new(), "impacted");
+        assert_eq!(scope, "all");
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].filters.is_empty());
+        assert!(executed.is_none());
+        assert!(reason.contains("no filterable registered executor"), "{reason}");
     }
 
     fn record(executor: &str) -> ExecutorRecord {

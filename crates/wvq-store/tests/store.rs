@@ -225,6 +225,27 @@ fn runs_survive_process_boundaries_with_artifact_handles() {
 }
 
 #[test]
+fn proof_artifact_provenance_survives_process_boundaries() {
+    let store = open_temp();
+    let proof = StoredProof {
+        id: ProofId::new("proof-provenance-1").unwrap(),
+        revision: RevisionId::new("rev-provenance-1").unwrap(),
+        obligation: ObligationId::new("obligation-provenance-1").unwrap(),
+        oracle_seal: OracleSealId::new("seal-provenance-1").unwrap(),
+        verdict: "PROVEN".into(),
+    };
+    let artifact = ArtifactId::new("artifact-proof-provenance-1").unwrap();
+    store
+        .put_artifact(&artifact, "revision-range", br#"{"schema_v":2}"#)
+        .unwrap();
+    store
+        .put_proof_with_artifacts(&proof, std::slice::from_ref(&artifact))
+        .unwrap();
+
+    assert_eq!(store.proof_artifacts(&proof.id).unwrap(), [artifact]);
+}
+
+#[test]
 fn content_hash_deduplicates_cas_objects() {
     let store = open_temp();
     let a = store.put_blob(b"same-bytes").unwrap();

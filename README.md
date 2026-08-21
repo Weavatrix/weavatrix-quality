@@ -147,6 +147,8 @@ quality_policy_v: 1
 
 test_bindings:
   - path: tests/permissions.spec.ts
+    runner: playwright
+    case: viewer cannot delete a widget
     obligations: [permissions-delete]
     cost: 10
     flake_penalty: 0
@@ -178,6 +180,14 @@ browser:
   programs: # optional while an agent is drafting its first TestProgram
     - .weavatrix-quality/programs/permissions.json
 ```
+
+`path` is the file-selection identity. It is not proof by itself. An obligation is
+proved only when WVQ finds the configured `case` in normalized evidence from the
+required `runner`; optional `suite` disambiguates reporters that reuse case names.
+A path-only binding satisfies neither obligation coverage nor proof, so impacted
+execution widens safely and verification remains `UNPROVEN`.
+Generic `npm test` scripts are always run unfiltered because WVQ cannot assume
+that an arbitrary script honors positional file arguments.
 
 The model endpoint must resolve to loopback and return OpenAI-compatible completion content plus usage counters. WVQ checks the worst-case reservation before connecting, caps the response at 1 MiB, supports content-length and chunked responses, then persists measured usage. Change-local `quality.yaml` AI hints can only reduce the global token ceilings.
 

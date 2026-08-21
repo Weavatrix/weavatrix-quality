@@ -96,7 +96,7 @@ fn live_runner_repo() -> TempRepo {
     .unwrap();
     std::fs::write(
         root.join(".weavatrix-quality/config.yaml"),
-        "quality_policy_v: 1\n\ntest_bindings:\n  - path: tests/addition.rs\n    obligations: [addition-suite]\n    cost: 10\n    flake_penalty: 0\n",
+        "quality_policy_v: 1\n\ntest_bindings:\n  - path: tests/addition.rs\n    runner: cargo-test\n    case: adds\n    obligations: [addition-suite]\n    cost: 10\n    flake_penalty: 0\n",
     )
     .unwrap();
     git(&root, &["init", "-q"]);
@@ -292,6 +292,16 @@ fn git(root: &Path, args: &[&str]) {
         args.join(" "),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+fn git_rev(root: &Path, reference: &str) -> String {
+    let output = ProcessCommand::new("git")
+        .args(["rev-parse", "--verify", reference])
+        .current_dir(root)
+        .output()
+        .expect("git starts");
+    assert!(output.status.success(), "git rev-parse {reference}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 
 fn read_http_request(stream: &mut impl Read) -> Vec<u8> {
@@ -656,6 +666,66 @@ fn live_run_accepts_an_exact_committed_pr_range() {
         .unwrap();
     assert_eq!(reply.base, "HEAD~1");
     assert_eq!(reply.head, "HEAD");
+    assert_eq!(reply.base_commit.len(), 40);
+    assert_eq!(reply.head_commit.len(), 40);
+    assert_eq!(reply.merge_base, reply.base_commit);
+    assert_eq!(reply.outcome, "passed");
+}
+
+#[test]
+fn live_run_uses_the_merge_base_of_diverged_branches() {
+    let repo = live_runner_repo();
+    let common = git_rev(&repo.0, "HEAD");
+    git(&repo.0, &["checkout", "-qb", "target"]);
+    std::fs::write(repo.0.join("TARGET.md"), "target branch\n").unwrap();
+    git(&repo.0, &["add", "-A"]);
+    git(
+        &repo.0,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "target advance",
+        ],
+    );
+    let target = git_rev(&repo.0, "HEAD");
+    git(&repo.0, &["checkout", "-qb", "feature", &common]);
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "/// Feature branch.\npub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+    )
+    .unwrap();
+    git(&repo.0, &["add", "-A"]);
+    git(
+        &repo.0,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "feature advance",
+        ],
+    );
+    let head = git_rev(&repo.0, "HEAD");
+
+    let reply = LiveService::new(&repo.0)
+        .run(&RunCommand {
+            change: "live-add".into(),
+            scope: "all".into(),
+            evidence_policy: "minimal".into(),
+            base: "target".into(),
+            head: "HEAD".into(),
+        })
+        .unwrap();
+    assert_eq!(reply.base_commit, target);
+    assert_eq!(reply.head_commit, head);
+    assert_eq!(reply.merge_base, common);
+    assert_ne!(reply.merge_base, reply.base_commit);
     assert_eq!(reply.outcome, "passed");
 }
 
@@ -732,7 +802,7 @@ fn live_model_call_charges_persistent_per_change_budget() {
     std::fs::write(
         repo.0.join(".weavatrix-quality/config.yaml"),
         format!(
-            "quality_policy_v: 1\n\ntest_bindings:\n  - path: tests/addition.rs\n    obligations: [addition-suite]\n    cost: 10\n    flake_penalty: 0\n\nai:\n  endpoint: http://{address}/v1/chat/completions\n  model: local-test\n  max_output_tokens: 8\n  max_tokens_per_change: 15\n  max_runtime_tokens: 100\n  max_browser_escape_calls: 1\n  max_vision_calls: 1\n  max_cost_micros: 100\n  input_micros_per_million: 1000000\n  output_micros_per_million: 2000000\n"
+            "quality_policy_v: 1\n\ntest_bindings:\n  - path: tests/addition.rs\n    runner: cargo-test\n    case: adds\n    obligations: [addition-suite]\n    cost: 10\n    flake_penalty: 0\n\nai:\n  endpoint: http://{address}/v1/chat/completions\n  model: local-test\n  max_output_tokens: 8\n  max_tokens_per_change: 15\n  max_runtime_tokens: 100\n  max_browser_escape_calls: 1\n  max_vision_calls: 1\n  max_cost_micros: 100\n  input_micros_per_million: 1000000\n  output_micros_per_million: 2000000\n"
         ),
     )
     .unwrap();
@@ -846,6 +916,18 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
             .iter()
             .any(|handle| handle.ends_with("-impact"))
     );
+    let execution = reopened_or_current_evidence(&service, &reply, "-obligation-execution");
+    let execution: serde_json::Value =
+        serde_json::from_str(execution.inline_text.as_deref().unwrap()).unwrap();
+    assert_eq!(execution["schema_v"], 2);
+    assert_eq!(execution["obligations"]["addition-suite"][0]["executor"], "cargo-test");
+    assert_eq!(execution["obligations"]["addition-suite"][0]["suite"], "tests/addition.rs");
+    assert_eq!(execution["obligations"]["addition-suite"][0]["case"], "adds");
+    assert_eq!(execution["obligations"]["addition-suite"][0]["status"], "passed");
+    assert_eq!(
+        execution["obligations"]["addition-suite"][0]["invocation_passed"],
+        true
+    );
 
     let reopened = LiveService::new(&repo.0);
     let status = reopened
@@ -915,6 +997,18 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
             .iter()
             .any(|item| item.starts_with("revision "))
     );
+    assert!(
+        proof
+            .provenance
+            .iter()
+            .any(|item| item.starts_with("merge base "))
+    );
+    assert!(
+        proof
+            .provenance
+            .iter()
+            .any(|item| item.contains("revision-range"))
+    );
 
     let run = reopened
         .explain(&ExplainCommand {
@@ -931,6 +1025,23 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
         .unwrap();
     assert_eq!(selection.kind, "selection");
     assert!(!selection.provenance.is_empty());
+}
+
+fn reopened_or_current_evidence(
+    service: &LiveService,
+    reply: &wvq_command_bus::RunReply,
+    suffix: &str,
+) -> wvq_command_bus::EvidenceReply {
+    service
+        .evidence(&EvidenceCommand {
+            handle: reply
+                .artifact_handles
+                .iter()
+                .find(|handle| handle.ends_with(suffix))
+                .unwrap()
+                .clone(),
+        })
+        .unwrap()
 }
 
 #[test]
@@ -972,6 +1083,67 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
 }
 
 #[test]
+fn a_green_file_does_not_prove_a_test_case_that_never_executed() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join(".weavatrix-quality/config.yaml"),
+        "quality_policy_v: 1\n\ntest_bindings:\n  - path: tests/addition.rs\n    runner: cargo-test\n    case: never_executed\n    obligations: [addition-suite]\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "live-add".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed");
+    let execution = reopened_or_current_evidence(&service, &run, "-obligation-execution");
+    let execution: serde_json::Value =
+        serde_json::from_str(execution.inline_text.as_deref().unwrap()).unwrap();
+    assert_eq!(execution["obligations"], serde_json::json!({}));
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "live-add".into(),
+    })
+        .unwrap();
+    assert_eq!(verified.verdict, "UNPROVEN");
+}
+
+#[test]
+fn a_passing_bound_case_does_not_hide_a_failed_runner_invocation() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("tests/unrelated.rs"),
+        "#[test]\nfn unrelated_failure() { assert_eq!(1, 2); }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "live-add".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "failed");
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "live-add".into(),
+        })
+        .unwrap();
+    assert_ne!(verified.verdict, "PROVEN");
+    assert_ne!(verified.exit_code(), 0);
+}
+
+#[test]
 #[allow(clippy::too_many_lines)]
 fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
     let _browser_guard = BROWSER_TEST_LOCK
@@ -1001,6 +1173,23 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         "{:?}",
         run.artifact_handles
     );
+    let browser_evidence = service
+        .evidence(&EvidenceCommand {
+            handle: run
+                .artifact_handles
+                .iter()
+                .find(|handle| handle.contains("browser-0-home-heading"))
+                .unwrap()
+                .clone(),
+        })
+        .unwrap();
+    let exact: serde_json::Value =
+        serde_json::from_str(browser_evidence.inline_text.as_deref().unwrap()).unwrap();
+    assert_eq!(exact["schema_v"], 2);
+    assert_eq!(exact["assertions"][0]["obligation"], "heading-visible");
+    assert_eq!(exact["assertions"][0]["step"], 1);
+    assert_eq!(exact["assertions"][0]["status"], "passed");
+    assert!(exact["assertions"][0]["observation"].is_string());
     let behavior_handle = run
         .artifact_handles
         .iter()

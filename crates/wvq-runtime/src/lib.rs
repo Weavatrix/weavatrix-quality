@@ -5,6 +5,7 @@
 mod behavior;
 mod browser_bridge;
 mod browser_protocol;
+mod cargotest;
 mod diff;
 mod discovery;
 mod executor;
@@ -22,11 +23,13 @@ pub use behavior::{
     semantic_target,
 };
 pub use browser_bridge::{
-    BrowserBridgeError, BrowserProgramRun, BrowserRunConfig, ProgramOracle, run_browser_program,
+    BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError, BrowserProgramRun,
+    BrowserRunConfig, ProgramOracle, run_browser_program,
 };
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,
 };
+pub use cargotest::parse_cargo_test;
 pub use diff::{
     AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta, replay_base_head,
 };

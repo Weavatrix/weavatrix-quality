@@ -107,6 +107,12 @@ pub struct RunReply {
     pub base: String,
     /// Requested head (`WORKTREE` or the checked-out commit-ish).
     pub head: String,
+    /// Exact commit resolved from the requested base ref.
+    pub base_commit: String,
+    /// Exact checked-out commit underlying the head/worktree.
+    pub head_commit: String,
+    /// Exact common ancestor used for all base/head deltas.
+    pub merge_base: String,
     /// Scope requested by the caller.
     pub requested_scope: String,
     /// Effective scope. May widen from `impacted` to `all` when complete

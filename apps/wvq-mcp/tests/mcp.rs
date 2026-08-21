@@ -97,7 +97,7 @@ fn live_repo() -> TempRepo {
     .unwrap();
     std::fs::write(
         root.join(".weavatrix-quality/config.yaml"),
-        "quality_policy_v: 1\ntest_bindings:\n  - path: tests/addition.rs\n    obligations: [addition-suite]\n",
+        "quality_policy_v: 1\ntest_bindings:\n  - path: tests/addition.rs\n    runner: cargo-test\n    case: adds\n    obligations: [addition-suite]\n",
     )
     .unwrap();
     git(&root, &["init", "-q"]);

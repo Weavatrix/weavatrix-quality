@@ -2,7 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use wvq_runtime::{TestStatus, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov};
+use wvq_runtime::{
+    TestStatus, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov,
+};
 
 fn fixture(parts: &[&str]) -> PathBuf {
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -67,6 +69,19 @@ fn go_json_parses_pass_fail_skip() {
             .as_ref()
             .is_some_and(|msg| msg.contains("overflow"))
     );
+}
+
+#[test]
+fn cargo_test_output_binds_cases_to_the_executed_test_target() {
+    let stderr = "   Compiling demo v0.1.0\n     Running unittests src/lib.rs (target/debug/deps/demo)\n     Running tests/permission.rs (target/debug/deps/permission)\n";
+    let stdout = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored\n\nrunning 3 tests\ntest admin_can_delete ... ok\ntest viewer_cannot_delete ... ok\ntest future_role ... ignored\n\ntest result: ok. 2 passed; 0 failed; 1 ignored\n";
+    let run = parse_cargo_test(stdout, stderr).unwrap();
+    assert_eq!(run.cases.len(), 3);
+    assert_eq!(run.cases[0].suite, "tests/permission.rs");
+    assert_eq!(run.cases[0].name, "admin_can_delete");
+    assert_eq!(run.cases[1].name, "viewer_cannot_delete");
+    assert_eq!(run.cases[1].status, TestStatus::Pass);
+    assert_eq!(run.cases[2].status, TestStatus::Skip);
 }
 
 #[test]

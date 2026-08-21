@@ -12,8 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
-    BrowserRunConfig, EvidencePolicy, ProgramOracle, ProgramSource, TestAction, TestProgram,
-    run_browser_program,
+    BrowserAssertionStatus, BrowserRunConfig, EvidencePolicy, ProgramOracle, ProgramSource,
+    TestAction, TestProgram, run_browser_program,
 };
 
 struct TempDir(PathBuf);
@@ -43,6 +43,7 @@ fn package_root() -> PathBuf {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn rust_host_executes_a_real_playwright_program() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -109,6 +110,10 @@ fn rust_host_executes_a_real_playwright_program() {
     assert!(result.contradicted.is_empty());
     assert_eq!(result.observations.len(), 2);
     assert_eq!(result.observations[0].route.as_deref(), Some("/"));
+    assert_eq!(result.assertions.len(), 1);
+    assert_eq!(result.assertions[0].step, 1);
+    assert_eq!(result.assertions[0].observation, 1);
+    assert_eq!(result.assertions[0].status, BrowserAssertionStatus::Passed);
 
     let condition_missing = run_browser_program(
         &BrowserRunConfig {
@@ -140,6 +145,11 @@ fn rust_host_executes_a_real_playwright_program() {
             .failure
             .as_deref()
             .is_some_and(|message| message.starts_with("condition_not_established:"))
+    );
+    assert_eq!(condition_missing.assertions.len(), 1);
+    assert_eq!(
+        condition_missing.assertions[0].status,
+        BrowserAssertionStatus::Failed
     );
 
     stop.store(true, Ordering::Release);
