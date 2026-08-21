@@ -44,11 +44,13 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
 | Composite ChangeQualityVerdict | ✅ idea | ❌ | ❌ | ❌ |
 
-Current implementation: exact execution evidence and merge-base proof provenance are committed on `main` as `43d6e02`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: exact execution evidence and merge-base proof provenance are committed on `main` as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Local validation for `43d6e02`: 365 Rust tests, 7 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
+Local validation: 366 Rust tests, 7 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
 
 `quality_verify` no longer turns a green file path into obligation proof. A configured binding must name a runner and exact case that appears in normalized evidence. Cargo/libtest output is now normalized to target + case identities; browser proof records the exact assertion step and its corresponding observation. A missing case remains `UNPROVEN`, and an otherwise passing bound case cannot hide a failed runner invocation.
+
+Cargo execution fixes `--color never`, while the normalizer also strips ANSI control sequences defensively. This keeps exact case evidence stable when CI forces colored Cargo output.
 
 Every Git-backed command now resolves the requested base commit, checked-out head commit, and their merge-base. All diffs, Weavatrix base/head operations, recovery ranges, and base protection replay use that common ancestor. `RunReply`, execution evidence, and immutable proof provenance retain all three identities. Proof-to-artifact links are inserted atomically instead of being discarded after in-memory assembly.
 
@@ -83,7 +85,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 365 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 366 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 
