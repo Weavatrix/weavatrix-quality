@@ -131,7 +131,7 @@ impl ExecutorRegistry {
         registry.register(spec(
             "cargo-test",
             "cargo",
-            &["test", "--workspace", "--all-targets"],
+            &["test", "--color", "never", "--workspace", "--all-targets"],
             None,
         )?)?;
         registry.register(spec("npm-test", npm, &["test", "--"], None)?)?;

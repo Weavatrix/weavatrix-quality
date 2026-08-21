@@ -73,8 +73,8 @@ fn go_json_parses_pass_fail_skip() {
 
 #[test]
 fn cargo_test_output_binds_cases_to_the_executed_test_target() {
-    let stderr = "   Compiling demo v0.1.0\n     Running unittests src/lib.rs (target/debug/deps/demo)\n     Running tests/permission.rs (target/debug/deps/permission)\n";
-    let stdout = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored\n\nrunning 3 tests\ntest admin_can_delete ... ok\ntest viewer_cannot_delete ... ok\ntest future_role ... ignored\n\ntest result: ok. 2 passed; 0 failed; 1 ignored\n";
+    let stderr = "   Compiling demo v0.1.0\n\u{1b}[1m\u{1b}[32m     Running\u{1b}[0m unittests src/lib.rs (target/debug/deps/demo)\n\u{1b}[1m\u{1b}[32m     Running\u{1b}[0m tests/permission.rs (target/debug/deps/permission)\n";
+    let stdout = "\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored\n\nrunning 3 tests\ntest admin_can_delete ... \u{1b}[32mok\u{1b}[0m\ntest viewer_cannot_delete ... ok\ntest future_role ... ignored\n\ntest result: ok. 2 passed; 0 failed; 1 ignored\n";
     let run = parse_cargo_test(stdout, stderr).unwrap();
     assert_eq!(run.cases.len(), 3);
     assert_eq!(run.cases[0].suite, "tests/permission.rs");

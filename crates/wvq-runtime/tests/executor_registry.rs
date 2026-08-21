@@ -34,6 +34,19 @@ fn unknown_executor_id_fails() {
 }
 
 #[test]
+fn cargo_test_disables_color_for_machine_readable_case_evidence() {
+    let prepared = ExecutorRegistry::production()
+        .unwrap()
+        .prepare(request("cargo-test", BTreeMap::new()))
+        .unwrap();
+    assert_eq!(prepared.program, "cargo");
+    assert_eq!(
+        prepared.args,
+        ["test", "--color", "never", "--workspace", "--all-targets"]
+    );
+}
+
+#[test]
 fn registered_go_test_gets_frozen_typed_argv() {
     let registry = ExecutorRegistry::production().unwrap();
     let mut req = request("go-test", BTreeMap::new());

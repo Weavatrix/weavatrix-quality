@@ -20,7 +20,8 @@ pub fn parse_cargo_test(stdout: &str, stderr: &str) -> Result<NormalizedTestRun,
     let mut cases = Vec::new();
 
     for raw in stdout.lines() {
-        let line = raw.trim();
+        let clean = strip_ansi(raw);
+        let line = clean.trim();
         if is_run_header(line) {
             current_suite = suites.get(suite_index).cloned();
             suite_index = suite_index.saturating_add(1);
@@ -69,7 +70,8 @@ fn cargo_suites(stderr: &str) -> Vec<String> {
     stderr
         .lines()
         .filter_map(|line| {
-            let line = line.trim();
+            let clean = strip_ansi(line);
+            let line = clean.trim();
             if let Some(target) = line.strip_prefix("Running unittests ") {
                 return Some(cargo_target_path(target));
             }
@@ -86,6 +88,28 @@ fn cargo_suites(stderr: &str) -> Vec<String> {
                 .map(|package| format!("doc-tests:{package}"))
         })
         .collect()
+}
+
+fn strip_ansi(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == 0x1b && bytes.get(index + 1) == Some(&b'[') {
+            index += 2;
+            while index < bytes.len() {
+                let byte = bytes[index];
+                index += 1;
+                if (0x40..=0x7e).contains(&byte) {
+                    break;
+                }
+            }
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn cargo_target_path(raw: &str) -> String {
