@@ -7,6 +7,7 @@ members = [
     "crates/wvq-intelligence",
     "crates/wvq-runtime",
     "crates/wvq-store",
+    "crates/wvq-ui",
     "crates/wvq-proof",
     "crates/wvq-command-bus",
     "crates/wvq-bench",
@@ -21,6 +22,7 @@ default-members = [
     "crates/wvq-intelligence",
     "crates/wvq-runtime",
     "crates/wvq-store",
+    "crates/wvq-ui",
     "crates/wvq-proof",
     "crates/wvq-command-bus",
     "crates/wvq-bench",
@@ -47,6 +49,7 @@ wvq-spec-recovery = { path = "crates/wvq-spec-recovery", version = "0.0.1" }
 wvq-intelligence = { path = "crates/wvq-intelligence", version = "0.0.1" }
 wvq-runtime = { path = "crates/wvq-runtime", version = "0.0.1" }
 wvq-store = { path = "crates/wvq-store", version = "0.0.1" }
+wvq-ui = { path = "crates/wvq-ui", version = "0.0.1" }
 wvq-proof = { path = "crates/wvq-proof", version = "0.0.1" }
 wvq-command-bus = { path = "crates/wvq-command-bus", version = "0.0.1" }
 wvq-bench = { path = "crates/wvq-bench", version = "0.0.1" }

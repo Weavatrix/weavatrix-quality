@@ -684,6 +684,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wvq-ui"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "thiserror",
+ "wvq-domain",
+]
+
+[[package]]
 name = "zerocopy"
 version = "0.8.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
