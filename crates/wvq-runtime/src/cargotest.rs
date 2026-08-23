@@ -33,12 +33,10 @@ pub fn parse_cargo_test(stdout: &str, stderr: &str) -> Result<NormalizedTestRun,
         let Some((name, raw_status)) = case.rsplit_once(" ... ") else {
             continue;
         };
-        let suite = current_suite
-            .clone()
-            .ok_or_else(|| RuntimeError::Malformed {
-                kind: "cargo-test".into(),
-                message: format!("case `{name}` has no cargo test target"),
-            })?;
+        let suite = current_suite.clone().ok_or_else(|| RuntimeError::Malformed {
+            kind: "cargo-test".into(),
+            message: format!("case `{name}` has no cargo test target"),
+        })?;
         let (status, message) = cargo_status(raw_status)?;
         cases.push(TestCaseResult {
             name: name.to_owned(),
@@ -64,9 +62,7 @@ fn is_run_header(line: &str) -> bool {
         return false;
     };
     let mut parts = rest.split_whitespace();
-    parts
-        .next()
-        .is_some_and(|count| count.parse::<u64>().is_ok())
+    parts.next().is_some_and(|count| count.parse::<u64>().is_ok())
         && parts.next().is_some_and(|unit| unit.starts_with("test"))
 }
 

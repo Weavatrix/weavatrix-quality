@@ -27,9 +27,7 @@ pub fn parse_lcov(text: &str) -> Result<CoverageArtifact, RuntimeError> {
             if current_path.is_none() {
                 return malformed("DA line before SF");
             }
-            let (lineno, hit) = da
-                .split_once(',')
-                .ok_or_else(|| malformed_msg("DA missing comma"))?;
+            let (lineno, hit) = da.split_once(',').ok_or_else(|| malformed_msg("DA missing comma"))?;
             let lineno: u32 = lineno
                 .parse()
                 .map_err(|_| malformed_msg("DA line is not an integer"))?;
