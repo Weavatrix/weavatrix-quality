@@ -11,18 +11,24 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use wvq_domain::{ArtifactId, ContentHash, OracleSealId, ProgramId, ProofId, RevisionId, RunId};
+use wvq_domain::{
+    ArtifactId, ContentHash, OracleSealId, ProgramId, ProofId, RevisionId, RunId, Severity,
+};
 use wvq_intelligence::{
     CodeEvidenceProvider, CoverageMeasurement, GraphDelta, ObligationNeed, SelectionInput,
     SurfaceDelta, TestCandidate, WeavatrixProvider, impacted_surface, map_coverage_to_nodes,
     select_minimal_plan,
 };
 use wvq_proof::{
-    AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, DeltaContext, ExecutionEvidence,
-    FailureEvidence, FlakeClass, FlowProtection, FlowView, HealEdit, LocalModelConfig,
-    LocalModelRequest, ProofVerdict, ProtectionCheckInput, ProtectionPolicy, ProtectionSnapshot,
-    ProtectionView, TestChange, TestLineageView, TimingBucket, apply_heal, assemble,
-    call_local_model, fingerprint_id, gate_protection, protection_delta, snapshot, triage,
+    AiAxis, AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, AxisState,
+    ChangeQualityVerdict, DebtAxis, DebtItem, DeltaContext, ExecutionEvidence, FailureEvidence,
+    FlakeClass, FlowProtection, FlowView, HealEdit, Limitation, LocalModelConfig,
+    LocalModelRequest, ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionCheckInput,
+    ProtectionDelta, ProtectionDeltaState, ProtectionFinding, ProtectionPolicy, ProtectionSnapshot,
+    ProtectionView, StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef,
+    UiIntegrityAxis, VerdictInputs, apply_heal, assemble, call_local_model, compose,
+    debt_rule_blocks, fingerprint_id, gate_protection, protection_delta, snapshot, summarise,
+    triage,
 };
 use wvq_runtime::{
     BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
@@ -41,8 +47,8 @@ use wvq_spec_recovery::{
     TestIntentSummary, TestsDelta, VerifyContext, cluster, narrate,
 };
 use wvq_store::{
-    HistoricalTestCandidate, Store, StoredAiUsage, StoredProof, StoredRun, StoredRunItem,
-    StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult, StoreError,
+    HistoricalTestCandidate, Store, StoreError, StoredAiUsage, StoredProof, StoredRun,
+    StoredRunItem, StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult,
 };
 
 use crate::commands::{
@@ -58,6 +64,9 @@ use crate::replies::{
     SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, bound_items,
     estimate_tokens,
 };
+
+/// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
+const UI_INTEGRITY_DELTA_KIND: &str = "ui-integrity-delta";
 
 /// Command-bus failure. Unknown values fail closed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -286,7 +295,9 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::Plan(cmd) => service.plan(&cmd).map(Reply::Plan),
         Command::Run(cmd) => service.run(&cmd).map(Reply::Run),
         Command::Status(cmd) => service.status(&cmd).map(Reply::Status),
-        Command::Verify(cmd) => service.verify(&cmd).map(Reply::Verify),
+        Command::Verify(cmd) => service
+            .verify(&cmd)
+            .map(|reply| Reply::Verify(Box::new(reply))),
         Command::Explain(cmd) => service.explain(&cmd).map(Reply::Explain),
         Command::Evidence(cmd) => service.evidence(&cmd).map(Reply::Evidence),
         Command::SpecValidate(cmd) => service.spec_validate(&cmd).map(Reply::SpecValidate),
@@ -945,6 +956,11 @@ impl LiveService {
         }
         let head_snapshot = self.stored_protection_snapshot(&head_run.run_id)?;
         let (base_snapshot, base_graph) = self.measure_base_protection(&range, &all_files)?;
+        // Replaying the base suite is the one expensive part of protection, so
+        // the measurement is persisted against the head run. `quality_verify`
+        // then composes a real protection axis from stored evidence without
+        // executing anything itself.
+        self.persist_base_protection(&head_run.run_id, &base_snapshot)?;
         Ok(build_protection_view(
             &compiled.obligations,
             &diff,
@@ -954,6 +970,195 @@ impl LiveService {
             &head_graph,
             &files,
         ))
+    }
+
+    /// Attach the measured base snapshot to the head run, idempotently.
+    fn persist_base_protection(
+        &self,
+        run: &str,
+        base: &ProtectionSnapshot,
+    ) -> Result<(), BusError> {
+        let run = RunId::new(run).map_err(|err| BusError::Identity(err.to_string()))?;
+        let store = self.store()?;
+        if snapshot_artifact(&store, &run, "base-protection-snapshot")?.is_some() {
+            return Ok(());
+        }
+        let mut handles = Vec::new();
+        put_json_run_artifact(
+            &store,
+            &run,
+            &format!("{run}-base-protection-snapshot"),
+            "base-protection-snapshot",
+            base,
+            &mut handles,
+        )
+    }
+
+    /// Gather every axis `quality_verify` composes, from stored evidence only.
+    ///
+    /// `verify` never executes. Each axis therefore reports one of three honest
+    /// states: measured, `not_applicable` when this change has no surface the
+    /// axis can see, or `unmeasured` when it does have that surface and the
+    /// evidence is absent. No axis is silently reported as clean.
+    fn verdict_inputs(
+        &self,
+        compiled: &Compiled,
+        run: Option<&StoredRun>,
+        proofs: Vec<ProofOutcome>,
+    ) -> Result<VerdictInputs, BusError> {
+        let Some(run) = run else {
+            // Nothing ran at this revision. The proof axis still reports the
+            // gap; the execution-backed axes have no surface to measure.
+            return Ok(VerdictInputs {
+                proofs,
+                ..VerdictInputs::default()
+            });
+        };
+        let store = self.store()?;
+        let range = stored_range(&store, &run.id);
+        let (protection, protection_limits) = Self::protection_axis(&store, run, compiled)?;
+        let (debt, debt_limits) = self.debt_axis(compiled, range.as_ref());
+        let (stability, stability_limits) = stability_axis(&self.repo, &store, run, compiled);
+        let ai = self.ai_axis(&store, compiled)?;
+        let (ui_integrity, ui_limits) = ui_integrity_axis(&store, run, compiled)?;
+        let mut limitations = protection_limits;
+        limitations.extend(debt_limits);
+        limitations.extend(stability_limits);
+        limitations.extend(ui_limits);
+        Ok(VerdictInputs {
+            proofs,
+            protection,
+            debt,
+            stability,
+            ai,
+            ui_integrity,
+            limitations,
+        })
+    }
+
+    /// Protection continuity from the two stored snapshots.
+    ///
+    /// The head snapshot is written by every run that produced measured
+    /// coverage. The base snapshot is written by `protection_view`, which is the
+    /// only path allowed to replay the base suite; `verify` reuses it instead of
+    /// re-running anything. With head coverage but no base snapshot the axis is
+    /// `unmeasured`, never `clean` — a change cannot be shown to have preserved
+    /// protection it never compared against.
+    fn protection_axis(
+        store: &Store,
+        run: &StoredRun,
+        compiled: &Compiled,
+    ) -> Result<(ProtectionAxis, Vec<Limitation>), BusError> {
+        let head = snapshot_artifact(store, &run.id, "protection-snapshot")?;
+        let base = snapshot_artifact(store, &run.id, "base-protection-snapshot")?;
+        match (base, head) {
+            (Some(base), Some(head)) => {
+                let deltas = protection_delta(&base, &head, &DeltaContext::default());
+                let any_high_risk = compiled
+                    .obligations
+                    .iter()
+                    .any(|item| matches!(item.risk, RiskLevel::High | RiskLevel::Critical));
+                let high_risk_flows = if any_high_risk {
+                    deltas.iter().map(|item| item.flow.clone()).collect()
+                } else {
+                    Vec::new()
+                };
+                let findings = gate_protection(&ProtectionCheckInput {
+                    deltas: deltas.clone(),
+                    tests: Vec::new(),
+                    trends: Vec::new(),
+                    policy: ProtectionPolicy {
+                        high_risk_flows,
+                        substitution_ratio: 10,
+                    },
+                });
+                Ok((protection_axis_from(&deltas, &findings), Vec::new()))
+            }
+            (_, Some(_)) => Ok((
+                ProtectionAxis {
+                    state: AxisState::Unmeasured,
+                    ..ProtectionAxis::default()
+                },
+                vec![Limitation {
+                    axis: "protection".into(),
+                    detail: "head protection was measured but no base snapshot exists; \
+                             run the protection profile to replay the base suite"
+                        .into(),
+                }],
+            )),
+            // No coverage reached the impacted graph at all: this change has no
+            // protection surface to compare.
+            (_, None) => Ok((ProtectionAxis::default(), Vec::new())),
+        }
+    }
+
+    /// Debt ratchet over the exact range the run measured.
+    ///
+    /// Weavatrix `run_audit` is a read-only graph query, so it is safe on the
+    /// verify path. Any failure degrades to `unmeasured` rather than turning a
+    /// missing comparison into a clean axis or aborting the whole verdict.
+    fn debt_axis(
+        &self,
+        compiled: &Compiled,
+        range: Option<&RevisionRange>,
+    ) -> (DebtAxis, Vec<Limitation>) {
+        let Some(range) = range else {
+            return (DebtAxis::default(), Vec::new());
+        };
+        match self.debt(&DebtCommand {
+            change: compiled.change.clone(),
+            base: range.base_ref.clone(),
+            head: range.head_ref.clone(),
+        }) {
+            Ok(reply) => (debt_axis_from(&reply), Vec::new()),
+            Err(err) => (
+                DebtAxis {
+                    state: AxisState::Unmeasured,
+                    ..DebtAxis::default()
+                },
+                vec![Limitation {
+                    axis: "debt".into(),
+                    detail: format!("base/head debt comparison is unavailable: {err}"),
+                }],
+            ),
+        }
+    }
+
+    /// Measured AI spend for this change. The ordinary green path spends none.
+    fn ai_axis(&self, store: &Store, compiled: &Compiled) -> Result<AiAxis, BusError> {
+        let persisted = store
+            .ai_usage_for_change(&compiled.change)
+            .map_err(|err| BusError::Store(err.to_string()))?
+            .unwrap_or_default();
+        if persisted.planning_tokens == 0
+            && persisted.runtime_tokens == 0
+            && persisted.browser_escape_calls == 0
+            && persisted.vision_calls == 0
+        {
+            // Nothing was ever charged to this change: the axis has no surface.
+            return Ok(AiAxis::default());
+        }
+        let usage = AiUsage {
+            planning_tokens: persisted.planning_tokens,
+            runtime_tokens: persisted.runtime_tokens,
+            browser_escape_calls: u32::try_from(persisted.browser_escape_calls).unwrap_or(u32::MAX),
+            vision_calls: u32::try_from(persisted.vision_calls).unwrap_or(u32::MAX),
+            cost_micros: persisted.cost_micros,
+        };
+        let budget_exhausted = load_model_policy(&self.repo)
+            .is_ok_and(|policy| AiCostFirewall::with_usage(policy.budget, usage).is_exhausted());
+        Ok(AiAxis {
+            state: if budget_exhausted {
+                AxisState::Warnings
+            } else {
+                AxisState::Clean
+            },
+            runtime_tokens: persisted.runtime_tokens,
+            budget_exhausted,
+            // A decision only becomes an unresolved blocker once a caller
+            // records one. WVQ never invents a pending decision.
+            unresolved_decisions: Vec::new(),
+        })
     }
 
     fn stored_protection_snapshot(&self, run: &str) -> Result<ProtectionSnapshot, BusError> {
@@ -1109,7 +1314,9 @@ impl LiveService {
             .args(["merge-base", "--", base, head])
             .current_dir(&self.repo)
             .output()
-            .map_err(|err| BusError::Intelligence(format!("cannot resolve Git merge-base: {err}")))?;
+            .map_err(|err| {
+                BusError::Intelligence(format!("cannot resolve Git merge-base: {err}"))
+            })?;
         if !output.status.success() {
             let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
             return Err(BusError::Intelligence(format!(
@@ -2079,8 +2286,7 @@ impl QualityService for LiveService {
             None => Vec::new(),
         };
         let mut present = Vec::new();
-        let mut obligation_execution =
-            BTreeMap::<String, Vec<StoredObligationExecution>>::new();
+        let mut obligation_execution = BTreeMap::<String, Vec<StoredObligationExecution>>::new();
         let mut browser_evidence = BTreeMap::<String, BrowserProofEvidence>::new();
         for artifact in &artifact_ids {
             let (record, bytes) = store
@@ -2105,6 +2311,7 @@ impl QualityService for LiveService {
         }
         let mut proofs = Vec::new();
         let mut verdicts = Vec::new();
+        let mut outcomes = Vec::new();
         for obligation in &compiled.obligations {
             let proof_suffix = run.as_ref().map_or_else(
                 || sha256_hex(revision.as_str().as_bytes())[..16].to_owned(),
@@ -2125,17 +2332,11 @@ impl QualityService for LiveService {
                 .get(obligation.id.as_str())
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let contradicted = exact
-                .iter()
-                .any(|entry| entry.status == "contradicted")
+            let contradicted = exact.iter().any(|entry| entry.status == "contradicted")
                 || browser.is_some_and(|evidence| evidence.contradicted);
-            let failed = exact
-                .iter()
-                .any(|entry| {
-                    !entry.invocation_passed
-                        || matches!(entry.status.as_str(), "failed" | "error")
-                })
-                || browser.is_some_and(|evidence| evidence.failed);
+            let failed = exact.iter().any(|entry| {
+                !entry.invocation_passed || matches!(entry.status.as_str(), "failed" | "error")
+            }) || browser.is_some_and(|evidence| evidence.failed);
             let passed = exact
                 .iter()
                 .any(|entry| entry.invocation_passed && entry.status == "passed")
@@ -2190,17 +2391,23 @@ impl QualityService for LiveService {
                 store
                     .put_proof_with_artifacts(
                         &StoredProof {
-                        id,
-                        revision: revision.clone(),
-                        obligation: obligation.id.clone(),
-                        oracle_seal: oracle.id.clone(),
-                        verdict: assembled.proof.verdict.as_str().into(),
+                            id,
+                            revision: revision.clone(),
+                            obligation: obligation.id.clone(),
+                            oracle_seal: oracle.id.clone(),
+                            verdict: assembled.proof.verdict.as_str().into(),
                         },
                         &assembled.proof.artifacts,
                     )
                     .map_err(|err| BusError::Store(err.to_string()))?;
             }
             verdicts.push(assembled.proof.verdict);
+            outcomes.push(ProofOutcome {
+                obligation: obligation.id.to_string(),
+                requirement: obligation.requirement.to_string(),
+                verdict: assembled.proof.verdict,
+                mandatory: matches!(obligation.risk, RiskLevel::High | RiskLevel::Critical),
+            });
             proofs.push(ProofSummary {
                 id: assembled.proof.id.to_string(),
                 requirement: obligation.requirement.to_string(),
@@ -2208,7 +2415,8 @@ impl QualityService for LiveService {
                 verdict: assembled.proof.verdict.as_str().to_owned(),
             });
         }
-        Ok(combine_verify(&compiled.change, proofs, &verdicts))
+        let quality = compose(&self.verdict_inputs(&compiled, run.as_ref(), outcomes)?);
+        Ok(combine_verify(&compiled.change, proofs, &verdicts, quality))
     }
 
     fn explain(&self, cmd: &ExplainCommand) -> Result<ExplainReply, BusError> {
@@ -2783,7 +2991,9 @@ impl QualityService for LiveService {
 
     fn author_promote(&self, cmd: &AuthorPromoteCommand) -> Result<AuthorPromoteReply, BusError> {
         if cmd.preview_id.trim().is_empty() {
-            return Err(BusError::InvalidInput("preview_id must not be empty".into()));
+            return Err(BusError::InvalidInput(
+                "preview_id must not be empty".into(),
+            ));
         }
         let compiled = self.compiled(&cmd.change)?;
         let repository_revision = self.revision()?;
@@ -2835,9 +3045,7 @@ impl QualityService for LiveService {
         let latest = store
             .latest_program_revision(&cmd.program_id)
             .map_err(|err| BusError::Store(err.to_string()))?
-            .ok_or_else(|| {
-                BusError::NotFound(format!("browser TestProgram {}", cmd.program_id))
-            })?;
+            .ok_or_else(|| BusError::NotFound(format!("browser TestProgram {}", cmd.program_id)))?;
         if latest != cmd.expected_program_revision {
             return Err(BusError::Ambiguous(format!(
                 "program revision changed: expected {}, latest is {latest}",
@@ -2870,8 +3078,8 @@ impl QualityService for LiveService {
                 "OracleSeal changed since promotion; a contradiction is not healable".into(),
             ));
         }
-        let stored_seal = OracleSealId::new(&stored.seal)
-            .map_err(|err| BusError::Identity(err.to_string()))?;
+        let stored_seal =
+            OracleSealId::new(&stored.seal).map_err(|err| BusError::Identity(err.to_string()))?;
         let current_seal = OracleSealId::new(&validated.seal_id)
             .map_err(|err| BusError::Identity(err.to_string()))?;
         let edits = cmd
@@ -3988,17 +4196,36 @@ fn resolve_change(repo: &Path, change: &str) -> Result<String, BusError> {
 }
 
 fn verify_from_token(change: &str, verdict: &str) -> VerifyReply {
-    let blocking = verdict == "CONTRADICTED";
-    VerifyReply {
-        change: change.to_owned(),
+    let proofs = vec![ProofSummary {
+        id: "proof-fake".into(),
+        requirement: "sankey.visual-limit-others".into(),
+        obligation: "others-visible".into(),
         verdict: verdict.to_owned(),
-        blocking,
-        proofs: vec![ProofSummary {
-            id: "proof-fake".into(),
-            requirement: "sankey.visual-limit-others".into(),
-            obligation: "others-visible".into(),
-            verdict: verdict.to_owned(),
-        }],
+    }];
+    let outcomes = vec![ProofOutcome {
+        obligation: "others-visible".into(),
+        requirement: "sankey.visual-limit-others".into(),
+        verdict: parse_proof_verdict(verdict),
+        mandatory: false,
+    }];
+    combine_verify(
+        change,
+        proofs,
+        &[parse_proof_verdict(verdict)],
+        compose(&VerdictInputs {
+            proofs: outcomes,
+            ..VerdictInputs::default()
+        }),
+    )
+}
+
+fn parse_proof_verdict(token: &str) -> ProofVerdict {
+    match token {
+        "PROVEN" => ProofVerdict::Proven,
+        "CONTRADICTED" => ProofVerdict::Contradicted,
+        "PARTIAL" => ProofVerdict::Partial,
+        "HUMAN_REQUIRED" => ProofVerdict::HumanRequired,
+        _ => ProofVerdict::Unproven,
     }
 }
 
@@ -4050,17 +4277,335 @@ fn explain_stored_proof(
     }))
 }
 
+/// Exact base/head range the run measured, when it recorded one.
+fn stored_range(store: &Store, run: &RunId) -> Option<RevisionRange> {
+    for artifact in store.run_artifacts(run).ok()? {
+        let (record, bytes) = store.read_artifact(&artifact).ok()?;
+        if record.kind == "revision-range" {
+            return parse_revision_range_evidence(&bytes).ok();
+        }
+    }
+    None
+}
+
+/// The single protection snapshot of `kind` attached to `run`, if any.
+fn snapshot_artifact(
+    store: &Store,
+    run: &RunId,
+    kind: &str,
+) -> Result<Option<ProtectionSnapshot>, BusError> {
+    let mut found = None;
+    for artifact in store
+        .run_artifacts(run)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    {
+        let (record, bytes) = store
+            .read_artifact(&artifact)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        if record.kind != kind {
+            continue;
+        }
+        if found.is_some() {
+            return Err(BusError::Store(format!(
+                "run {run} has more than one {kind}"
+            )));
+        }
+        found = Some(
+            serde_json::from_slice(&bytes)
+                .map_err(|err| BusError::Store(format!("invalid {kind} on run {run}: {err}")))?,
+        );
+    }
+    Ok(found)
+}
+
+/// Fold measured protection deltas and their gate findings into one axis.
+///
+/// A lost critical branch stays visible whatever the rest of the summary says:
+/// `lost_critical_branches` is filled from the deltas themselves, so nine
+/// improved flows cannot empty it.
+fn protection_axis_from(
+    deltas: &[ProtectionDelta],
+    findings: &[ProtectionFinding],
+) -> ProtectionAxis {
+    let mut lost_flows = Vec::new();
+    let mut lost_critical_branches = Vec::new();
+    for delta in deltas {
+        if matches!(delta.state, ProtectionDeltaState::Lost) {
+            lost_flows.push(delta.flow.clone());
+        }
+        lost_critical_branches.extend(delta.lost_critical_branches.iter().cloned());
+    }
+    lost_flows.sort();
+    lost_flows.dedup();
+    lost_critical_branches.sort();
+    lost_critical_branches.dedup();
+    let (blocking_findings, warning_findings): (Vec<_>, Vec<_>) = findings
+        .iter()
+        .filter(|finding| finding.severity != Severity::Info)
+        .cloned()
+        .partition(|finding| finding.severity == Severity::Error);
+    let state = if !blocking_findings.is_empty() || !lost_critical_branches.is_empty() {
+        AxisState::Blocking
+    } else if warning_findings.is_empty() {
+        AxisState::Clean
+    } else {
+        AxisState::Warnings
+    };
+    ProtectionAxis {
+        state,
+        measured: true,
+        summary: summarise(deltas),
+        lost_flows,
+        lost_critical_branches,
+        blocking_findings,
+        warning_findings,
+    }
+}
+
+/// Project the debt ratchet onto the verdict axis.
+///
+/// Existing debt is counted and never blocks adoption; only findings this
+/// change introduced or brought back are classified by rule family.
+fn debt_axis_from(reply: &DebtReply) -> DebtAxis {
+    let mut new = Vec::new();
+    let mut returned = Vec::new();
+    for summary in &reply.findings {
+        let Some((bucket, rest)) = summary.split_once(": ") else {
+            continue;
+        };
+        let (id, rule) = match rest.split_once(" (") {
+            Some((id, rule)) => (id, rule.trim_end_matches(')')),
+            None => (rest, ""),
+        };
+        let item = DebtItem {
+            id: id.to_owned(),
+            rule: rule.to_owned(),
+            blocking: debt_rule_blocks(rule),
+        };
+        match bucket {
+            "new" => new.push(item),
+            "returned" => returned.push(item),
+            _ => {}
+        }
+    }
+    new.sort_by(|left, right| left.id.cmp(&right.id));
+    returned.sort_by(|left, right| left.id.cmp(&right.id));
+    let blocking = new.iter().chain(&returned).any(|item| item.blocking);
+    let state = if !reply.comparison_present {
+        AxisState::Unmeasured
+    } else if blocking {
+        AxisState::Blocking
+    } else if new.is_empty() && returned.is_empty() {
+        AxisState::Clean
+    } else {
+        AxisState::Warnings
+    };
+    DebtAxis {
+        state,
+        comparison_present: reply.comparison_present,
+        existing: reply.existing,
+        fixed: reply.fixed,
+        excepted: reply.excepted,
+        new,
+        returned,
+    }
+}
+
+/// Test stability from the run's persisted analytics.
+///
+/// A mandatory flake is only escalated when deterministic triage could not
+/// classify a *first* occurrence of a failure on a test bound to a high or
+/// critical obligation. A known, already-clustered flake stays a warning.
+fn stability_axis(
+    repo: &Path,
+    store: &Store,
+    run: &StoredRun,
+    compiled: &Compiled,
+) -> (StabilityAxis, Vec<Limitation>) {
+    let Ok(analytics) = read_single_run_json(store, &run.id, "test-analytics") else {
+        return (StabilityAxis::default(), Vec::new());
+    };
+    let flaky = values_at(&analytics, "/flaky_tests");
+    let occurrences = values_at(&analytics, "/failure_occurrences");
+    let mandatory_paths = mandatory_test_paths(repo, compiled);
+    let mut unresolved = Vec::new();
+    let mut unknown_failures = 0_u64;
+    for occurrence in occurrences {
+        if occurrence.get("classification").and_then(Value::as_str) != Some("unknown") {
+            continue;
+        }
+        unknown_failures = unknown_failures.saturating_add(1);
+        let first_seen = occurrence
+            .get("previous_occurrences")
+            .and_then(Value::as_u64)
+            .is_some_and(|count| count == 0);
+        let suite = occurrence
+            .get("suite")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let name = occurrence
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if first_seen && mandatory_paths.contains(&normalize_path(suite)) {
+            unresolved.push(format!("{suite}::{name}"));
+        }
+    }
+    unresolved.sort();
+    unresolved.dedup();
+    let flaky_count = u64::try_from(flaky.len()).unwrap_or(u64::MAX);
+    let state = if !unresolved.is_empty() {
+        AxisState::Blocking
+    } else if flaky_count > 0 || unknown_failures > 0 {
+        AxisState::Warnings
+    } else {
+        AxisState::Clean
+    };
+    (
+        StabilityAxis {
+            state,
+            measured: true,
+            flaky: flaky_count,
+            unknown_failures,
+            unresolved_mandatory_flakes: unresolved,
+        },
+        Vec::new(),
+    )
+}
+
+/// Deterministic UI integrity from the run's persisted ratchet.
+///
+/// The collector is the only thing that knows whether a route/state/viewport
+/// was reachable, so `unmeasured` is reported by the producer rather than
+/// guessed here. With no artifact at all this change has no UI surface and the
+/// axis is `not_applicable`.
+fn ui_integrity_axis(
+    store: &Store,
+    run: &StoredRun,
+    _compiled: &Compiled,
+) -> Result<(UiIntegrityAxis, Vec<Limitation>), BusError> {
+    let Ok(document) = read_single_run_json(store, &run.id, UI_INTEGRITY_DELTA_KIND) else {
+        return Ok((UiIntegrityAxis::default(), Vec::new()));
+    };
+    if document.get("schema_v").and_then(Value::as_u64) != Some(1) {
+        return Err(BusError::Store(
+            "unknown ui-integrity-delta schema version".into(),
+        ));
+    }
+    let axis = UiIntegrityAxis {
+        state: parse_axis_state(document.get("state").and_then(Value::as_str))?,
+        new: parse_ui_findings(&document, "new")?,
+        returned: parse_ui_findings(&document, "returned")?,
+        existing: json_u64(&document, "existing"),
+        fixed: json_u64(&document, "fixed"),
+        excepted: json_u64(&document, "excepted"),
+        unmeasured_states: values_at(&document, "/unmeasured_states")
+            .iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect(),
+        truncated: document
+            .get("truncated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    };
+    Ok((axis, Vec::new()))
+}
+
+fn parse_axis_state(token: Option<&str>) -> Result<AxisState, BusError> {
+    match token {
+        Some("not_applicable") => Ok(AxisState::NotApplicable),
+        Some("clean") => Ok(AxisState::Clean),
+        Some("warnings") => Ok(AxisState::Warnings),
+        Some("blocking") => Ok(AxisState::Blocking),
+        Some("unmeasured") => Ok(AxisState::Unmeasured),
+        other => Err(BusError::Store(format!(
+            "unknown ui-integrity axis state `{}`",
+            other.unwrap_or("<missing>")
+        ))),
+    }
+}
+
+fn parse_ui_findings(document: &Value, field: &str) -> Result<Vec<UiFindingRef>, BusError> {
+    let mut out = Vec::new();
+    for value in values_at(document, &format!("/{field}")) {
+        let severity = match value.get("severity").and_then(Value::as_str) {
+            Some("info") => Severity::Info,
+            Some("warn") => Severity::Warn,
+            Some("error") => Severity::Error,
+            other => {
+                return Err(BusError::Store(format!(
+                    "ui-integrity finding has unknown severity `{}`",
+                    other.unwrap_or("<missing>")
+                )));
+            }
+        };
+        out.push(UiFindingRef {
+            check: json_string(value, "check")?,
+            severity,
+            subject: json_string(value, "subject")?,
+            route: json_string(value, "route")?,
+            viewport: json_string(value, "viewport")?,
+            detail: json_string(value, "detail")?,
+        });
+    }
+    Ok(out)
+}
+
+fn json_string(value: &Value, field: &str) -> Result<String, BusError> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| BusError::Store(format!("ui-integrity finding omitted {field}")))
+}
+
+fn json_u64(value: &Value, field: &str) -> u64 {
+    value.get(field).and_then(Value::as_u64).unwrap_or_default()
+}
+
+/// Repository test paths bound to a high or critical obligation.
+fn mandatory_test_paths(repo: &Path, compiled: &Compiled) -> BTreeSet<String> {
+    let mandatory = compiled
+        .obligations
+        .iter()
+        .filter(|item| matches!(item.risk, RiskLevel::High | RiskLevel::Critical))
+        .map(|item| item.id.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
+    if mandatory.is_empty() {
+        return BTreeSet::new();
+    }
+    load_test_bindings(repo)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|binding| {
+            binding
+                .obligations
+                .iter()
+                .any(|obligation| mandatory.contains(obligation))
+        })
+        .map(|binding| binding.path)
+        .collect()
+}
+
+/// Join the backward-compatible `ProofVerdict` token with the composite
+/// change-level verdict. `blocking` and the exit code follow the composite
+/// state, so a lost protection net or a new UI regression fails CI even when
+/// every sealed obligation is `PROVEN`.
 fn combine_verify(
     change: &str,
     proofs: Vec<ProofSummary>,
     verdicts: &[ProofVerdict],
+    quality: ChangeQualityVerdict,
 ) -> VerifyReply {
     let combined = combine_verdicts(verdicts);
     VerifyReply {
         change: change.to_owned(),
         verdict: combined.as_str().to_owned(),
-        blocking: combined == ProofVerdict::Contradicted,
+        blocking: quality.blocking(),
         proofs,
+        state: quality.state.as_str().to_owned(),
+        quality,
     }
 }
 
@@ -5221,10 +5766,8 @@ fn merged_test_bindings(
     known: &BTreeSet<String>,
     additional_bindings: &[TestBinding],
 ) -> Result<Vec<TestBinding>, BusError> {
-    let mut merged = BTreeMap::<
-        (String, Option<String>, Option<String>, Option<String>),
-        TestBinding,
-    >::new();
+    let mut merged =
+        BTreeMap::<(String, Option<String>, Option<String>, Option<String>), TestBinding>::new();
     let mut configured_bindings = load_test_bindings(repo)?;
     configured_bindings.extend(additional_bindings.iter().cloned());
     for binding in configured_bindings {
@@ -5244,17 +5787,15 @@ fn merged_test_bindings(
             binding.suite.clone(),
             binding.case.clone(),
         );
-        let entry = merged
-            .entry(key)
-            .or_insert_with(|| TestBinding {
-                path: binding.path.clone(),
-                runner: binding.runner.clone(),
-                suite: binding.suite.clone(),
-                case: binding.case.clone(),
-                obligations: BTreeSet::new(),
-                cost: binding.cost,
-                flake_penalty: binding.flake_penalty,
-            });
+        let entry = merged.entry(key).or_insert_with(|| TestBinding {
+            path: binding.path.clone(),
+            runner: binding.runner.clone(),
+            suite: binding.suite.clone(),
+            case: binding.case.clone(),
+            obligations: BTreeSet::new(),
+            cost: binding.cost,
+            flake_penalty: binding.flake_penalty,
+        });
         entry.obligations.extend(binding.obligations);
         entry.cost = entry.cost.min(binding.cost);
         entry.flake_penalty = entry.flake_penalty.max(binding.flake_penalty);
@@ -5284,7 +5825,12 @@ fn selection_candidates(repo: &Path, bindings: &[TestBinding]) -> Vec<TestCandid
     for candidate in candidates.values_mut() {
         candidate.explanation.push(format!(
             "quality policy binds exact test case evidence to: {}",
-            candidate.covers.iter().cloned().collect::<Vec<_>>().join(", ")
+            candidate
+                .covers
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     candidates.into_values().collect()
@@ -5736,10 +6282,7 @@ fn batch_filter_groups(grouped: FilterGroups) -> Vec<ExecutionRequest> {
 }
 
 fn supports_path_filters(executor: &str) -> bool {
-    matches!(
-        executor,
-        "vitest" | "jest" | "bun-test" | "playwright"
-    )
+    matches!(executor, "vitest" | "jest" | "bun-test" | "playwright")
 }
 
 fn available_test_paths(
@@ -5957,14 +6500,13 @@ fn obligation_execution_map(
             .iter()
             .filter(|artifact| artifact.kind == "normalized-test-run")
         {
-            let normalized: NormalizedTestRun = serde_json::from_slice(&artifact.bytes).map_err(
-                |err| {
+            let normalized: NormalizedTestRun =
+                serde_json::from_slice(&artifact.bytes).map_err(|err| {
                     BusError::Runtime(format!(
                         "cannot decode normalized evidence from {}: {err}",
                         artifact.path
                     ))
-                },
-            )?;
+                })?;
             for binding in bindings.iter().filter(|binding| {
                 binding.case.is_some()
                     && binding
@@ -6652,7 +7194,11 @@ fn parse_revision_range_evidence(bytes: &[u8]) -> Result<RevisionRange, BusError
     if stored.schema_v != 2
         || stored.base.reference.is_empty()
         || stored.head.reference.is_empty()
-        || stored.head.content_revision.as_deref().is_none_or(str::is_empty)
+        || stored
+            .head
+            .content_revision
+            .as_deref()
+            .is_none_or(str::is_empty)
         || !valid_commit_id(&stored.base.commit)
         || !valid_commit_id(&stored.head.commit)
         || !valid_commit_id(&stored.merge_base)
@@ -8042,7 +8588,10 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert!(requests[0].filters.is_empty());
         assert!(executed.is_none());
-        assert!(reason.contains("no filterable registered executor"), "{reason}");
+        assert!(
+            reason.contains("no filterable registered executor"),
+            "{reason}"
+        );
     }
 
     fn record(executor: &str) -> ExecutorRecord {

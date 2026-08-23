@@ -2,6 +2,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
+use wvq_proof::ChangeQualityVerdict;
 
 /// Maximum UTF-8 bytes allowed inline in [`EvidenceReply`]. Larger stays a handle.
 pub const INLINE_LIMIT: usize = 4_096;
@@ -183,27 +184,32 @@ pub struct StatusReply {
 }
 
 /// Multi-axis verdict. Not a quality percentage.
+///
+/// `verdict` stays the combined [`wvq_proof::ProofVerdict`] token so existing
+/// callers keep working, but `blocking` and the process exit code now come from
+/// the composite [`ChangeQualityVerdict`]: a change can prove every obligation
+/// and still be blocked by a lost protection net or a new UI regression.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VerifyReply {
     /// Change.
     pub change: String,
     /// Combined `Proof` verdict token.
     pub verdict: String,
-    /// True when the verdict must fail CI (`CONTRADICTED`).
+    /// True when the composite verdict must fail CI.
     pub blocking: bool,
     /// Per-obligation proof summaries.
     pub proofs: Vec<ProofSummary>,
+    /// Composite state token (`BLOCKED`, `PASS_WITH_WARNINGS`, …).
+    pub state: String,
+    /// Every measured axis with its own facts and provenance.
+    pub quality: ChangeQualityVerdict,
 }
 
 impl VerifyReply {
-    /// Process exit code: `0` proven, `2` blocking, `1` otherwise.
+    /// Process exit code: `0` clean, `2` blocking, `1` otherwise.
     #[must_use]
     pub fn exit_code(&self) -> i32 {
-        if self.blocking {
-            2
-        } else {
-            i32::from(self.verdict != "PROVEN")
-        }
+        self.quality.exit_code()
     }
 }
 
@@ -544,9 +550,10 @@ pub enum Reply {
     /// [`StatusReply`].
     #[serde(rename = "status")]
     Status(StatusReply),
-    /// [`VerifyReply`].
+    /// [`VerifyReply`]. Boxed: the composite verdict carries every axis, so it
+    /// is much larger than the other replies.
     #[serde(rename = "verify")]
-    Verify(VerifyReply),
+    Verify(Box<VerifyReply>),
     /// [`ExplainReply`].
     #[serde(rename = "explain")]
     Explain(ExplainReply),

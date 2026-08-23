@@ -4,6 +4,7 @@
 
 mod assemble;
 mod budget;
+mod change_verdict;
 mod differential;
 mod explorer;
 mod flake;
@@ -21,6 +22,11 @@ pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assem
 pub use budget::{
     AI_BUDGET_EXHAUSTED, AiBudget, AiCall, AiCallKind, AiCostFirewall, AiUsage, BudgetExhausted,
     BudgetLimit, TokenRatio,
+};
+pub use change_verdict::{
+    AiAxis, AxisState, BlockingReason, ChangeQualityVerdict, ChangeVerdictState, DebtAxis,
+    DebtItem, Limitation, ProofAxis, ProofOutcome, ProtectionAxis, StabilityAxis, UiFindingRef,
+    UiIntegrityAxis, VerdictInputs, compose, debt_rule_blocks,
 };
 pub use differential::{
     CodeDelta, DeltaTriangle, SpecDelta, TriangleAxes, TriangleReading, classify_triangle,

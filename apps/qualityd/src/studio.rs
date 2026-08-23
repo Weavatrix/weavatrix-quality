@@ -1,4 +1,4 @@
-﻿//! Exception-first Quality Studio API. Spec §31 and §58.
+//! Exception-first Quality Studio API. Spec §31 and §58.
 //!
 //! Every endpoint is a projection of the shared command bus. The dashboard shows
 //! unresolved exceptions, never hundreds of green cases, and a human decision is
@@ -15,7 +15,7 @@ use wvq_command_bus::{
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
 };
-use wvq_proof::ProtectionView;
+use wvq_proof::{BlockingReason, ChangeQualityVerdict, Limitation, ProtectionView, UiFindingRef};
 use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::{Store, StoredAiUsage};
 
@@ -88,6 +88,8 @@ struct SummaryBody {
     change: String,
     verdict: String,
     blocking: bool,
+    /// Composite state token (`BLOCKED`, `PASS_WITH_WARNINGS`, …).
+    state: String,
     requirements: usize,
     obligations: usize,
     proven: usize,
@@ -98,6 +100,56 @@ struct SummaryBody {
     debt: DebtReply,
     /// `null` when no AI usage was recorded. Unmeasured is not zero.
     ai: Option<AiBody>,
+    /// Per-axis states, so a reviewer sees which axes were never measured.
+    axes: Vec<AxisBody>,
+    /// Every policy rule that fired, most important first.
+    blocking_reasons: Vec<BlockingReason>,
+    /// Everything in scope that was not measured.
+    limitations: Vec<Limitation>,
+    /// Exception-only UI-integrity projection. Healthy elements are never listed.
+    ui_integrity: UiIntegrityBody,
+}
+
+/// One axis reduced to its state for the dashboard header.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct AxisBody {
+    axis: String,
+    state: String,
+}
+
+/// What changed for the worse in the UI, plus what was fixed or never measured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct UiIntegrityBody {
+    state: String,
+    /// Duplicates, occlusions, and overflow first seen on head.
+    new: Vec<UiFindingRef>,
+    /// Findings that were fixed and came back.
+    returned: Vec<UiFindingRef>,
+    /// Old UI debt, counted and never listed.
+    suppressed_existing: u64,
+    /// UI debt this change removed.
+    fixed: u64,
+    /// Route/state/viewport combinations with no snapshot.
+    unmeasured_states: Vec<String>,
+    /// Whether a snapshot hit its node bound.
+    truncated: bool,
+}
+
+fn axes_of(quality: &ChangeQualityVerdict) -> Vec<AxisBody> {
+    [
+        ("proof", quality.proof.state),
+        ("protection", quality.protection.state),
+        ("debt", quality.debt.state),
+        ("stability", quality.stability.state),
+        ("ai", quality.ai.state),
+        ("ui_integrity", quality.ui_integrity.state),
+    ]
+    .into_iter()
+    .map(|(axis, state)| AxisBody {
+        axis: axis.to_owned(),
+        state: state.as_str().to_owned(),
+    })
+    .collect()
 }
 
 /// Requirement drill-down. Detail screens may show green proofs.
@@ -316,10 +368,22 @@ impl Studio {
             .proofs
             .into_iter()
             .partition(ProofSummary::is_passing);
+        let quality = verify.quality;
+        let axes = axes_of(&quality);
+        let ui_integrity = UiIntegrityBody {
+            state: quality.ui_integrity.state.as_str().to_owned(),
+            new: quality.ui_integrity.new,
+            returned: quality.ui_integrity.returned,
+            suppressed_existing: quality.ui_integrity.existing,
+            fixed: quality.ui_integrity.fixed,
+            unmeasured_states: quality.ui_integrity.unmeasured_states,
+            truncated: quality.ui_integrity.truncated,
+        };
         ok(&SummaryBody {
             change: verify.change,
             verdict: verify.verdict,
             blocking: verify.blocking,
+            state: verify.state,
             requirements: requirement_count,
             obligations,
             proven: passing.len(),
@@ -327,6 +391,10 @@ impl Studio {
             suppressed_passing: passing.len(),
             debt,
             ai,
+            axes,
+            blocking_reasons: quality.blocking_reasons,
+            limitations: quality.limitations,
+            ui_integrity,
         })
     }
 

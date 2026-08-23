@@ -71,11 +71,147 @@ export interface ProofSummary {
     verdict: string
 }
 
+/** Composed change-level state. Never a single quality percentage. */
+export type ChangeVerdictState =
+    | 'BLOCKED'
+    | 'NEEDS_HUMAN'
+    | 'NOT_ENOUGH_EVIDENCE'
+    | 'PASS_WITH_WARNINGS'
+    | 'PASS'
+
+/**
+ * State of one axis. `not_applicable` means the change has no surface the axis
+ * can measure; `unmeasured` means it does and no evidence arrived. Neither is
+ * ever reported as clean.
+ */
+export type AxisState = 'not_applicable' | 'clean' | 'warnings' | 'blocking' | 'unmeasured'
+
+export type Severity = 'info' | 'warn' | 'error'
+
+export interface BlockingReason {
+    rank: number
+    code: string
+    axis: string
+    subject: string
+    detail: string
+}
+
+export interface Limitation {
+    axis: string
+    detail: string
+}
+
+export interface ProofAxis {
+    state: AxisState
+    proven: number
+    partial: number
+    unproven: number
+    contradicted: number
+    human_required: number
+    contradicted_obligations: string[]
+    unproven_mandatory: string[]
+    ambiguous_obligations: string[]
+}
+
+export interface ProtectionSummary {
+    preserved: number
+    improved: number
+    degraded: number
+    lost: number
+    replaced: number
+    relocated: number
+    new_unprotected: number
+}
+
+export interface ProtectionFinding {
+    check: string
+    severity: Severity
+    subject: string
+    detail: string
+}
+
+export interface ProtectionAxis {
+    state: AxisState
+    measured: boolean
+    summary: ProtectionSummary
+    lost_flows: string[]
+    lost_critical_branches: string[]
+    blocking_findings: ProtectionFinding[]
+    warning_findings: ProtectionFinding[]
+}
+
+export interface DebtItem {
+    id: string
+    rule: string
+    blocking: boolean
+}
+
+export interface DebtAxis {
+    state: AxisState
+    comparison_present: boolean
+    existing: number
+    fixed: number
+    excepted: number
+    new: DebtItem[]
+    returned: DebtItem[]
+}
+
+export interface StabilityAxis {
+    state: AxisState
+    measured: boolean
+    flaky: number
+    unknown_failures: number
+    unresolved_mandatory_flakes: string[]
+}
+
+export interface AiAxis {
+    state: AxisState
+    runtime_tokens: number
+    budget_exhausted: boolean
+    unresolved_decisions: string[]
+}
+
+export interface UiFindingRef {
+    check: string
+    severity: Severity
+    subject: string
+    route: string
+    viewport: string
+    detail: string
+}
+
+export interface UiIntegrityAxis {
+    state: AxisState
+    new: UiFindingRef[]
+    returned: UiFindingRef[]
+    existing: number
+    fixed: number
+    excepted: number
+    unmeasured_states: string[]
+    truncated: boolean
+}
+
+export interface ChangeQualityVerdict {
+    state: ChangeVerdictState
+    proof: ProofAxis
+    protection: ProtectionAxis
+    debt: DebtAxis
+    stability: StabilityAxis
+    ai: AiAxis
+    ui_integrity: UiIntegrityAxis
+    blocking_reasons: BlockingReason[]
+    limitations: Limitation[]
+}
+
 export interface VerifyReply {
     change: string
+    /** Combined ProofVerdict token, kept for backward compatibility. */
     verdict: string
+    /** Driven by the composite verdict, not by `verdict` alone. */
     blocking: boolean
     proofs: ProofSummary[]
+    state: ChangeVerdictState
+    quality: ChangeQualityVerdict
 }
 
 export interface ExplainReply {
