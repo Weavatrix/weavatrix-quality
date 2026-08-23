@@ -1091,11 +1091,23 @@ impl LiveService {
         compiled: &Compiled,
         policy: &UiIntegrityPolicy,
     ) -> Result<UiIntegritySnapshot, BusError> {
+        // The browser engine is toolchain, not source: a fresh worktree has no
+        // node_modules, and replaying base with a different engine would
+        // confound the geometry being compared.
+        let engine = load_browser_policy(&self.repo, &compiled.obligations)?
+            .map(|policy| policy.module_root)
+            .ok_or_else(|| {
+                BusError::Runtime("no browser runtime is configured for this repository".into())
+            })?;
         let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
         let evidence = WeavatrixProvider
             .analyze(&worktree.path)
             .map_err(|err| BusError::Intelligence(err.to_string()))?;
-        let Some(browser) = load_browser_policy(&worktree.path, &compiled.obligations)? else {
+        let Some(browser) =
+            load_browser_policy_with(&worktree.path, &compiled.obligations, Some(&engine))?
+        else {
+            // Base had no browser programs at all, so nothing here can be
+            // compared. Report it rather than calling head's findings new.
             return Ok(UiIntegritySnapshot {
                 revision: evidence.revision.to_string(),
                 truncated: true,
@@ -1112,8 +1124,9 @@ impl LiveService {
                     headless: browser.headless,
                     timeout: browser.timeout,
                     module_root: browser.module_root.clone(),
-                    runtime_dir: worktree
-                        .path
+                    // The bridge is materialized once next to the engine.
+                    runtime_dir: self
+                        .repo
                         .join(".weavatrix-quality/runtime/playwright-runner"),
                     evidence_dir: worktree
                         .path
@@ -2634,6 +2647,9 @@ impl QualityService for LiveService {
 
     fn explain(&self, cmd: &ExplainCommand) -> Result<ExplainReply, BusError> {
         let store = self.store()?;
+        if let Some(reply) = explain_ui_finding(&store, &cmd.id)? {
+            return Ok(reply);
+        }
         if let Ok(id) = ProofId::new(&cmd.id)
             && let Some(reply) = explain_stored_proof(&store, &id, &cmd.id)?
         {
@@ -4448,6 +4464,120 @@ fn parse_proof_verdict(token: &str) -> ProofVerdict {
     }
 }
 
+/// Explain one UI-integrity finding by fingerprint, detector id, or subject.
+///
+/// The reply is quantitative on purpose. A reviewer is told which control, on
+/// which route, at which viewport, what covered or duplicated it, and the exact
+/// hit-test or geometry numbers behind the call — never that something
+/// "possibly overlaps".
+fn explain_ui_finding(store: &Store, id: &str) -> Result<Option<ExplainReply>, BusError> {
+    let looks_like_ui = id.starts_with("ui:") || id.starts_with("WVQ-UI-");
+    if !looks_like_ui {
+        return Ok(None);
+    }
+    let Some(run) = store
+        .latest_run_any()
+        .map_err(|err| BusError::Store(err.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let Ok(document) = read_single_run_json(store, &run.id, "ui-integrity-findings") else {
+        return Ok(None);
+    };
+    let findings: Vec<UiIntegrityFinding> =
+        serde_json::from_value(document.get("findings").cloned().unwrap_or(json!([])))
+            .map_err(|err| BusError::Store(format!("malformed ui findings: {err}")))?;
+    let Some(finding) = findings
+        .iter()
+        .find(|item| item.fingerprint() == id)
+        .or_else(|| findings.iter().find(|item| item.check.id() == id))
+    else {
+        return Ok(None);
+    };
+
+    let mut provenance = vec![
+        format!("check {}", finding.check.id()),
+        format!("fingerprint {}", finding.fingerprint()),
+        format!("head revision {}", run.revision),
+        format!("state {}", finding.state),
+        format!("route {} at {}", finding.route, finding.viewport),
+        format!("target {}", finding.subject),
+    ];
+    if let Some(counterpart) = &finding.counterpart {
+        provenance.push(format!("counterpart {counterpart}"));
+    }
+    if let Some(component) = &finding.component_hint {
+        provenance.push(format!("component {component}"));
+    }
+    let evidence = finding.evidence;
+    if evidence.sample_count > 0 {
+        provenance.push(format!(
+            "hit tests {}/{} points received events ({} permille lost)",
+            evidence.received_event_samples, evidence.sample_count, evidence.failure_ratio_permille
+        ));
+    }
+    if evidence.overlap_ratio_permille > 0 {
+        provenance.push(format!(
+            "overlap {} permille of the target box",
+            evidence.overlap_ratio_permille
+        ));
+    }
+    if evidence.overflow_px != 0 {
+        provenance.push(format!("overflow {}px", evidence.overflow_px));
+    }
+    if evidence.scroll_width != 0 || evidence.client_width != 0 {
+        provenance.push(format!(
+            "text {}x{} in a {}x{} box",
+            evidence.scroll_width,
+            evidence.scroll_height,
+            evidence.client_width,
+            evidence.client_height
+        ));
+    }
+    if evidence.duplicate_count > 0 {
+        provenance.push(format!("{} matching nodes", evidence.duplicate_count));
+    }
+    if !finding.nodes.is_empty() {
+        provenance.push(format!("collector nodes {}", finding.nodes.join(", ")));
+    }
+    // The full snapshot and hit-test map stay handles; only their identity is
+    // inlined so a caller can fetch them through `quality_evidence`.
+    for kind in [
+        "ui-layout-snapshot",
+        "ui-hit-test-map",
+        UI_INTEGRITY_DELTA_KIND,
+    ] {
+        if let Some(handle) = artifact_handle_of_kind(store, &run.id, kind)? {
+            provenance.push(format!("artifact {kind} {handle}"));
+        }
+    }
+    Ok(Some(ExplainReply {
+        id: id.to_owned(),
+        kind: "ui_finding".into(),
+        summary: finding.detail.clone(),
+        provenance,
+    }))
+}
+
+fn artifact_handle_of_kind(
+    store: &Store,
+    run: &RunId,
+    kind: &str,
+) -> Result<Option<String>, BusError> {
+    for artifact in store
+        .run_artifacts(run)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    {
+        let (record, _) = store
+            .read_artifact(&artifact)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        if record.kind == kind {
+            return Ok(Some(artifact.to_string()));
+        }
+    }
+    Ok(None)
+}
+
 fn explain_stored_proof(
     store: &Store,
     id: &ProofId,
@@ -5255,6 +5385,21 @@ fn load_browser_policy(
     repo: &Path,
     obligations: &[TestObligation],
 ) -> Result<Option<BrowserPolicy>, BusError> {
+    load_browser_policy_with(repo, obligations, None)
+}
+
+/// Load a browser policy, optionally supplying the Playwright installation.
+///
+/// A base-revision worktree is a fresh checkout, so it has no `node_modules`:
+/// the browser engine is toolchain, not source, and is deliberately not
+/// versioned. Replaying base therefore reuses the working repository's engine.
+/// That is also the only correct comparison — measuring base with a different
+/// browser build would confound the very geometry the ratchet compares.
+fn load_browser_policy_with(
+    repo: &Path,
+    obligations: &[TestObligation],
+    module_root: Option<&Path>,
+) -> Result<Option<BrowserPolicy>, BusError> {
     let path = repo.join(".weavatrix-quality").join("config.yaml");
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
@@ -5298,7 +5443,7 @@ fn load_browser_policy(
             path.display()
         ))
     })?;
-    let mut policy = parse_browser_runtime(repo, &path, browser)?;
+    let mut policy = parse_browser_runtime(repo, &path, browser, module_root)?;
     policy.programs = parse_browser_programs(repo, &path, browser, obligations)?;
     Ok(Some(policy))
 }
@@ -5360,6 +5505,7 @@ fn parse_browser_runtime(
     repo: &Path,
     path: &Path,
     browser: &serde_yaml::Mapping,
+    module_root_override: Option<&Path>,
 ) -> Result<BrowserPolicy, BusError> {
     let allowed = [
         "base_url",
@@ -5417,10 +5563,14 @@ fn parse_browser_runtime(
                 ))
             })
     })?;
-    let module_root_raw = yaml_get(browser, "module_root")
-        .and_then(serde_yaml::Value::as_str)
-        .unwrap_or(".");
-    let (_, module_root) = checked_repo_path(repo, module_root_raw, "browser.module_root")?;
+    let module_root = if let Some(override_root) = module_root_override {
+        override_root.to_path_buf()
+    } else {
+        let module_root_raw = yaml_get(browser, "module_root")
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or(".");
+        checked_repo_path(repo, module_root_raw, "browser.module_root")?.1
+    };
     if !module_root.join("package.json").is_file() {
         return Err(BusError::Runtime(format!(
             "quality policy {} browser.module_root has no package.json: {}",
