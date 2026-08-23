@@ -39,6 +39,29 @@ export type Predicate = {
     pointer: string;
     value: unknown;
 } | {
+    kind: "unique";
+    target: PredicateTarget;
+} | {
+    kind: "max_multiplicity";
+    target: PredicateTarget;
+    max: number;
+} | {
+    kind: "receives_events";
+    target: PredicateTarget;
+    min_ratio_permille: number;
+} | {
+    kind: "inside_viewport";
+    target: PredicateTarget;
+    margin_px: number;
+} | {
+    kind: "text_not_clipped";
+    target: PredicateTarget;
+} | {
+    kind: "no_overlap";
+    target: PredicateTarget;
+    with: PredicateTarget;
+    max_ratio_permille: number;
+} | {
     kind: "all" | "any";
     predicates: Predicate[];
 } | {

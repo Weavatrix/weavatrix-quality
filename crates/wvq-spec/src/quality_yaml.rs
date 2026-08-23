@@ -224,6 +224,33 @@ pub enum Predicate {
         pointer: String,
         value: serde_json::Value,
     },
+    /// Exactly one rendered node matches the target.
+    ///
+    /// A sealed expectation, not a code-health finding: "there is one Save
+    /// button in this dialog" is product intent, and the automatic duplicate
+    /// detectors say nothing about whether it was intended.
+    Unique { target: PredicateTarget },
+    /// At most `max` rendered nodes match the target.
+    MaxMultiplicity { target: PredicateTarget, max: u32 },
+    /// The target actually receives pointer events on at least
+    /// `min_ratio_permille` of its probed points.
+    ReceivesEvents {
+        target: PredicateTarget,
+        min_ratio_permille: u16,
+    },
+    /// The target lies inside the viewport, with `margin_px` of slack.
+    InsideViewport {
+        target: PredicateTarget,
+        margin_px: u32,
+    },
+    /// The target's text is not clipped by its own box.
+    TextNotClipped { target: PredicateTarget },
+    /// Two targets overlap by no more than `max_ratio_permille` of the first.
+    NoOverlap {
+        target: PredicateTarget,
+        with: PredicateTarget,
+        max_ratio_permille: u16,
+    },
     /// Every nested predicate must hold.
     All { predicates: Vec<Predicate> },
     /// At least one nested predicate must hold.
@@ -281,7 +308,44 @@ impl Predicate {
             | Self::Disabled { target }
             | Self::TextEquals { target, .. }
             | Self::TextContains { target, .. }
-            | Self::ValueEquals { target, .. } => target.validate(),
+            | Self::ValueEquals { target, .. }
+            | Self::Unique { target }
+            | Self::TextNotClipped { target } => target.validate(),
+            Self::MaxMultiplicity { target, max } => {
+                target.validate()?;
+                // `max: 0` says "this must not exist", which is what `hidden`
+                // is for. Accepting both would give one expectation two spellings.
+                if *max == 0 {
+                    return Err("max_multiplicity max must be at least 1; use `hidden`".into());
+                }
+                Ok(())
+            }
+            Self::ReceivesEvents {
+                target,
+                min_ratio_permille,
+            } => {
+                target.validate()?;
+                require_permille("receives_events min_ratio_permille", *min_ratio_permille)
+            }
+            Self::InsideViewport { target, margin_px } => {
+                target.validate()?;
+                if *margin_px > 4_096 {
+                    return Err("inside_viewport margin_px must be at most 4096".into());
+                }
+                Ok(())
+            }
+            Self::NoOverlap {
+                target,
+                with,
+                max_ratio_permille,
+            } => {
+                target.validate()?;
+                with.validate()?;
+                if target == with {
+                    return Err("no_overlap needs two different targets".into());
+                }
+                require_permille("no_overlap max_ratio_permille", *max_ratio_permille)
+            }
             Self::RouteEquals { value } | Self::RouteContains { value } => {
                 require_non_empty("route predicate value", value)
             }
@@ -336,6 +400,14 @@ fn require_non_empty(label: &str, value: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+/// Ratios are sealed as permille so an expectation compares and hashes exactly.
+fn require_permille(label: &str, value: u16) -> Result<(), String> {
+    if value > 1_000 {
+        return Err(format!("{label} must be between 0 and 1000"));
+    }
+    Ok(())
 }
 
 /// Spec §7 obligation kinds. Unknown values fail closed via Serde.

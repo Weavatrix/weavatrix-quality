@@ -212,6 +212,56 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "required": ["kind", "target"],
+          "properties": {
+            "kind": { "enum": ["unique", "text_not_clipped"] },
+            "target": { "$ref": "#/$defs/target" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target", "max"],
+          "properties": {
+            "kind": { "const": "max_multiplicity" },
+            "target": { "$ref": "#/$defs/target" },
+            "max": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target", "min_ratio_permille"],
+          "properties": {
+            "kind": { "const": "receives_events" },
+            "target": { "$ref": "#/$defs/target" },
+            "min_ratio_permille": { "type": "integer", "minimum": 0, "maximum": 1000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target", "margin_px"],
+          "properties": {
+            "kind": { "const": "inside_viewport" },
+            "target": { "$ref": "#/$defs/target" },
+            "margin_px": { "type": "integer", "minimum": 0, "maximum": 4096 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "target", "with", "max_ratio_permille"],
+          "properties": {
+            "kind": { "const": "no_overlap" },
+            "target": { "$ref": "#/$defs/target" },
+            "with": { "$ref": "#/$defs/target" },
+            "max_ratio_permille": { "type": "integer", "minimum": 0, "maximum": 1000 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "required": ["kind", "predicates"],
           "properties": {
             "kind": { "enum": ["all", "any"] },

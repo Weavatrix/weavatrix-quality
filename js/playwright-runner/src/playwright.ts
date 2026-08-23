@@ -35,6 +35,17 @@ export type Predicate =
   | { kind: "storage_absent"; area: "local" | "session"; key: string }
   | { kind: "api_status"; operation: string; status: number }
   | { kind: "api_json_equals"; operation: string; pointer: string; value: unknown }
+  | { kind: "unique"; target: PredicateTarget }
+  | { kind: "max_multiplicity"; target: PredicateTarget; max: number }
+  | { kind: "receives_events"; target: PredicateTarget; min_ratio_permille: number }
+  | { kind: "inside_viewport"; target: PredicateTarget; margin_px: number }
+  | { kind: "text_not_clipped"; target: PredicateTarget }
+  | {
+      kind: "no_overlap";
+      target: PredicateTarget;
+      with: PredicateTarget;
+      max_ratio_permille: number;
+    }
   | { kind: "all" | "any"; predicates: Predicate[] }
   | { kind: "not"; predicate: Predicate };
 
@@ -445,6 +456,21 @@ export class PlaywrightDriver implements Driver {
         const json = this.#api.get(predicate.operation)?.json;
         return deepEqual(jsonPointer(json, predicate.pointer), predicate.value);
       }
+      case "unique":
+        return (await this.#locator(predicate.target).count()) === 1;
+      case "max_multiplicity":
+        return (await this.#locator(predicate.target).count()) <= predicate.max;
+      case "receives_events":
+        return (await this.#eventRatio(predicate.target)) >= predicate.min_ratio_permille;
+      case "inside_viewport":
+        return this.#insideViewport(predicate.target, predicate.margin_px);
+      case "text_not_clipped":
+        return this.#textNotClipped(predicate.target);
+      case "no_overlap":
+        return (
+          (await this.#overlapRatio(predicate.target, predicate.with)) <=
+          predicate.max_ratio_permille
+        );
       case "all":
         for (const nested of predicate.predicates) if (!(await this.#evaluate(nested))) return false;
         return true;
@@ -453,6 +479,109 @@ export class PlaywrightDriver implements Driver {
         return false;
       case "not":
         return !(await this.#evaluate(predicate.predicate));
+    }
+  }
+
+  /**
+   * Share of probe points on the target that the browser reports as reaching
+   * it, in permille. The target itself and anything inside it count; anything
+   * else painting on top does not.
+   */
+  async #eventRatio(target: Target): Promise<number> {
+    const handle = await this.#locator(target).elementHandle();
+    if (!handle) return 0;
+    try {
+      return await handle.evaluate((element: Element) => {
+        const box = element.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0) return 0;
+        const inset = 2;
+        const xs = [box.x + inset, box.x + box.width / 2, box.right - inset];
+        const ys = [box.y + inset, box.y + box.height / 2, box.bottom - inset];
+        const points: Array<[number, number]> = [
+          [xs[1] as number, ys[1] as number],
+          [xs[0] as number, ys[0] as number],
+          [xs[2] as number, ys[0] as number],
+          [xs[0] as number, ys[2] as number],
+          [xs[2] as number, ys[2] as number],
+        ];
+        let received = 0;
+        for (const [x, y] of points) {
+          const top = document.elementsFromPoint(x, y)[0];
+          if (top && (top === element || element.contains(top))) received += 1;
+        }
+        return Math.round((received / points.length) * 1000);
+      });
+    } finally {
+      await handle.dispose();
+    }
+  }
+
+  async #insideViewport(target: Target, margin: number): Promise<boolean> {
+    const handle = await this.#locator(target).elementHandle();
+    if (!handle) return false;
+    try {
+      return await handle.evaluate(
+        (element: Element, slack: number) => {
+          const box = element.getBoundingClientRect();
+          if (box.width <= 0 || box.height <= 0) return false;
+          return (
+            box.x >= -slack &&
+            box.y >= -slack &&
+            box.right <= window.innerWidth + slack &&
+            box.bottom <= window.innerHeight + slack
+          );
+        },
+        margin,
+      );
+    } finally {
+      await handle.dispose();
+    }
+  }
+
+  async #textNotClipped(target: Target): Promise<boolean> {
+    const handle = await this.#locator(target).elementHandle();
+    if (!handle) return false;
+    try {
+      return await handle.evaluate((element: Element) => {
+        // A scroll container is meant to hold more than it shows.
+        const style = getComputedStyle(element);
+        const scrolls =
+          ["auto", "scroll", "overlay"].includes(style.overflowX) ||
+          ["auto", "scroll", "overlay"].includes(style.overflowY);
+        if (scrolls) return true;
+        return (
+          element.scrollWidth <= element.clientWidth + 1 &&
+          element.scrollHeight <= element.clientHeight + 1
+        );
+      });
+    } finally {
+      await handle.dispose();
+    }
+  }
+
+  /** Overlap of `other` on `target`, as permille of the target's own box. */
+  async #overlapRatio(target: Target, other: Target): Promise<number> {
+    const first = await this.#locator(target).elementHandle();
+    const second = await this.#locator(other).elementHandle();
+    if (!first || !second) {
+      await first?.dispose();
+      await second?.dispose();
+      // A target that is not rendered cannot be overlapped.
+      return 0;
+    }
+    try {
+      return await first.evaluate((element: Element, counterpart: Element) => {
+        const a = element.getBoundingClientRect();
+        const b = counterpart.getBoundingClientRect();
+        const area = a.width * a.height;
+        if (area <= 0) return 0;
+        const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.x, b.x));
+        const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y));
+        return Math.round(((width * height) / area) * 1000);
+      }, second);
+    } finally {
+      await first.dispose();
+      await second.dispose();
     }
   }
 

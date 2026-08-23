@@ -62,6 +62,42 @@ fn expected_invariant_change_alters_seal() {
     assert_ne!(before.digest, after.digest);
 }
 
+/// A sealed UI expectation is intent like any other: tightening the ratio a
+/// control must respond on is a different promise, and the seal must move.
+#[test]
+fn a_ui_predicate_threshold_change_alters_seal() {
+    let root = fixture_root();
+    let spec = read_change(&root, "sankey-others").unwrap();
+    let mut contract = load_quality_contract(&root, "sankey-others").unwrap();
+
+    let target = wvq_spec::PredicateTarget {
+        test_id: Some("others".into()),
+        ..wvq_spec::PredicateTarget::default()
+    };
+    contract.requirements[0].scenarios[0].obligations[0].expected =
+        Some(wvq_spec::Predicate::ReceivesEvents {
+            target: target.clone(),
+            min_ratio_permille: 800,
+        });
+    let lenient = {
+        let obligations = compile_obligations(&contract, &spec).unwrap();
+        seal(&contract, &obligations, &spec).unwrap()
+    };
+
+    contract.requirements[0].scenarios[0].obligations[0].expected =
+        Some(wvq_spec::Predicate::ReceivesEvents {
+            target,
+            min_ratio_permille: 1_000,
+        });
+    let strict = {
+        let obligations = compile_obligations(&contract, &spec).unwrap();
+        seal(&contract, &obligations, &spec).unwrap()
+    };
+
+    assert_ne!(lenient.digest, strict.digest);
+    assert_ne!(lenient.id, strict.id);
+}
+
 #[test]
 fn expected_predicate_change_alters_seal() {
     let root = fixture_root();
