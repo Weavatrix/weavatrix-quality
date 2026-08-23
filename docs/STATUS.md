@@ -89,12 +89,17 @@ Overlap candidates come from a sweep line, not a pairwise scan.
 
 | Measurement | Result |
 | --- | --- |
+| Browser collection, 56-node page | 82 ms for two settle-checked reads plus 148 hit-test probes |
+| Snapshot size, same page | 31 828 bytes, about 568 bytes per collected node |
+| Extrapolated to the 5 000-node default ceiling | about 2.8 MB, inside the 4 MiB artifact ceiling |
 | Sweep over 5 000 tiled nodes | 0 intersecting pairs in 2.0 ms; a full scan would compare 12 497 500 |
-| Full detection pass, 5 000 nodes | 10.3 ms (release, synthetic worst case: 4 560 findings) |
+| Full detection pass, 5 000 nodes | 10.3 ms release, on a synthetic worst case producing 4 560 findings |
 | Dense 800-box pile | Bounded at 200 000 pairs and reported as truncated, not silently dropped |
-| `ui_integrity_view` on the Chromium fixture | 4.0 s for head run plus base worktree replay |
+| `ui_integrity_view` on the Chromium fixture | 4.0 s for the head run plus the base worktree replay |
 | Runtime model tokens, whole path | 0 |
 | Vision calls | 0 |
+
+Detection is roughly two orders of magnitude cheaper than collection, so the cost of the axis is browser time, not analysis time. The per-node byte figure is what the `max_nodes` default is calibrated against.
 
 ## Proven UI-integrity scenario
 
