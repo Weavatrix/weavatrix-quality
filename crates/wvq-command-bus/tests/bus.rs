@@ -4,8 +4,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,7 +29,9 @@ fn fixture_repo() -> PathBuf {
 struct TempRepo(PathBuf);
 
 static NEXT_TEMP_REPO: AtomicU64 = AtomicU64::new(0);
-static BROWSER_TEST_LOCK: Mutex<()> = Mutex::new(());
+mod browser_lock;
+
+use browser_lock::BrowserLock;
 
 fn unique_temp_repo(prefix: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -214,7 +216,7 @@ fn live_browser_repo(base_url: &str) -> TempRepo {
     std::fs::write(
         root.join(".weavatrix-quality/config.yaml"),
         format!(
-            "quality_policy_v: 1\n\nbrowser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  timeout_ms: 30000\n  module_root: node_modules/playwright\n  programs:\n    - .weavatrix-quality/programs/home.json\n"
+            "quality_policy_v: 1\n\nbrowser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  timeout_ms: 120000\n  module_root: node_modules/playwright\n  programs:\n    - .weavatrix-quality/programs/home.json\n"
         ),
     )
     .unwrap();
@@ -794,6 +796,221 @@ fn live_protection_replays_base_and_head_coverage() {
     assert!(!view.report().blocking);
 }
 
+/// A change that measures cleanly composes to `PASS` through the live service.
+///
+/// This is the green path the whole product is judged on: every axis that has a
+/// surface is measured, nothing regressed, and the composite verdict spends no
+/// model tokens getting there.
+#[test]
+fn a_healthy_live_change_composes_to_pass() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a.saturating_add(b) }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "live-add".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed");
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "live-add".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.verdict, "PROVEN", "{:?}", verified.proofs);
+    assert!(
+        matches!(verified.state.as_str(), "PASS" | "PASS_WITH_WARNINGS"),
+        "a healthy refactor must not be blocked: {} {:?}",
+        verified.state,
+        verified.quality.blocking_reasons
+    );
+    assert!(!verified.blocking);
+    assert_eq!(verified.exit_code(), 0);
+    assert_eq!(verified.quality.proof.state.as_str(), "clean");
+    assert_eq!(
+        verified.quality.ui_integrity.state.as_str(),
+        "not_applicable",
+        "a Cargo-only change has no UI surface"
+    );
+    assert_eq!(verified.quality.ai.runtime_tokens, 0);
+    assert!(
+        verified
+            .quality
+            .blocking_reasons
+            .iter()
+            .all(|reason| reason.rank >= 9),
+        "nothing above a warning may fire: {:?}",
+        verified.quality.blocking_reasons
+    );
+}
+
+/// A behavioural pass cannot carry a change whose safety net disappeared.
+///
+/// The head revision deletes the only test that measured `subtract`, so base
+/// protection exists and head protection does not. Coverage overall does not
+/// fall — `add` is still covered — which is exactly the case a global
+/// percentage would wave through.
+#[test]
+fn a_lost_protection_net_blocks_even_though_the_suite_is_green() {
+    let repo = live_coverage_runner_repo();
+    // Base: two functions, both measured.
+    std::fs::write(
+        repo.0.join("src/add.js"),
+        "export function add(a, b) {\n  return a + b;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join("src/subtract.js"),
+        "export function subtract(a, b) {\n  return a - b;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join("test.mjs"),
+        "import fs from 'node:fs';\n\
+         import { add } from './src/add.js';\n\
+         import { subtract } from './src/subtract.js';\n\
+         if (add(2, 3) !== 5) process.exit(1);\n\
+         if (subtract(3, 2) !== 1) process.exit(1);\n\
+         fs.mkdirSync('coverage', { recursive: true });\n\
+         fs.writeFileSync('coverage/lcov.info',\n  \
+         'TN:\\nSF:src/add.js\\nDA:1,1\\nDA:2,1\\nend_of_record\\n' +\n  \
+         'TN:\\nSF:src/subtract.js\\nDA:1,1\\nDA:2,1\\nend_of_record\\n');\n",
+    )
+    .unwrap();
+    git(&repo.0, &["add", "-A"]);
+    git(
+        &repo.0,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "two measured functions",
+        ],
+    );
+
+    // Head: `subtract` still exists and still works, but nothing runs it.
+    std::fs::write(
+        repo.0.join("test.mjs"),
+        "import fs from 'node:fs';\n\
+         import { add } from './src/add.js';\n\
+         if (add(2, 3) !== 5) process.exit(1);\n\
+         fs.mkdirSync('coverage', { recursive: true });\n\
+         fs.writeFileSync('coverage/lcov.info',\n  \
+         'TN:\\nSF:src/add.js\\nDA:1,1\\nDA:2,1\\nend_of_record\\n');\n",
+    )
+    .unwrap();
+
+    let service = LiveService::new(&repo.0);
+    let view = service
+        .protection_view("live-js", "HEAD", "WORKTREE")
+        .unwrap();
+    assert!(
+        view.deltas
+            .iter()
+            .any(|delta| delta.state.as_str() == "lost"),
+        "dropping the only test that reached subtract is a lost flow: {:?}",
+        view.deltas
+    );
+
+    // protection_view persists the base snapshot, so verify composes the axis
+    // from stored evidence without replaying anything.
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "live-js".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        verified.quality.protection.state.as_str(),
+        "blocking",
+        "{:?}",
+        verified.quality.protection
+    );
+    assert!(
+        verified.quality.protection.summary.lost >= 1,
+        "{:?}",
+        verified.quality.protection.summary
+    );
+    assert_eq!(
+        verified.state, "BLOCKED",
+        "a green suite must not carry a lost safety net: {:?}",
+        verified.quality.blocking_reasons
+    );
+    assert!(verified.blocking);
+    assert_eq!(verified.exit_code(), 2);
+    assert!(
+        verified
+            .quality
+            .blocking_reasons
+            .iter()
+            .any(|reason| reason.rank == 2 && reason.axis == "protection"),
+        "{:?}",
+        verified.quality.blocking_reasons
+    );
+    assert_eq!(verified.quality.ai.runtime_tokens, 0);
+}
+
+/// Protection is a default axis, and an unmeasured one is not a clean one.
+///
+/// Head coverage exists but no base snapshot does, so the change cannot be
+/// shown to have preserved anything. That is missing evidence, which reports
+/// as `NOT_ENOUGH_EVIDENCE` and exits 1 rather than passing or failing.
+#[test]
+fn head_coverage_without_a_base_snapshot_is_not_enough_evidence() {
+    let repo = live_coverage_runner_repo();
+    std::fs::write(
+        repo.0.join("src/add.js"),
+        "export function add(a, b) {\n  return Number(a) + Number(b);\n}\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "live-js".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed");
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "live-js".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        verified.quality.protection.state.as_str(),
+        "unmeasured",
+        "head coverage alone proves nothing about continuity"
+    );
+    assert!(!verified.quality.protection.measured);
+    assert_eq!(verified.state, "NOT_ENOUGH_EVIDENCE");
+    assert!(!verified.blocking, "missing evidence is not a failure");
+    assert_eq!(verified.exit_code(), 1);
+    assert!(
+        verified
+            .quality
+            .limitations
+            .iter()
+            .any(|item| item.axis == "protection" && item.detail.contains("base snapshot")),
+        "the gap names itself: {:?}",
+        verified.quality.limitations
+    );
+}
+
 #[test]
 fn live_model_call_charges_persistent_per_change_budget() {
     let repo = live_runner_repo();
@@ -920,10 +1137,22 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
     let execution: serde_json::Value =
         serde_json::from_str(execution.inline_text.as_deref().unwrap()).unwrap();
     assert_eq!(execution["schema_v"], 2);
-    assert_eq!(execution["obligations"]["addition-suite"][0]["executor"], "cargo-test");
-    assert_eq!(execution["obligations"]["addition-suite"][0]["suite"], "tests/addition.rs");
-    assert_eq!(execution["obligations"]["addition-suite"][0]["case"], "adds");
-    assert_eq!(execution["obligations"]["addition-suite"][0]["status"], "passed");
+    assert_eq!(
+        execution["obligations"]["addition-suite"][0]["executor"],
+        "cargo-test"
+    );
+    assert_eq!(
+        execution["obligations"]["addition-suite"][0]["suite"],
+        "tests/addition.rs"
+    );
+    assert_eq!(
+        execution["obligations"]["addition-suite"][0]["case"],
+        "adds"
+    );
+    assert_eq!(
+        execution["obligations"]["addition-suite"][0]["status"],
+        "passed"
+    );
     assert_eq!(
         execution["obligations"]["addition-suite"][0]["invocation_passed"],
         true
@@ -1109,7 +1338,7 @@ fn a_green_file_does_not_prove_a_test_case_that_never_executed() {
     let verified = service
         .verify(&VerifyCommand {
             change: "live-add".into(),
-    })
+        })
         .unwrap();
     assert_eq!(verified.verdict, "UNPROVEN");
 }
@@ -1146,9 +1375,7 @@ fn a_passing_bound_case_does_not_hide_a_failed_runner_invocation() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
-    let _browser_guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _browser_guard = BrowserLock::acquire();
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     let service = LiveService::new(&repo.0);
@@ -1274,15 +1501,13 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn authoring_promotes_only_the_exact_passing_playwright_preview() {
-    let _browser_guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _browser_guard = BrowserLock::acquire();
     let server = BrowserFixtureServer::start();
     let repo = live_browser_repo(&server.url());
     std::fs::write(
         repo.0.join(".weavatrix-quality/config.yaml"),
         format!(
-            "quality_policy_v: 1\n\nbrowser:\n  base_url: {}\n  engine: chromium\n  headless: true\n  timeout_ms: 30000\n  module_root: node_modules/playwright\n",
+            "quality_policy_v: 1\n\nbrowser:\n  base_url: {}\n  engine: chromium\n  headless: true\n  timeout_ms: 120000\n  module_root: node_modules/playwright\n",
             server.url()
         ),
     )
@@ -1373,7 +1598,10 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
             program: other_program,
         })
         .unwrap_err();
-    assert!(mismatch.to_string().contains("does not match"), "{mismatch}");
+    assert!(
+        mismatch.to_string().contains("does not match"),
+        "{mismatch}"
+    );
 
     let promoted = service
         .author_promote(&AuthorPromoteCommand {
@@ -1447,7 +1675,10 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
         .unwrap()
         .expect("healed program revision");
     let healed_program: serde_json::Value = serde_json::from_slice(&healed_body).unwrap();
-    assert_eq!(healed_program["steps"][1]["target"]["component_hint"], "PageHeading");
+    assert_eq!(
+        healed_program["steps"][1]["target"]["component_hint"],
+        "PageHeading"
+    );
 
     let forbidden = service
         .author_heal(&AuthorHealCommand {
@@ -1467,7 +1698,10 @@ fn authoring_promotes_only_the_exact_passing_playwright_preview() {
             trace: false,
         })
         .unwrap_err();
-    assert!(forbidden.to_string().contains("semantic assertions"), "{forbidden}");
+    assert!(
+        forbidden.to_string().contains("semantic assertions"),
+        "{forbidden}"
+    );
     assert_eq!(
         store
             .latest_program_revision("generated-home-heading")

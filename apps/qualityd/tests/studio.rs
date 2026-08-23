@@ -213,6 +213,83 @@ fn dashboard_shows_exceptions_and_hides_pass_noise() {
     assert_eq!(body["ai"], Value::Null, "unmeasured AI usage is not zero");
 }
 
+/// The dashboard carries the composite verdict, not just the proof token.
+///
+/// An axis that was never in scope and an axis that was in scope and not
+/// measured must be distinguishable at a glance; folding both into "fine" is
+/// how a coverage gap becomes invisible.
+#[test]
+fn the_dashboard_shows_every_axis_state_and_what_was_not_measured() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("UNPROVEN");
+    let studio = studio_with(&fake);
+
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["state"], "NOT_ENOUGH_EVIDENCE");
+    assert_eq!(body["verdict"], "UNPROVEN", "the old token still ships");
+    assert_eq!(body["blocking"], false, "missing evidence is not a failure");
+
+    let axes: Vec<(String, String)> = body["axes"]
+        .as_array()
+        .expect("axes array")
+        .iter()
+        .map(|axis| {
+            (
+                axis["axis"].as_str().unwrap_or_default().to_owned(),
+                axis["state"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        axes.iter()
+            .map(|(axis, _)| axis.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "proof",
+            "protection",
+            "debt",
+            "stability",
+            "ai",
+            "ui_integrity"
+        ]
+    );
+    assert_eq!(
+        axes.iter()
+            .find(|(axis, _)| axis == "proof")
+            .map(|(_, state)| state.as_str()),
+        Some("unmeasured")
+    );
+    assert_eq!(
+        axes.iter()
+            .find(|(axis, _)| axis == "ui_integrity")
+            .map(|(_, state)| state.as_str()),
+        Some("not_applicable"),
+        "an axis with no surface is not an axis with no evidence"
+    );
+
+    let reasons = body["blocking_reasons"].as_array().expect("reasons array");
+    assert!(
+        reasons.iter().any(|reason| reason["axis"] == "proof"),
+        "{reasons:?}"
+    );
+    assert!(
+        body["limitations"]
+            .as_array()
+            .expect("limitations array")
+            .iter()
+            .any(|item| item["axis"] == "proof"),
+        "the gap is named"
+    );
+
+    // Exception-only UI projection: healthy elements are counted, never listed.
+    let ui = &body["ui_integrity"];
+    assert_eq!(ui["state"], "not_applicable");
+    assert_eq!(ui["new"].as_array().map(Vec::len), Some(0));
+    assert_eq!(ui["returned"].as_array().map(Vec::len), Some(0));
+    assert_eq!(ui["suppressed_existing"], 0);
+    assert_eq!(ui["truncated"], false);
+}
+
 #[test]
 fn requirement_drill_down_still_shows_green_proofs() {
     let fake = Arc::new(FakeService::default());

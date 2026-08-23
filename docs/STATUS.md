@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
-Last updated: 2026-08-21
-Session: exact execution evidence and merge-base provenance
+Last updated: 2026-08-23
+Session: composite change verdict and deterministic UI integrity
 
 ## Now
 
@@ -33,8 +33,8 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Delta Triangle | ✅ | ✅ | ❌ default | ❌ live base/head verdict |
 | Spec Recovery | ✅ | ✅ | ✅ opt-in | ✅ Git + Weavatrix, QA-gated |
 | Test lineage | ✅ | ✅ | ✅ protection path | ✅ measured coverage path |
-| ProtectionSnapshot/Delta | ✅ | ✅ | ✅ opt-in | ✅ base/head coverage replay |
-| Protection MCP/Studio | ✅ | ✅ | 🟡 opt-in profile/view | ✅ when measured coverage exists |
+| ProtectionSnapshot/Delta | ✅ | ✅ | ✅ default verdict axis; base replay stays explicit | ✅ base/head coverage replay |
+| Protection MCP/Studio | ✅ | ✅ | ✅ verdict axis + Studio summary; 🟡 opt-in profile/view | ✅ when measured coverage exists |
 | Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + sealed assertions + observations |
 | Manual record → promoted replay | ✅ | 🟡 | 🟡 preview/promotion | 🟡 replay yes, manual recorder no |
 | Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
@@ -42,11 +42,67 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
 | Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
-| Composite ChangeQualityVerdict | ✅ idea | ❌ | ❌ | ❌ |
+| Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
+| Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
+| Sealed UI predicates | ✅ | ✅ | ✅ | ✅ Chromium, each asserted both ways |
+| `LayoutSnapshot` v1 | ✅ | ✅ | ✅ | ✅ bounded, redacted, settle-checked |
+| UI Integrity detectors | ✅ | ✅ | ✅ | ✅ Chromium base/head fixture |
+| UI Integrity ratchet | ✅ | ✅ | ✅ | ✅ new/existing/fixed/returned/excepted |
+| UI Integrity in MCP/Studio | ✅ | ✅ | ✅ | ✅ `quality_verify`, `quality_explain`, summary |
+| React render profiler | ✅ idea | ❌ | ❌ | ❌ |
+| Duplicate mutation requests | ✅ idea | ❌ | ❌ | ❌ deferred: no action-span protocol |
+| Responsive interval search | ✅ idea | ❌ | ❌ | ❌ |
 
-Current implementation: exact execution evidence and merge-base proof provenance are committed on `main` as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict and the deterministic UI-integrity axis are committed on `main`. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Local validation: 366 Rust tests, 7 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied.
+Local validation: 485 Rust tests, 20 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied, and the public TypeScript declarations compile under strict `NodeNext`.
+
+## Composite change verdict
+
+`quality_verify` no longer aggregates `ProofVerdict` alone. Proof, protection, debt, stability, AI budget, and UI integrity are separate axes joined by a fixed priority order; each keeps its own facts and provenance and there is no opaque score. `blocking` and the process exit code follow the composite state, while the `verdict` token stays backward compatible.
+
+An axis reports `not_applicable` when the change has no surface it can measure and `unmeasured` when it has that surface and the evidence is absent. The distinction is the point: missing evidence never becomes a pass, and an axis that was never in scope is not reported as a gap.
+
+Priority order, most important first: an active sealed-oracle contradiction; lost critical protection; new blocking architecture, API, or security debt, or a new blocking UI regression; a mandatory obligation left unproven; the same two classes returned after being fixed; a mandatory test with an unresolved new flake or an ambiguous specification; a required axis that was not measured; an AI budget exhausted with a mandatory decision still open; warning-only drift. The first rule that fires decides the state; every other fired rule stays listed.
+
+Three invariants are asserted rather than assumed: a `PROVEN` behavioural proof cannot suppress a lost protection delta, a global coverage gain cannot suppress a local protection loss, and missing evidence is never a pass. Live fixtures cover all three outcomes — a healthy Cargo change composes to `PASS`, a change that deletes the only test reaching `subtract` is `BLOCKED` while its suite is green, and head coverage with no base snapshot is `NOT_ENOUGH_EVIDENCE` at exit code 1.
+
+Protection is a default axis. `quality_verify` composes it from the head snapshot every run already persists plus the base snapshot `protection_view` now stores against that run, so no caller attaches a `ProtectionView` and `verify` still executes nothing.
+
+## UI integrity
+
+`wvq-ui` is a pure-Rust crate: no browser, no DOM, no model. Collection stays in `js/playwright-runner`, orchestration in `wvq-command-bus`, evidence in `wvq-store`, sealed expectations in `wvq-spec`, so detector logic exists exactly once.
+
+`LayoutSnapshot` v1 is deliberately not a DOM. It carries geometry, semantic identity, and hit-test results — never `innerHTML`, form values, cookies, storage contents, response bodies, or unbounded text. Labels are collapsed and cut to 120 characters in the page before they leave it, and `textContent` only names an element that is a control or a leaf, so a list row never copies the text of everything inside it.
+
+Collection is deterministic or it says so. Fonts are awaited with a bounded timeout, animations and transitions are frozen and driven to their end state, and the page is read twice: two reads that disagree beyond tolerance mark the snapshot unsettled instead of trusting one of them. Geometry and hit testing happen in a single `evaluate`, so both describe one DOM state and node identities are derived once. Node, hit-test-sample, candidate-pair, artifact-byte, and label bounds are all explicit, and hitting any of them sets `truncated`, which propagates into the verdict as a limitation.
+
+Seven detectors ship: `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, and `WVQ-UI-LAYOUT-004` confirmed control overlap.
+
+Most of the work is refusing false positives, and each exclusion is a specific rule rather than a confidence threshold: repeated row actions are separated by entity scope; a control's own children never occlude it; `pointer-events: none` layers never intercept; ancestor/descendant containment is structure, not collision; content inside a scroll container is reachable by scrolling; an accepted ellipsis still needs the accessible full value to be present; and geometric overlap with no hit-test confirmation is not reported at all. When no row or dialog scope can be resolved, an ambiguous pair drops to a warning instead of blocking.
+
+The ratchet compares the same program, at the same step, on the same route, at the same viewport. That key is built from the program rather than the accessibility digest on purpose: the digest changes whenever the markup does, which is exactly what a regression is, so using it would make every regression incomparable. Old debt is counted and never blocks adoption; a fixed finding is credited and remembered, so reintroducing it later is `returned` rather than `new`. A state only one revision measured is reported as unmeasured instead of being claimed as new.
+
+Overlap candidates come from a sweep line, not a pairwise scan.
+
+## Measured UI-integrity cost
+
+| Measurement | Result |
+| --- | --- |
+| Sweep over 5 000 tiled nodes | 0 intersecting pairs in 2.0 ms; a full scan would compare 12 497 500 |
+| Full detection pass, 5 000 nodes | 10.3 ms (release, synthetic worst case: 4 560 findings) |
+| Dense 800-box pile | Bounded at 200 000 pairs and reported as truncated, not silently dropped |
+| `ui_integrity_view` on the Chromium fixture | 4.0 s for head run plus base worktree replay |
+| Runtime model tokens, whole path | 0 |
+| Vision calls | 0 |
+
+## Proven UI-integrity scenario
+
+The sealed behavioural test passes. The change introduces an overlay over the Export button. The base revision had no occlusion. Head has deterministic geometry and hit-test evidence, WVQ stores the artifacts, identifies the new regression, `quality_explain` names the exact target, occluder, route, viewport, and probe counts, and composite `quality_verify` returns `BLOCKED` with `verdict` still `PROVEN` and zero runtime model tokens.
+
+That runs against real Chromium and two real revisions through the product path. Four further variants run against the same base: a duplicate `Save` in one dialog scope, horizontal overflow at 767 px, a clipped critical label reported with its measurements, and the two cases that must stay clean — repeated `Delete` buttons in separate row scopes, and a declared tooltip overlap.
+
+Browser tests now take a cross-process lock. Cargo runs each integration-test file as its own process, so the previous in-process mutex left several binaries launching Chromium at once; that, plus a 30-second fixture deadline, is what made browser tests fail intermittently under `cargo test --workspace`. The fixtures now allow the full 120-second bridge budget.
 
 `quality_verify` no longer turns a green file path into obligation proof. A configured binding must name a runner and exact case that appears in normalized evidence. Cargo/libtest output is now normalized to target + case identities; browser proof records the exact assertion step and its corresponding observation. A missing case remains `UNPROVEN`, and an otherwise passing bound case cannot hide a failed runner invocation.
 
@@ -85,7 +141,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 366 Rust tests, 7 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 485 Rust tests, 20 Playwright-runner tests, and 5 JS package tests pass with zero failures across two consecutive full-workspace runs. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
 
 ## JS/npm distribution
 
@@ -111,11 +167,13 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
+| ui integrity | Collects one bounded, settle-checked layout snapshot per step, runs the detectors in Rust, and persists `ui-layout-snapshot`, `ui-hit-test-map`, and `ui-integrity-findings`; `ui_integrity_view` replays the base and stores the classified `ui-integrity-delta` |
 | proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
+| verdict | Composes proof, protection, debt, stability, AI, and UI integrity into one ranked change-level state from stored evidence, without executing anything |
 
-`plan` reads existing same-revision proofs. `explain` resolves obligations, proofs, runs, selections, and debt findings with provenance. `status`, evidence handles, proofs, debt history, and AI usage survive a new process.
+`plan` reads existing same-revision proofs. `explain` resolves obligations, proofs, runs, selections, debt findings, and UI-integrity findings with provenance; a UI explanation names the target, the occluding or duplicate counterpart, the route and viewport, the exact probe and geometry numbers, and the artifact handles. `status`, evidence handles, proofs, debt history, and AI usage survive a new process.
 
 ## Safety invariants exercised
 
@@ -126,7 +184,12 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 - a successful unbound suite remains `UNPROVEN`;
 - normal verification makes no model call and spends zero runtime tokens;
 - model calls accept loopback HTTP only and are refused before network I/O when budget cannot cover the reservation;
-- detector blocking requires `High` weight and per-signal `Confirmed` graph corroboration.
+- detector blocking requires `High` weight and per-signal `Confirmed` graph corroboration;
+- an axis with no surface is `not_applicable` and an axis with no evidence is `unmeasured`; neither is reported as clean;
+- a truncated or unsettled layout snapshot is never a clean measurement;
+- the UI policy refuses unknown fields, empty matchers, path-shaped values, out-of-range ratios, malformed dates, exceptions without a reason, and any `accept_all`;
+- every sealed predicate must be executable in the browser, enforced by a parity test over all 24 variants;
+- UI collection persists no raw markup, form values, cookies, storage contents, or unbounded text.
 
 ## Measured detector calibration
 
@@ -139,4 +202,13 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Build the composite change verdict and make measured protection loss part of default `quality_verify`; then prove it with the committed base/head monorepo fixture. After that, finish the live mutation producer and broader platform/hosted UX. Do not duplicate Rust policy/proof semantics in TypeScript.
+Extend UI integrity from P0 into the next wave, in roughly this order:
+
+1. **Responsive failure interval search.** Bisect around CSS and container breakpoints instead of testing a fixed viewport list, so the exact width a control breaks at is reported rather than guessed.
+2. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
+3. **Duplicate mutation requests per user action** (`WVQ-UI-LOGIC-001`). Deliberately deferred: the browser bridge has no typed action-span protocol, so a request cannot be attributed to an exact `TestAction` without inventing boundaries. Add the span protocol first.
+4. **React render profiler**, then duplicate subscriptions and effects, on the extensible evidence model (`NetworkEffectTrace`, `RenderTrace`, `SubscriptionTrace`, `LayoutShiftTrace`) the current axis is shaped to accept.
+5. **Layout Instability / CLS trace** and **sticky/fixed scroll occlusion**, which need scroll-state collection the current single-position snapshot does not take.
+6. **CSS root-cause ranking**, and only then an optional cropped-vision ambiguity resolver behind the existing explicit model escape.
+
+Outside UI integrity: finish the live mutation producer, the metamorphic project adapter, the closed-loop cheap explorer, and the Studio frontend. Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

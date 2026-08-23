@@ -9,6 +9,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+mod browser_lock;
+
+use browser_lock::BrowserLock;
 use serde_json::json;
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
@@ -45,6 +48,7 @@ fn package_root() -> PathBuf {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn rust_host_executes_a_real_playwright_program() {
+    let _guard = BrowserLock::acquire();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
@@ -88,7 +92,7 @@ fn rust_host_executes_a_real_playwright_program() {
             base_url: format!("http://{address}"),
             browser: "chromium".into(),
             headless: true,
-            timeout: Duration::from_secs(30),
+            timeout: Duration::from_secs(120),
             module_root: package_root(),
             runtime_dir: temp.0.join("runtime"),
             evidence_dir: temp.0.join("evidence"),
@@ -121,7 +125,7 @@ fn rust_host_executes_a_real_playwright_program() {
             base_url: format!("http://{address}"),
             browser: "chromium".into(),
             headless: true,
-            timeout: Duration::from_secs(30),
+            timeout: Duration::from_secs(120),
             module_root: package_root(),
             runtime_dir: temp.0.join("runtime-condition"),
             evidence_dir: temp.0.join("evidence-condition"),

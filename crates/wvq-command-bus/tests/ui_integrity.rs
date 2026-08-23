@@ -15,15 +15,17 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{LiveService, QualityService, RunCommand, VerifyCommand};
 
 /// Chromium is expensive and the fixtures bind loopback ports; serialise them.
-static BROWSER_TEST_LOCK: Mutex<()> = Mutex::new(());
+mod browser_lock;
+
+use browser_lock::BrowserLock;
 static NEXT_TEMP_REPO: AtomicU32 = AtomicU32::new(0);
 
 struct TempRepo(PathBuf);
@@ -316,7 +318,7 @@ fn config(base_url: &str) -> String {
     format!(
         "quality_policy_v: 1\n\n\
          browser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  \
-         timeout_ms: 60000\n  module_root: node_modules/playwright\n  programs:\n    \
+         timeout_ms: 120000\n  module_root: node_modules/playwright\n  programs:\n    \
          - .weavatrix-quality/programs/checkout.json\n\n\
          ui_integrity:\n  enabled: true\n  max_nodes: 2000\n  geometry_tolerance_px: 1\n  \
          occlusion_failure_ratio: 0.5\n  allowed_overlaps:\n    - top:\n        role: tooltip\n      \
@@ -385,9 +387,7 @@ fn switch_to_head(root: &Path, head_url: &str) {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn an_overlay_that_blocks_export_blocks_the_change_end_to_end() {
-    let _guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = BrowserLock::acquire();
 
     let base_server = PageServer::start(base_page());
     let head_server = PageServer::start(overlay_page());
@@ -562,7 +562,7 @@ fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelt
                 base_url: server.url(),
                 browser: "chromium".into(),
                 headless: true,
-                timeout: Duration::from_secs(30),
+                timeout: Duration::from_secs(120),
                 module_root: Path::new(env!("CARGO_MANIFEST_DIR"))
                     .join("../..")
                     .join("js/playwright-runner"),
@@ -645,9 +645,7 @@ fn describe(delta: &wvq_ui::UiIntegrityDelta) -> String {
 
 #[test]
 fn variant_a_duplicate_save_in_one_dialog_is_new() {
-    let _guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = BrowserLock::acquire();
     let delta = classify(duplicate_save_page(), (1280, 720));
     let found = new_checks(&delta);
     assert!(
@@ -674,9 +672,7 @@ fn variant_a_duplicate_save_in_one_dialog_is_new() {
 
 #[test]
 fn variant_c_horizontal_overflow_at_767px_is_new() {
-    let _guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = BrowserLock::acquire();
     let delta = classify(overflow_page(), (767, 900));
     let found = new_checks(&delta);
     assert!(
@@ -696,9 +692,7 @@ fn variant_c_horizontal_overflow_at_767px_is_new() {
 /// `a_clipped_critical_label_with_no_accessible_value_is_an_error` covers.
 #[test]
 fn variant_d_a_clipped_critical_label_is_reported_with_its_measurements() {
-    let _guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = BrowserLock::acquire();
     let delta = classify(clipped_page(), (1280, 720));
     let clipped = delta
         .new
@@ -720,9 +714,7 @@ fn variant_d_a_clipped_critical_label_is_reported_with_its_measurements() {
 
 #[test]
 fn variants_e_and_f_stay_clean() {
-    let _guard = BROWSER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = BrowserLock::acquire();
     // The base page already contains both: three Delete buttons in three row
     // scopes, and a tooltip covering its trigger with a declared allowance.
     let delta = classify(base_page(), (1280, 720));

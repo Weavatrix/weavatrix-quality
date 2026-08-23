@@ -180,6 +180,36 @@ browser:
   module_root: .
   programs: # optional while an agent is drafting its first TestProgram
     - .weavatrix-quality/programs/permissions.json
+
+ui_integrity:
+  enabled: true
+  max_nodes: 5000
+  geometry_tolerance_px: 1
+  occlusion_failure_ratio: 0.5
+
+  allowed_overlaps:
+    - top:
+        role: tooltip
+      bottom:
+        role: button
+      reason: tooltips intentionally cover their trigger
+
+    - top:
+        component_hint: Badge
+      bottom:
+        component_hint: Avatar
+      reason: design-system unread badge
+
+  accepted_text_truncation:
+    - target:
+        component_hint: TableCell
+      requires_accessible_full_value: true
+
+  exceptions:
+    - fingerprint: ui:WVQ-UI-DUP-001:0f3c…
+      reason: legacy widget scheduled for removal
+      reviewer: qa@example.invalid
+      expires: 2026-12-31
 ```
 
 `path` is the file-selection identity. It is not proof by itself. An obligation is
@@ -189,6 +219,25 @@ A path-only binding satisfies neither obligation coverage nor proof, so impacted
 execution widens safely and verification remains `UNPROVEN`.
 Generic `npm test` scripts are always run unfiltered because WVQ cannot assume
 that an arbitrary script honors positional file arguments.
+
+`ui_integrity` is off unless the section is present, in which case the axis
+reports `not_applicable` rather than a silent pass. When it is on, the bundled
+Playwright bridge collects one bounded layout snapshot per executed step —
+geometry, semantic identity, and hit-test results, never `innerHTML`, form
+values, cookies, or unbounded text — and Rust decides what any of it means.
+Detection costs zero model tokens and zero vision calls.
+
+The section fails closed. An unknown field, an allowance that names no node, a
+path-shaped matcher value, a ratio outside `0.0 … 1.0`, a malformed `expires`
+date, or an exception without a reason is refused rather than ignored, and
+there is no `accept_all`. Expired allowances stop applying and are reported so
+they do not keep suppressing a finding unnoticed.
+
+`quality_run` collects head evidence automatically. Comparing it against the
+base revision needs `ui_integrity_view`, which replays the same programs at the
+merge base; that comparison is what turns a finding into `new`, `existing`,
+`fixed`, or `returned`. Without it the axis reports `unmeasured`, because head
+evidence alone cannot show that anything was preserved.
 
 The model endpoint must resolve to loopback and return OpenAI-compatible completion content plus usage counters. WVQ checks the worst-case reservation before connecting, caps the response at 1 MiB, supports content-length and chunked responses, then persists measured usage. Change-local `quality.yaml` AI hints can only reduce the global token ceilings.
 
