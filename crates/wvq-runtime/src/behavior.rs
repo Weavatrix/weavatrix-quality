@@ -371,34 +371,65 @@ fn count_redundant(trace: &BehaviorTrace) -> Result<u64, ProgramError> {
 
 /// Promote a useful path into a versioned `TestProgram`.
 ///
-/// Redundant steps are dropped. The recording seed is copied through.
+/// Redundant steps are dropped and the recording seed is copied through.
+///
+/// Every obligation the trace claims gets an exact [`TestAction::Assert`]. A
+/// program that declares several obligations but only asserts the first one
+/// would report proof it never measured, so the missing assertions are appended
+/// in declaration order. Assertions the recording already contains are kept
+/// where they are and never duplicated.
 ///
 /// # Errors
 ///
-/// No remaining steps, invalid identity, or empty obligations after promotion.
+/// No remaining steps, invalid identity, an assertion naming an obligation the
+/// trace does not declare, or a program that still fails
+/// [`TestProgram::validate`].
 pub fn promote(trace: &BehaviorTrace, program_id: ProgramId) -> Result<TestProgram, ProgramError> {
+    let declared = trace
+        .obligations
+        .iter()
+        .map(|obligation| obligation.as_str().to_owned())
+        .collect::<BTreeSet<_>>();
     let mut steps = Vec::new();
+    let mut asserted = BTreeSet::new();
+    let mut measured = 0_usize;
     let mut prev = trace.initial.digest()?;
     for event in &trace.events {
         let next = event.after.digest()?;
-        if next != prev {
+        // A recorded assertion carries no state change of its own, so it must
+        // survive the redundancy filter that drops no-op interactions.
+        let assertion = match &event.action {
+            TestAction::Assert { obligation } => Some(obligation.as_str().to_owned()),
+            _ => None,
+        };
+        if let Some(obligation) = assertion {
+            if !declared.contains(&obligation) {
+                return Err(ProgramError::Invalid(format!(
+                    "recorded assertion names undeclared obligation `{obligation}`"
+                )));
+            }
+            // Deduplicate: the same obligation asserted twice stays asserted once.
+            if asserted.insert(obligation) {
+                steps.push(event.action.clone());
+            }
+        } else if next != prev {
             steps.push(event.action.clone());
+            measured += 1;
         }
         prev = next;
     }
-    if steps.is_empty() {
+    if measured == 0 {
         return Err(ProgramError::Invalid(
             "promotion candidate has no non-redundant steps".into(),
         ));
     }
-    if let Some(obligation) = trace.obligations.first()
-        && !steps.iter().any(|step| {
-            matches!(step, TestAction::Assert { obligation: linked } if linked == obligation)
-        })
-    {
-        steps.push(TestAction::Assert {
-            obligation: obligation.clone(),
-        });
+    // Deterministic order: declaration order, appended after the measured steps.
+    for obligation in &trace.obligations {
+        if asserted.insert(obligation.as_str().to_owned()) {
+            steps.push(TestAction::Assert {
+                obligation: obligation.clone(),
+            });
+        }
     }
     let program = TestProgram {
         schema_v: 1,
