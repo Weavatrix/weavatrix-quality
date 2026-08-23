@@ -590,6 +590,7 @@ dependencies = [
  "wvq-spec",
  "wvq-spec-recovery",
  "wvq-store",
+ "wvq-ui",
 ]
 
 [[package]]

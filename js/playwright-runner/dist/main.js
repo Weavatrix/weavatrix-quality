@@ -73,6 +73,29 @@ class BridgeSession {
                     body = filterObservation(raw, program.evidence_policy ?? defaultPolicy(), failed);
                     break;
                 }
+                case "collect_ui": {
+                    const { program, driver } = this.#requirePrepared();
+                    const revision = request.params.revision;
+                    const stateDigest = request.params.state_digest;
+                    const step = request.params.step;
+                    if (typeof revision !== "string" || revision === "") {
+                        throw new Error("collect_ui requires params.revision");
+                    }
+                    if (typeof stateDigest !== "string" || stateDigest === "") {
+                        throw new Error("collect_ui requires params.state_digest");
+                    }
+                    if (!Number.isInteger(step) || Number(step) < 0) {
+                        throw new Error("collect_ui requires a non-negative integer step");
+                    }
+                    const result = await driver.collectUi({
+                        revision,
+                        program: program.id,
+                        step: Number(step),
+                        stateDigest,
+                    }, request.params.config);
+                    body = { snapshot: result.snapshot, limitations: result.limitations };
+                    break;
+                }
                 case "finish": {
                     const { driver } = this.#requirePrepared();
                     body = await driver.finish();

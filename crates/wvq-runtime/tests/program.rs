@@ -194,17 +194,28 @@ fn ts_bridge_has_no_ai_logic() {
         .join("playwright-runner")
         .join("src");
     let mut combined = String::new();
+    // Every file the bridge ships, including the UI-integrity collector: it
+    // measures geometry and must never grow a model call either.
     for name in [
         "main.ts",
         "protocol.ts",
         "execute.ts",
         "observe.ts",
         "record.ts",
+        "playwright.ts",
+        "ui_integrity.ts",
     ] {
         combined.push_str(&std::fs::read_to_string(dir.join(name)).unwrap());
     }
     let lower = combined.to_ascii_lowercase();
-    for banned in ["openai", "anthropic", "llm", "chatgpt", "completion"] {
+    for banned in [
+        "openai",
+        "anthropic",
+        "llm",
+        "chatgpt",
+        "completion",
+        "vision_call",
+    ] {
         assert!(
             !lower.contains(banned),
             "Playwright bridge must not contain AI logic ({banned})"

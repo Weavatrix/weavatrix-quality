@@ -25,6 +25,7 @@ wvq-runtime = { workspace = true }
 wvq-spec = { workspace = true }
 wvq-spec-recovery = { workspace = true }
 wvq-store = { workspace = true }
+wvq-ui = { workspace = true }
 
 [lints]
 workspace = true

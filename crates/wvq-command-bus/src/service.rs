@@ -33,9 +33,9 @@ use wvq_proof::{
 use wvq_runtime::{
     BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
     CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun,
-    PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus, default_limits,
-    discover_executor_targets, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit,
-    parse_lcov, run_browser_program,
+    PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus, UiCollectionConfig,
+    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
+    parse_go_json, parse_junit, parse_lcov, run_browser_program, run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -49,6 +49,10 @@ use wvq_spec_recovery::{
 use wvq_store::{
     HistoricalTestCandidate, Store, StoreError, StoredAiUsage, StoredProof, StoredRun,
     StoredRunItem, StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult,
+};
+use wvq_ui::{
+    LayoutSnapshot, UiIntegrityDelta, UiIntegrityFinding, UiIntegrityPolicy, UiIntegritySnapshot,
+    detect as detect_ui, parse_policy as parse_ui_policy, ratchet as ratchet_ui,
 };
 
 use crate::commands::{
@@ -970,6 +974,204 @@ impl LiveService {
             &head_graph,
             &files,
         ))
+    }
+
+    /// Replay the browser programs on both revisions and ratchet the UI.
+    ///
+    /// Head evidence comes from a normal run, which already collects it. Base
+    /// evidence needs the same programs against the merge-base, so this creates
+    /// a temporary worktree and replays them there — the same shape as
+    /// `protection_view`, and for the same reason: a regression is only
+    /// meaningful against what the code used to do.
+    ///
+    /// The resulting delta is persisted against the head run, so a later
+    /// `quality_verify` composes the UI axis from stored evidence without
+    /// executing anything.
+    ///
+    /// # Errors
+    ///
+    /// A disabled policy, a head run that did not pass, missing base programs,
+    /// or a malformed snapshot. Uses zero runtime model tokens.
+    pub fn ui_integrity_view(
+        &self,
+        change: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<UiIntegrityDelta, BusError> {
+        let compiled = self.compiled(change)?;
+        let policy = load_ui_integrity_policy(&self.repo)?;
+        if !policy.enabled {
+            return Err(BusError::Runtime(
+                "ui_integrity is not enabled in .weavatrix-quality/config.yaml".into(),
+            ));
+        }
+        let range = self.revision_range(base, head)?;
+        let head_run = self.run(&RunCommand {
+            change: compiled.change.clone(),
+            base: range.base_ref.clone(),
+            head: range.head_ref.clone(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })?;
+        let store = self.store()?;
+        let run_id =
+            RunId::new(&head_run.run_id).map_err(|err| BusError::Identity(err.to_string()))?;
+        let head_snapshot = Self::stored_ui_snapshot(&store, &run_id)?.ok_or_else(|| {
+            BusError::Runtime(format!(
+                "run {} collected no UI evidence; check that a browser program is selected",
+                head_run.run_id
+            ))
+        })?;
+        let base_snapshot = self.measure_base_ui(&range, &compiled, &policy)?;
+        let previously_fixed = store
+            .previously_fixed_debt()
+            .map_err(|err| BusError::Store(err.to_string()))?
+            .into_iter()
+            .filter(|item| item.starts_with("ui:"))
+            .collect::<BTreeSet<_>>();
+        let delta = ratchet_ui(&base_snapshot, &head_snapshot, &previously_fixed, &policy);
+        // Remember what this change fixed so a later reintroduction is
+        // `returned` rather than `new`.
+        let fixed = delta.fixed_fingerprints();
+        if !fixed.is_empty() {
+            let revision = RevisionId::new(&head_snapshot.revision)
+                .map_err(|err| BusError::Identity(err.to_string()))?;
+            store
+                .remember_fixed_debt(&fixed, &revision)
+                .map_err(|err| BusError::Store(err.to_string()))?;
+        }
+        Self::persist_ui_delta(&store, &run_id, &base_snapshot, &delta)?;
+        Ok(delta)
+    }
+
+    /// Read back the `ui-integrity-findings` artifact a run persisted.
+    fn stored_ui_snapshot(
+        store: &Store,
+        run: &RunId,
+    ) -> Result<Option<UiIntegritySnapshot>, BusError> {
+        let Ok(document) = read_single_run_json(store, run, "ui-integrity-findings") else {
+            return Ok(None);
+        };
+        if document.get("schema_v").and_then(Value::as_u64) != Some(1) {
+            return Err(BusError::Store(
+                "unknown ui-integrity-findings schema version".into(),
+            ));
+        }
+        let findings: Vec<UiIntegrityFinding> =
+            serde_json::from_value(document.get("findings").cloned().unwrap_or(json!([])))
+                .map_err(|err| {
+                    BusError::Store(format!("malformed stored ui-integrity findings: {err}"))
+                })?;
+        let measured_states = serde_json::from_value(
+            document
+                .get("measured_states")
+                .cloned()
+                .unwrap_or(json!([])),
+        )
+        .map_err(|err| BusError::Store(format!("malformed stored ui measured states: {err}")))?;
+        Ok(Some(UiIntegritySnapshot {
+            revision: document
+                .get("revision")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+            measured_states,
+            findings,
+            truncated: document
+                .get("truncated")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+        }))
+    }
+
+    /// Replay the configured browser programs at the merge base.
+    fn measure_base_ui(
+        &self,
+        range: &RevisionRange,
+        compiled: &Compiled,
+        policy: &UiIntegrityPolicy,
+    ) -> Result<UiIntegritySnapshot, BusError> {
+        let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
+        let evidence = WeavatrixProvider
+            .analyze(&worktree.path)
+            .map_err(|err| BusError::Intelligence(err.to_string()))?;
+        let Some(browser) = load_browser_policy(&worktree.path, &compiled.obligations)? else {
+            return Ok(UiIntegritySnapshot {
+                revision: evidence.revision.to_string(),
+                truncated: true,
+                ..UiIntegritySnapshot::default()
+            });
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut runs = Vec::new();
+        for configured in &browser.programs {
+            let result = run_browser_program_at(
+                &BrowserRunConfig {
+                    base_url: browser.base_url.clone(),
+                    browser: browser.browser.clone(),
+                    headless: browser.headless,
+                    timeout: browser.timeout,
+                    module_root: browser.module_root.clone(),
+                    runtime_dir: worktree
+                        .path
+                        .join(".weavatrix-quality/runtime/playwright-runner"),
+                    evidence_dir: worktree
+                        .path
+                        .join(".weavatrix-quality")
+                        .join("browser-evidence")
+                        .join(safe_file_token(configured.program.id.as_str())),
+                    ui_integrity: ui_collection_config(policy, &configured.oracles),
+                    cancel: Arc::clone(&cancel),
+                },
+                &configured.program,
+                &configured.oracles,
+                evidence.revision.as_str(),
+            )
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+            runs.push((configured, result));
+        }
+        let borrowed = runs
+            .iter()
+            .map(|(configured, result)| (*configured, result.clone()))
+            .collect::<Vec<_>>();
+        Ok(analyse_ui_snapshots(&evidence.revision, policy, &borrowed)?.snapshot)
+    }
+
+    /// Store the base snapshot and the classified delta on the head run.
+    fn persist_ui_delta(
+        store: &Store,
+        run: &RunId,
+        base: &UiIntegritySnapshot,
+        delta: &UiIntegrityDelta,
+    ) -> Result<(), BusError> {
+        let mut handles = Vec::new();
+        if read_single_run_json(store, run, "base-ui-integrity-findings").is_err() {
+            put_bounded_ui_artifact(
+                store,
+                run,
+                &format!("artifact-{}-base-ui-integrity", run.as_str()),
+                "base-ui-integrity-findings",
+                &json!({
+                    "schema_v": 1,
+                    "revision": base.revision,
+                    "measured_states": base.measured_states,
+                    "findings": base.findings,
+                    "truncated": base.truncated,
+                }),
+                &mut handles,
+            )?;
+        }
+        if read_single_run_json(store, run, UI_INTEGRITY_DELTA_KIND).is_ok() {
+            return Ok(());
+        }
+        put_bounded_ui_artifact(
+            store,
+            run,
+            &format!("artifact-{}-ui-integrity-delta", run.as_str()),
+            UI_INTEGRITY_DELTA_KIND,
+            &ui_delta_document(delta),
+            &mut handles,
+        )
     }
 
     /// Attach the measured base snapshot to the head run, idempotently.
@@ -1927,6 +2129,7 @@ impl QualityService for LiveService {
             records.push(record);
         }
 
+        let ui_policy = load_ui_integrity_policy(&self.repo)?;
         let mut browser_runs = Vec::new();
         if let Some(policy) = &browser {
             for configured in policy.programs.iter().filter(|program| {
@@ -1941,7 +2144,7 @@ impl QualityService for LiveService {
                     .join(".weavatrix-quality")
                     .join("browser-evidence")
                     .join(safe_file_token(configured.program.id.as_str()));
-                let result = run_browser_program(
+                let result = run_browser_program_at(
                     &BrowserRunConfig {
                         base_url: policy.base_url.clone(),
                         browser: policy.browser.clone(),
@@ -1952,10 +2155,12 @@ impl QualityService for LiveService {
                             .repo
                             .join(".weavatrix-quality/runtime/playwright-runner"),
                         evidence_dir,
+                        ui_integrity: ui_collection_config(&ui_policy, &configured.oracles),
                         cancel: Arc::clone(&cancel),
                     },
                     &executable,
                     &configured.oracles,
+                    before.as_str(),
                 )
                 .map_err(|err| BusError::Runtime(err.to_string()))?;
                 browser_runs.push((configured, result));
@@ -2120,6 +2325,14 @@ impl QualityService for LiveService {
             &run_id,
             &browser_runs,
             &cmd.evidence_policy,
+            &mut handles,
+        )?;
+        persist_ui_integrity(
+            &store,
+            &run_id,
+            &before,
+            &ui_policy,
+            &browser_runs,
             &mut handles,
         )?;
         let behavior =
@@ -2947,6 +3160,9 @@ impl QualityService for LiveService {
                     .repo
                     .join(".weavatrix-quality/runtime/playwright-runner"),
                 evidence_dir: evidence_dir.clone(),
+                // Authoring exercises one candidate program in isolation; UI
+                // integrity is a base/head comparison with nothing to compare.
+                ui_integrity: None,
                 cancel,
             },
             &program,
@@ -3137,6 +3353,9 @@ impl QualityService for LiveService {
                     .repo
                     .join(".weavatrix-quality/runtime/playwright-runner"),
                 evidence_dir: evidence_dir.clone(),
+                // Authoring exercises one candidate program in isolation; UI
+                // integrity is a base/head comparison with nothing to compare.
+                ui_integrity: None,
                 cancel,
             },
             &executable,
@@ -4930,6 +5149,106 @@ fn load_test_bindings(repo: &Path) -> Result<Vec<TestBinding>, BusError> {
         });
     }
     Ok(out)
+}
+
+/// Load and validate `ui_integrity` from `.weavatrix-quality/config.yaml`.
+///
+/// A repository with no section gets the disabled default, which makes the axis
+/// `not_applicable`. A section that is present but invalid fails the run: a
+/// typo in an allowance must never quietly widen what is accepted.
+fn load_ui_integrity_policy(repo: &Path) -> Result<UiIntegrityPolicy, BusError> {
+    let path = repo.join(".weavatrix-quality").join("config.yaml");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(UiIntegrityPolicy::default());
+        }
+        Err(err) => {
+            return Err(BusError::Runtime(format!(
+                "cannot read quality policy {}: {err}",
+                path.display()
+            )));
+        }
+    };
+    let value: serde_yaml::Value = serde_yaml::from_str(&raw).map_err(|err| {
+        BusError::Runtime(format!("invalid quality policy {}: {err}", path.display()))
+    })?;
+    let root = value.as_mapping().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} must be a mapping",
+            path.display()
+        ))
+    })?;
+    let version = yaml_get(root, "quality_policy_v")
+        .and_then(serde_yaml::Value::as_u64)
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} is missing quality_policy_v",
+                path.display()
+            ))
+        })?;
+    if version != 1 {
+        return Err(BusError::Runtime(format!(
+            "unknown quality_policy_v {version} in {}",
+            path.display()
+        )));
+    }
+    let Some(section) = yaml_get(root, "ui_integrity") else {
+        return Ok(UiIntegrityPolicy::default());
+    };
+    parse_ui_policy(section, &utc_date())
+        .map_err(|err| BusError::Runtime(format!("{}: {err}", path.display())))
+}
+
+/// Turn the analysis policy into browser collection bounds.
+///
+/// Every semantic target a sealed predicate names is passed through as a
+/// required test id, so the collector can never drop the exact node an
+/// obligation depends on to stay under its node ceiling.
+fn ui_collection_config(
+    policy: &UiIntegrityPolicy,
+    oracles: &[ProgramOracle],
+) -> Option<UiCollectionConfig> {
+    if !policy.enabled {
+        return None;
+    }
+    let mut required = BTreeSet::new();
+    for oracle in oracles {
+        collect_predicate_test_ids(&oracle.expected, &mut required);
+        if let Some(condition) = &oracle.condition {
+            collect_predicate_test_ids(condition, &mut required);
+        }
+    }
+    Some(UiCollectionConfig {
+        enabled: true,
+        max_nodes: policy.max_nodes,
+        geometry_tolerance_px: policy.geometry_tolerance_px,
+        settle_timeout_ms: 2_000,
+        test_id_attribute: "data-testid".into(),
+        required_test_ids: required.into_iter().collect(),
+    })
+}
+
+/// Every `test_id` any nested predicate target names.
+fn collect_predicate_test_ids(predicate: &Value, out: &mut BTreeSet<String>) {
+    match predicate {
+        Value::Object(map) => {
+            for (key, value) in map {
+                if key == "test_id"
+                    && let Some(id) = value.as_str().filter(|id| !id.is_empty())
+                {
+                    out.insert(id.to_owned());
+                }
+                collect_predicate_test_ids(value, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_predicate_test_ids(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn load_browser_policy(
@@ -6807,6 +7126,265 @@ fn stored_browser_assertions(
 
 const BEHAVIOR_SAMPLE_LIMIT: usize = 500;
 const BEHAVIOR_PROGRAM_SAMPLE_LIMIT: usize = 100;
+
+/// Largest UI evidence document written for one run.
+const MAX_UI_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
+
+/// How many findings of one class reach the bounded verdict projection.
+///
+/// The full list stays in the CAS artifact; the reply carries enough to act on
+/// without paying for hundreds of near-identical entries.
+const MAX_UI_REPLY_FINDINGS: usize = 25;
+
+/// Serialize the ratchet into the exact document `quality_verify` reads.
+///
+/// The axis state is decided here, once, from the classified delta: a new or
+/// returned error blocks, a truncated or one-sided measurement is unmeasured,
+/// warnings are warnings, and everything else is clean. Old debt is counted and
+/// never listed.
+fn ui_delta_document(delta: &UiIntegrityDelta) -> Value {
+    let state = if delta.blocks() {
+        "blocking"
+    } else if delta.truncated || !delta.unmeasured_states.is_empty() {
+        "unmeasured"
+    } else if delta.new.is_empty() && delta.returned.is_empty() && delta.existing.is_empty() {
+        "clean"
+    } else if delta.new.is_empty() && delta.returned.is_empty() {
+        // Only pre-existing debt survived: recorded, not held against the change.
+        "clean"
+    } else {
+        "warnings"
+    };
+    json!({
+        "schema_v": 1,
+        "state": state,
+        "new": ui_finding_refs(&delta.new),
+        "returned": ui_finding_refs(&delta.returned),
+        "existing": delta.existing.len(),
+        "fixed": delta.fixed.len(),
+        "excepted": delta.excepted.len(),
+        "unmeasured_states": delta.unmeasured_states,
+        "truncated": delta.truncated,
+        "expired_policy": delta.expired_policy,
+        "runtime_llm_tokens": 0,
+    })
+}
+
+fn ui_finding_refs(findings: &[UiIntegrityFinding]) -> Vec<Value> {
+    findings
+        .iter()
+        .take(MAX_UI_REPLY_FINDINGS)
+        .map(|finding| {
+            json!({
+                "check": finding.check.id(),
+                "severity": match finding.severity {
+                    Severity::Info => "info",
+                    Severity::Warn => "warn",
+                    Severity::Error => "error",
+                },
+                "subject": finding.subject,
+                "route": finding.route,
+                "viewport": finding.viewport,
+                "detail": finding.detail,
+            })
+        })
+        .collect()
+}
+
+/// Turn one run's collected layout snapshots into stored UI-integrity evidence.
+///
+/// Three artifacts come out of this: the raw bounded snapshots, a compact
+/// hit-test map for `quality_explain`, and the findings the detectors produced.
+/// All three are CAS handles; none of them is ever inlined into an MCP reply.
+///
+/// Returns the head-side snapshot so a base/head comparison can use it.
+fn persist_ui_integrity(
+    store: &Store,
+    run_id: &RunId,
+    revision: &RevisionId,
+    policy: &UiIntegrityPolicy,
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+    handles: &mut Vec<String>,
+) -> Result<Option<UiIntegritySnapshot>, BusError> {
+    if !policy.enabled {
+        return Ok(None);
+    }
+    let collected = analyse_ui_snapshots(revision, policy, browser_runs)?;
+    if collected.snapshot.measured_states.is_empty() && !collected.snapshot.truncated {
+        // No browser program produced a snapshot: this run has no UI surface.
+        return Ok(None);
+    }
+    put_bounded_ui_artifact(
+        store,
+        run_id,
+        &format!("artifact-{}-ui-layout-snapshot", run_id.as_str()),
+        "ui-layout-snapshot",
+        &collected.layouts,
+        handles,
+    )?;
+    put_bounded_ui_artifact(
+        store,
+        run_id,
+        &format!("artifact-{}-ui-hit-test-map", run_id.as_str()),
+        "ui-hit-test-map",
+        &collected.hit_test_map,
+        handles,
+    )?;
+    put_bounded_ui_artifact(
+        store,
+        run_id,
+        &format!("artifact-{}-ui-integrity-findings", run_id.as_str()),
+        "ui-integrity-findings",
+        &json!({
+            "schema_v": 1,
+            "revision": revision.as_str(),
+            "measured_states": collected.snapshot.measured_states,
+            "findings": collected.snapshot.findings,
+            "truncated": collected.snapshot.truncated,
+            "runtime_llm_tokens": 0,
+        }),
+        handles,
+    )?;
+    Ok(Some(collected.snapshot))
+}
+
+struct CollectedUi {
+    snapshot: UiIntegritySnapshot,
+    layouts: Value,
+    hit_test_map: Value,
+}
+
+/// Decode, validate, and analyse every layout snapshot one run collected.
+///
+/// A snapshot the collector could not take, or one it flagged as unsettled or
+/// truncated, marks the whole measurement incomplete. That is deliberately
+/// louder than dropping it: an unmeasured state must not read as a clean one.
+fn analyse_ui_snapshots(
+    revision: &RevisionId,
+    policy: &UiIntegrityPolicy,
+    browser_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+) -> Result<CollectedUi, BusError> {
+    let mut snapshot = UiIntegritySnapshot {
+        revision: revision.to_string(),
+        ..UiIntegritySnapshot::default()
+    };
+    let mut layouts = Vec::new();
+    let mut hit_map = Vec::new();
+    for (_, result) in browser_runs {
+        for evidence in &result.ui_snapshots {
+            if !evidence.limitations.is_empty() || evidence.snapshot.is_null() {
+                snapshot.truncated = true;
+            }
+            if evidence.snapshot.is_null() {
+                continue;
+            }
+            let layout: LayoutSnapshot = serde_json::from_value(evidence.snapshot.clone())
+                .map_err(|err| {
+                    BusError::Runtime(format!(
+                        "browser returned a malformed layout snapshot for {} step {}: {err}",
+                        result.program, evidence.step
+                    ))
+                })?;
+            if layout.revision.as_str() != revision.as_str() {
+                return Err(BusError::Ambiguous(format!(
+                    "layout snapshot for {} claims revision `{}`, the run is at `{revision}`",
+                    result.program, layout.revision
+                )));
+            }
+            let output = detect_ui(&layout, policy)
+                .map_err(|err| BusError::Runtime(format!("ui integrity: {err}")))?;
+            snapshot.truncated |= output.truncated;
+            snapshot.measured_states.insert(layout.state_key());
+            snapshot.findings.extend(output.findings);
+            hit_map.push(hit_test_summary(&layout));
+            layouts.push(serde_json::to_value(&layout).map_err(|err| {
+                BusError::Runtime(format!("cannot encode layout snapshot: {err}"))
+            })?);
+        }
+    }
+    wvq_ui::sort_findings(&mut snapshot.findings);
+    Ok(CollectedUi {
+        layouts: json!({
+            "schema_v": 1,
+            "revision": revision.as_str(),
+            "snapshots": layouts,
+        }),
+        hit_test_map: json!({
+            "schema_v": 1,
+            "revision": revision.as_str(),
+            "targets": hit_map,
+        }),
+        snapshot,
+    })
+}
+
+/// Per-target hit-test totals: what was probed, what got through, and what
+/// intercepted the rest. Small enough to read, exact enough to act on.
+fn hit_test_summary(layout: &LayoutSnapshot) -> Value {
+    let index = layout.index();
+    let mut targets: BTreeMap<String, (u32, u32, BTreeMap<String, u32>)> = BTreeMap::new();
+    for sample in &layout.hit_tests {
+        let entry = targets
+            .entry(sample.target.to_string())
+            .or_insert_with(|| (0, 0, BTreeMap::new()));
+        entry.0 += 1;
+        match &sample.topmost {
+            Some(topmost) if index.is_self_or_descendant(topmost, &sample.target) => entry.1 += 1,
+            Some(topmost) => {
+                *entry
+                    .2
+                    .entry(
+                        index
+                            .node(topmost)
+                            .map_or_else(|| topmost.to_string(), wvq_ui::UiNode::semantic_identity),
+                    )
+                    .or_default() += 1;
+            }
+            None => entry.1 += 1,
+        }
+    }
+    json!({
+        "state": layout.state_key(),
+        "route": layout.route,
+        "viewport": layout.viewport.label(),
+        "targets": targets
+            .into_iter()
+            .map(|(target, (samples, received, blockers))| {
+                json!({
+                    "target": index
+                        .node(&wvq_ui::UiNodeId::new(&target).unwrap_or_default())
+                        .map_or(target.clone(), wvq_ui::UiNode::semantic_identity),
+                    "node": target,
+                    "samples": samples,
+                    "received_events": received,
+                    "blockers": blockers,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn put_bounded_ui_artifact(
+    store: &Store,
+    run_id: &RunId,
+    raw_id: &str,
+    kind: &str,
+    value: &Value,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|err| BusError::Runtime(format!("cannot encode {kind}: {err}")))?;
+    if bytes.len() > MAX_UI_ARTIFACT_BYTES {
+        // Refuse rather than store a partial document: half a snapshot would be
+        // analysed as though it were the whole page.
+        return Err(BusError::Runtime(format!(
+            "{kind} is {} bytes, over the {MAX_UI_ARTIFACT_BYTES}-byte ceiling; \
+             lower ui_integrity.max_nodes",
+            bytes.len()
+        )));
+    }
+    put_run_artifact(store, run_id, raw_id, kind, &bytes, handles)
+}
 
 fn persist_browser_behavior(
     store: &Store,

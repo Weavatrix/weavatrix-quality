@@ -18,10 +18,14 @@ use crate::{Observation, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 1024 * 1024;
-const BRIDGE_FILES: [(&str, &str); 5] = [
+const BRIDGE_FILES: [(&str, &str); 6] = [
     (
         "main.js",
         include_str!("../../../js/playwright-runner/dist/main.js"),
+    ),
+    (
+        "ui_integrity.js",
+        include_str!("../../../js/playwright-runner/dist/ui_integrity.js"),
     ),
     (
         "protocol.js",
@@ -58,8 +62,55 @@ pub struct BrowserRunConfig {
     pub runtime_dir: PathBuf,
     /// Ignored local directory for screenshot/trace files.
     pub evidence_dir: PathBuf,
+    /// Deterministic UI-integrity collection. `None` collects nothing.
+    pub ui_integrity: Option<UiCollectionConfig>,
     /// Cooperative cancellation.
     pub cancel: Arc<AtomicBool>,
+}
+
+/// Bounds the browser applies while collecting UI-integrity evidence.
+///
+/// This is transport configuration only. Whether anything collected is a
+/// problem is decided in Rust by `wvq-ui`, never in the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UiCollectionConfig {
+    /// Whether the collector runs.
+    pub enabled: bool,
+    /// Ceiling on collected nodes per state.
+    pub max_nodes: u32,
+    /// Geometry difference between two reads that still counts as settled.
+    pub geometry_tolerance_px: u32,
+    /// Budget for fonts and a settled layout, in milliseconds.
+    pub settle_timeout_ms: u32,
+    /// Stable test attribute this project uses.
+    pub test_id_attribute: String,
+    /// Test ids sealed predicates name, so the collector never drops them.
+    pub required_test_ids: Vec<String>,
+}
+
+impl Default for UiCollectionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_nodes: 5_000,
+            geometry_tolerance_px: 1,
+            settle_timeout_ms: 2_000,
+            test_id_attribute: "data-testid".into(),
+            required_test_ids: Vec::new(),
+        }
+    }
+}
+
+/// One collected layout snapshot plus why it may be incomplete.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UiSnapshotEvidence {
+    /// Zero-based [`TestProgram`] step index the snapshot follows.
+    pub step: usize,
+    /// Raw `layout_snapshot` document. Decoded and validated by `wvq-ui`.
+    pub snapshot: Value,
+    /// Bounds hit or instability observed during collection. Non-empty means
+    /// the snapshot is not a clean measurement.
+    pub limitations: Vec<String>,
 }
 
 /// Sealed oracle sent to the deterministic adapter.
@@ -118,6 +169,9 @@ pub struct BrowserProgramRun {
     pub screenshot_paths: Vec<PathBuf>,
     /// Optional trace file.
     pub trace_path: Option<PathBuf>,
+    /// Deterministic UI-integrity snapshots, one per measured step.
+    #[serde(default)]
+    pub ui_snapshots: Vec<UiSnapshotEvidence>,
     /// Stable failure text.
     pub failure: Option<String>,
 }
@@ -155,6 +209,24 @@ pub fn run_browser_program(
     config: &BrowserRunConfig,
     program: &TestProgram,
     oracles: &[ProgramOracle],
+) -> Result<BrowserProgramRun, BrowserBridgeError> {
+    run_browser_program_at(config, program, oracles, "unknown")
+}
+
+/// Execute one validated program and bind its evidence to an exact revision.
+///
+/// `revision` is stamped onto every collected UI snapshot so a snapshot can
+/// never be compared against the wrong side of a base/head range.
+///
+/// # Errors
+///
+/// Same as [`run_browser_program`].
+#[allow(clippy::too_many_lines)]
+pub fn run_browser_program_at(
+    config: &BrowserRunConfig,
+    program: &TestProgram,
+    oracles: &[ProgramOracle],
+    revision: &str,
 ) -> Result<BrowserProgramRun, BrowserBridgeError> {
     validate_config(config)?;
     program
@@ -199,6 +271,7 @@ pub fn run_browser_program(
     let mut assertions = Vec::new();
     let mut observations = Vec::new();
     let mut screenshot_paths = Vec::new();
+    let mut ui_snapshots = Vec::new();
     for (index, step) in program.steps.iter().enumerate() {
         let step_result = bridge.request("execute_step", &json!({"index": index}));
         let assertion = classify_assertion(step, &step_result, &mut asserted, &mut contradicted);
@@ -215,10 +288,24 @@ pub fn run_browser_program(
         if let Some(path) = body.get("screenshot_path").and_then(Value::as_str) {
             screenshot_paths.push(validated_evidence_path(&config.evidence_dir, path)?);
         }
+        let state_digest = body
+            .get("a11y_digest")
+            .and_then(Value::as_str)
+            .unwrap_or("00")
+            .to_owned();
         observations.push(
             serde_json::from_value(body)
                 .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?,
         );
+        if let Some(ui) = config.ui_integrity.as_ref().filter(|ui| ui.enabled) {
+            ui_snapshots.push(collect_ui_snapshot(
+                &mut bridge,
+                ui,
+                index,
+                revision,
+                &state_digest,
+            )?);
+        }
         if let Some((obligation, status)) = assertion {
             assertions.push(BrowserAssertionObservation {
                 obligation,
@@ -249,8 +336,61 @@ pub fn run_browser_program(
         observations,
         screenshot_paths,
         trace_path,
+        ui_snapshots,
         failure,
     })
+}
+
+/// Ask the bridge for one deterministic layout snapshot.
+///
+/// A collection failure never fails the run: the browser measured the
+/// behaviour fine, and losing UI evidence is a gap to report, not a defect to
+/// blame. The gap is recorded as a limitation so the axis reports `unmeasured`
+/// rather than clean.
+fn collect_ui_snapshot(
+    bridge: &mut BridgeProcess,
+    config: &UiCollectionConfig,
+    step: usize,
+    revision: &str,
+    state_digest: &str,
+) -> Result<UiSnapshotEvidence, BrowserBridgeError> {
+    let request = bridge.request(
+        "collect_ui",
+        &json!({
+            "step": step,
+            "revision": revision,
+            "state_digest": state_digest,
+            "config": config,
+        }),
+    );
+    match request {
+        Ok(body) => {
+            let limitations = body
+                .get("limitations")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let snapshot = body.get("snapshot").cloned().ok_or_else(|| {
+                BrowserBridgeError::Protocol("collect_ui omitted the layout snapshot".into())
+            })?;
+            Ok(UiSnapshotEvidence {
+                step,
+                snapshot,
+                limitations,
+            })
+        }
+        Err(BrowserBridgeError::Remote(message)) => Ok(UiSnapshotEvidence {
+            step,
+            snapshot: Value::Null,
+            limitations: vec![format!("UI collection failed at step {step}: {message}")],
+        }),
+        Err(other) => Err(other),
+    }
 }
 
 fn classify_assertion(

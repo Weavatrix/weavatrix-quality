@@ -5,6 +5,7 @@ export const METHODS = [
   "prepare",
   "execute_step",
   "observe",
+  "collect_ui",
   "finish",
   "cancel",
 ] as const;

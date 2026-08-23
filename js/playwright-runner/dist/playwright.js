@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { collectLayoutSnapshot, } from "./ui_integrity.js";
 export class PlaywrightDriver {
     #browser;
     #context;
@@ -199,6 +200,20 @@ export class PlaywrightDriver {
             observation.screenshot_path = path;
         }
         return observation;
+    }
+    /**
+     * Collect one deterministic UI-integrity snapshot of the current state.
+     *
+     * The driver only measures: whether anything it records is a problem is
+     * decided by `wvq-ui` in Rust. Collection makes no model or vision call.
+     */
+    async collectUi(identity, config) {
+        return collectLayoutSnapshot(this.#page, {
+            revision: identity.revision,
+            program: identity.program ?? this.#program.id,
+            step: identity.step,
+            stateDigest: identity.stateDigest,
+        }, config);
     }
     async finish() {
         if (this.#closed)

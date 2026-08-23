@@ -1,0 +1,251 @@
+import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { PlaywrightDriver } from "../dist/playwright.js";
+import { geometryMatches, resolveConfig, samplePoints } from "../dist/ui_integrity.js";
+
+/** Serve one fixed HTML document on an ephemeral loopback port. */
+async function serve(html: string): Promise<{ server: Server; port: number }> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(html);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address === "object");
+  return { server, port: address.port };
+}
+
+async function collect(html: string, config: Record<string, unknown> = {}) {
+  const { server, port } = await serve(html);
+  const evidence = await mkdtemp(join(tmpdir(), "wvq-ui-"));
+  const program = {
+    id: "ui-fixture",
+    obligations: ["rendered"],
+    steps: [{ action: "navigate", route: "/" }],
+  };
+  const oracles = [{ obligation: "rendered", expected: { kind: "no_console_errors" } }];
+  let driver;
+  try {
+    driver = await PlaywrightDriver.create(program, oracles, {
+      base_url: `http://127.0.0.1:${port}`,
+      browser: "chromium",
+      headless: true,
+      timeout_ms: 15_000,
+      evidence_dir: evidence,
+    });
+    await driver.navigate("/");
+    return await driver.collectUi(
+      { revision: "rev-1", program: "ui-fixture", step: 0, stateDigest: "ab".repeat(32) },
+      { enabled: true, ...config },
+    );
+  } finally {
+    await driver?.finish();
+    await rm(evidence, { recursive: true, force: true });
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+test("real Chromium collection produces a bounded, settled layout snapshot", async () => {
+  const { snapshot, limitations } = await collect(`<!doctype html>
+    <html><body>
+      <main data-component="Toolbar">
+        <button id="save" data-testid="save">Save</button>
+        <button id="export" data-testid="export">Export</button>
+      </main>
+    </body></html>`);
+
+  assert.equal(snapshot.schema_v, 1);
+  assert.equal(snapshot.program, "ui-fixture");
+  assert.equal(snapshot.step, 0);
+  assert.equal(snapshot.route, "/");
+  assert.deepEqual(limitations, [], "a static page must settle");
+  assert.equal(snapshot.truncated, false);
+
+  const save = snapshot.nodes.find((node) => node.dom_id === "save");
+  assert(save, "the Save button must be a candidate");
+  assert.equal(save.test_id, "save");
+  assert.equal(save.role, "button");
+  assert.equal(save.accessible_name, "Save");
+  assert.equal(save.visible, true);
+  assert.equal(save.interactive, true);
+  assert.equal(save.enabled, true);
+  assert.equal(save.pointer_events, true);
+  assert(save.rects.length >= 1 && save.rects[0].width > 0);
+
+  // Hit tests exist for enabled controls and resolve to the control itself.
+  const samples = snapshot.hit_tests.filter((sample) => sample.target === save.id);
+  assert(samples.length >= 5, `expected at least five probes, got ${samples.length}`);
+  assert(
+    samples.every((sample) => sample.topmost === save.id),
+    "an unobstructed button owns every one of its probe points",
+  );
+});
+
+test("an overlay is recorded as the topmost node over the control it covers", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <button id="export" data-testid="export">Export</button>
+      <div id="veil" style="position:fixed;inset:0;background:rgba(0,0,0,0.01)"></div>
+    </body></html>`);
+
+  const exportButton = snapshot.nodes.find((node) => node.dom_id === "export");
+  const veil = snapshot.nodes.find((node) => node.dom_id === "veil");
+  assert(exportButton && veil);
+  const samples = snapshot.hit_tests.filter((sample) => sample.target === exportButton.id);
+  assert(samples.length > 0);
+  assert(
+    samples.every((sample) => sample.topmost === veil.id),
+    "the browser, not WVQ, decides what is on top",
+  );
+});
+
+test("a pointer-events:none layer is recorded with pointer_events false", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <button id="export">Export</button>
+      <div id="ghost" style="position:fixed;inset:0;pointer-events:none"></div>
+    </body></html>`);
+  const ghost = snapshot.nodes.find((node) => node.dom_id === "ghost");
+  assert(ghost);
+  assert.equal(ghost.pointer_events, false);
+});
+
+test("row scope is collected from data-entity so repeated actions stay distinct", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <ul>
+        <li data-entity="order:1"><button>Delete</button></li>
+        <li data-entity="order:2"><button>Delete</button></li>
+      </ul>
+    </body></html>`);
+  const deletes = snapshot.nodes.filter((node) => node.accessible_name === "Delete");
+  assert.equal(deletes.length, 2);
+  assert.deepEqual(
+    deletes.map((node) => node.entity_key).sort(),
+    ["order:1", "order:2"],
+  );
+});
+
+test("text and document overflow metrics are collected", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body style="margin:0">
+      <div id="cell" style="width:80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+        A very long piece of table text that cannot possibly fit
+      </div>
+      <div id="wide" style="width:2000px;height:10px"></div>
+    </body></html>`);
+  const cell = snapshot.nodes.find((node) => node.dom_id === "cell");
+  assert(cell);
+  assert(
+    cell.text_scroll_width > cell.text_client_width,
+    `expected clipped text, got ${cell.text_scroll_width} vs ${cell.text_client_width}`,
+  );
+  assert(
+    snapshot.document.scroll_width > snapshot.document.client_width,
+    "a 2000px child must make the document scroll horizontally",
+  );
+});
+
+test("collection never records raw markup, form values, or unbounded text", async () => {
+  const secret = "hunter2-super-secret-password";
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <input id="password" type="password" value="${secret}" aria-label="Password">
+      <p id="essay">${"lorem ipsum ".repeat(200)}</p>
+    </body></html>`);
+  const serialized = JSON.stringify(snapshot);
+  assert(!serialized.includes(secret), "a form value must never reach evidence");
+  assert(!serialized.includes("<input"), "raw markup must never reach evidence");
+  for (const node of snapshot.nodes) {
+    for (const field of [node.accessible_name, node.label, node.component_hint]) {
+      if (field !== undefined) {
+        assert(field.length <= 120, `field of ${field.length} chars exceeds the bound`);
+      }
+    }
+  }
+});
+
+test("the node ceiling truncates instead of silently reporting a clean page", async () => {
+  const rows = Array.from(
+    { length: 60 },
+    (_value, index) => `<button id="b${index}">Item ${index}</button>`,
+  ).join("");
+  const { snapshot, limitations } = await collect(
+    `<!doctype html><html><body>${rows}</body></html>`,
+    { max_nodes: 10 },
+  );
+  assert.equal(snapshot.nodes.length, 10);
+  assert.equal(snapshot.truncated, true);
+  assert(
+    limitations.some((item) => item.includes("10-node ceiling")),
+    `${JSON.stringify(limitations)}`,
+  );
+});
+
+test("an animating layout is reported as unsettled rather than measured once", async () => {
+  // A transform driven by JS outside the CSS animation system: freezing
+  // animations cannot stop it, so the two reads must disagree.
+  const { snapshot, limitations } = await collect(`<!doctype html>
+    <html><body style="margin:0">
+      <button id="drift" style="position:absolute;left:0">Drift</button>
+      <script>
+        let offset = 0;
+        setInterval(() => {
+          offset += 40;
+          document.getElementById('drift').style.left = offset + 'px';
+        }, 1);
+      </script>
+    </body></html>`);
+  assert.equal(snapshot.truncated, true);
+  assert(
+    limitations.some((item) => item.includes("did not settle")),
+    `${JSON.stringify(limitations)}`,
+  );
+});
+
+test("collection reports zero runtime model tokens", async () => {
+  const { snapshot } = await collect(
+    `<!doctype html><html><body><button id="ok">OK</button></body></html>`,
+  );
+  // The whole collector is geometry arithmetic; nothing here can spend tokens.
+  assert.equal(JSON.stringify(snapshot).includes("model"), false);
+});
+
+test("config is clamped to the hard ceilings", () => {
+  const resolved = resolveConfig({ max_nodes: 10_000_000, geometry_tolerance_px: -5 });
+  assert.equal(resolved.max_nodes, 20_000);
+  assert.equal(resolved.geometry_tolerance_px, 0);
+  assert.equal(resolved.enabled, false, "collection is opt-in");
+  assert.equal(resolved.test_id_attribute, "data-testid");
+});
+
+test("sample points cover the centre and corners, and grid a large target", () => {
+  const small = samplePoints({ x: 0, y: 0, width: 20, height: 20 }, 2);
+  assert.equal(small.length, 5);
+  assert.deepEqual(small[0], { x: 10, y: 10 });
+
+  const large = samplePoints({ x: 0, y: 0, width: 200, height: 100 }, 2);
+  assert.equal(large.length, 9, "a large control gets a 3x3 grid");
+});
+
+test("geometry comparison honours the tolerance", () => {
+  const node = (x: number) => [
+    {
+      id: "e1",
+      rects: [{ x, y: 0, width: 10, height: 10 }],
+      visible: true,
+      interactive: false,
+      enabled: true,
+      pointer_events: true,
+      scrollable: false,
+      decorative: false,
+    },
+  ];
+  assert.equal(geometryMatches(node(0), node(0.5), 1), true);
+  assert.equal(geometryMatches(node(0), node(4), 1), false);
+  assert.equal(geometryMatches(node(0), [], 1), false);
+});

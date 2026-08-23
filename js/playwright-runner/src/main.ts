@@ -13,6 +13,7 @@ import {
   type BrowserProgram,
   type ProgramOracle,
 } from "./playwright.js";
+import type { UiIntegrityConfig } from "./ui_integrity.js";
 
 type Reply =
   | { type: "ok"; id: number; body: Record<string, unknown> }
@@ -77,6 +78,32 @@ class BridgeSession {
           const failed = Boolean(request.params.failed) || this.#failed;
           const raw = await driver.observe(failed);
           body = filterObservation(raw, program.evidence_policy ?? defaultPolicy(), failed);
+          break;
+        }
+        case "collect_ui": {
+          const { program, driver } = this.#requirePrepared();
+          const revision = request.params.revision;
+          const stateDigest = request.params.state_digest;
+          const step = request.params.step;
+          if (typeof revision !== "string" || revision === "") {
+            throw new Error("collect_ui requires params.revision");
+          }
+          if (typeof stateDigest !== "string" || stateDigest === "") {
+            throw new Error("collect_ui requires params.state_digest");
+          }
+          if (!Number.isInteger(step) || Number(step) < 0) {
+            throw new Error("collect_ui requires a non-negative integer step");
+          }
+          const result = await driver.collectUi(
+            {
+              revision,
+              program: program.id,
+              step: Number(step),
+              stateDigest,
+            },
+            request.params.config as UiIntegrityConfig | undefined,
+          );
+          body = { snapshot: result.snapshot, limitations: result.limitations };
           break;
         }
         case "finish": {

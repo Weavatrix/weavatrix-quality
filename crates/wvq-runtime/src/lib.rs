@@ -24,7 +24,8 @@ pub use behavior::{
 };
 pub use browser_bridge::{
     BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError, BrowserProgramRun,
-    BrowserRunConfig, ProgramOracle, run_browser_program,
+    BrowserRunConfig, ProgramOracle, UiCollectionConfig, UiSnapshotEvidence, run_browser_program,
+    run_browser_program_at,
 };
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,

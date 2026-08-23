@@ -25,22 +25,20 @@ pub fn parse_junit(xml: &str) -> Result<NormalizedTestRun, RuntimeError> {
             Ok(Event::Start(tag)) => {
                 start_tag(&tag, &mut suite_stack, &mut current)?;
             }
-            Ok(Event::Empty(tag)) => {
-                match local_name(&tag).as_str() {
-                    "testcase" => {
-                        let open = open_case(&tag, &suite_stack)?;
-                        cases.push(open.into_result());
-                    }
-                    "failure" => apply_status(&mut current, TestStatus::Fail, attr(&tag, "message")),
-                    "error" => apply_status(&mut current, TestStatus::Error, attr(&tag, "message")),
-                    "skipped" => apply_status(&mut current, TestStatus::Skip, attr(&tag, "message")),
-                    "testsuite" => {
-                        suite_stack.push(attr(&tag, "name").unwrap_or_default());
-                        suite_stack.pop();
-                    }
-                    _ => {}
+            Ok(Event::Empty(tag)) => match local_name(&tag).as_str() {
+                "testcase" => {
+                    let open = open_case(&tag, &suite_stack)?;
+                    cases.push(open.into_result());
                 }
-            }
+                "failure" => apply_status(&mut current, TestStatus::Fail, attr(&tag, "message")),
+                "error" => apply_status(&mut current, TestStatus::Error, attr(&tag, "message")),
+                "skipped" => apply_status(&mut current, TestStatus::Skip, attr(&tag, "message")),
+                "testsuite" => {
+                    suite_stack.push(attr(&tag, "name").unwrap_or_default());
+                    suite_stack.pop();
+                }
+                _ => {}
+            },
             Ok(Event::End(tag)) => match local_name_end(&tag).as_str() {
                 "testsuite" => {
                     suite_stack.pop();

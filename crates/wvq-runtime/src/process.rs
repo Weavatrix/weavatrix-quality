@@ -150,7 +150,9 @@ fn collect_child(
                 done_readers = 2;
             }
         }
-        if let Some(status) = child.try_wait().map_err(|err| RuntimeError::Spawn(err.to_string()))?
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|err| RuntimeError::Spawn(err.to_string()))?
             && done_readers >= expected_readers
         {
             return Ok(RawExecution {
@@ -169,7 +171,10 @@ fn append_capped(
     limits: &ProcessLimits,
     child: &mut std::process::Child,
 ) -> Result<(), RuntimeError> {
-    let used = dest.len().saturating_add(other.len()).saturating_add(chunk.len());
+    let used = dest
+        .len()
+        .saturating_add(other.len())
+        .saturating_add(chunk.len());
     if used > limits.max_output_bytes {
         let _ = child.kill();
         let _ = child.wait();

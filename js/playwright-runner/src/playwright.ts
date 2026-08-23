@@ -13,6 +13,11 @@ import type {
 } from "playwright";
 import type { Driver, Target, WaitCondition } from "./execute.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
+import {
+  collectLayoutSnapshot,
+  type CollectionResult,
+  type UiIntegrityConfig,
+} from "./ui_integrity.js";
 
 export type PredicateTarget = Omit<Target, "component_hint">;
 
@@ -310,6 +315,28 @@ export class PlaywrightDriver implements Driver {
       observation.screenshot_path = path;
     }
     return observation;
+  }
+
+  /**
+   * Collect one deterministic UI-integrity snapshot of the current state.
+   *
+   * The driver only measures: whether anything it records is a problem is
+   * decided by `wvq-ui` in Rust. Collection makes no model or vision call.
+   */
+  async collectUi(
+    identity: { revision: string; program?: string; step: number; stateDigest: string },
+    config: UiIntegrityConfig | undefined,
+  ): Promise<CollectionResult> {
+    return collectLayoutSnapshot(
+      this.#page,
+      {
+        revision: identity.revision,
+        program: identity.program ?? this.#program.id,
+        step: identity.step,
+        stateDigest: identity.stateDigest,
+      },
+      config,
+    );
   }
 
   async finish(): Promise<{ trace_path?: string }> {

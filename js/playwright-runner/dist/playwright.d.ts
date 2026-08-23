@@ -1,6 +1,7 @@
 /** Actual Playwright adapter. Policy and sealed predicates arrive from Rust. */
 import type { Driver, Target, WaitCondition } from "./execute.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
+import { type CollectionResult, type UiIntegrityConfig } from "./ui_integrity.js";
 export type PredicateTarget = Omit<Target, "component_hint">;
 export type Predicate = {
     kind: "visible" | "hidden" | "enabled" | "disabled";
@@ -104,6 +105,18 @@ export declare class PlaywrightDriver implements Driver {
     apiCall(name: string, input: string): Promise<void>;
     assert(obligation: string): Promise<void>;
     observe(failed: boolean): Promise<Observation>;
+    /**
+     * Collect one deterministic UI-integrity snapshot of the current state.
+     *
+     * The driver only measures: whether anything it records is a problem is
+     * decided by `wvq-ui` in Rust. Collection makes no model or vision call.
+     */
+    collectUi(identity: {
+        revision: string;
+        program?: string;
+        step: number;
+        stateDigest: string;
+    }, config: UiIntegrityConfig | undefined): Promise<CollectionResult>;
     finish(): Promise<{
         trace_path?: string;
     }>;

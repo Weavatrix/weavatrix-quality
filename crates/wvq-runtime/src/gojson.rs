@@ -93,13 +93,8 @@ pub fn parse_go_json(jsonl: &str) -> Result<NormalizedTestRun, RuntimeError> {
                     });
                 }
             }
-            slot.status.map(|status| {
-                (
-                    status,
-                    slot.duration_ms,
-                    std::mem::take(&mut slot.message),
-                )
-            })
+            slot.status
+                .map(|status| (status, slot.duration_ms, std::mem::take(&mut slot.message)))
         };
         if let Some((status, duration_ms, message)) = finished_case {
             open.remove(&key);
