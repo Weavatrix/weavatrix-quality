@@ -97,6 +97,8 @@ pub struct UiCollectionConfig {
     pub test_id_attribute: String,
     /// Test ids sealed predicates name, so the collector never drops them.
     pub required_test_ids: Vec<String>,
+    /// Discover parsed CSS/container width transitions for adaptive probing.
+    pub responsive_breakpoints: bool,
 }
 
 impl Default for UiCollectionConfig {
@@ -108,6 +110,7 @@ impl Default for UiCollectionConfig {
             settle_timeout_ms: 2_000,
             test_id_attribute: "data-testid".into(),
             required_test_ids: Vec::new(),
+            responsive_breakpoints: false,
         }
     }
 }

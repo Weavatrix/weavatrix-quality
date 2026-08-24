@@ -32,11 +32,12 @@ use wvq_proof::{
     protection_delta, snapshot_with_executed_tests, summarise, triage,
 };
 use wvq_runtime::{
-    BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
-    CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun,
-    PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus, UiCollectionConfig,
-    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
-    parse_go_json, parse_junit, parse_lcov, run_browser_program, run_browser_program_at,
+    BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, BrowserViewport,
+    CaptureWhen, CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget,
+    NormalizedTestRun, PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus,
+    UiCollectionConfig, default_limits, discover_executor_targets, parse_cargo_test,
+    parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, run_browser_program,
+    run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -52,8 +53,10 @@ use wvq_store::{
     StoredRunItem, StoredSelectionAudit, StoredTestCaseIdentity, StoredTestCaseResult,
 };
 use wvq_ui::{
-    LayoutSnapshot, UiIntegrityDelta, UiIntegrityFinding, UiIntegrityPolicy, UiIntegritySnapshot,
-    detect as detect_ui, parse_policy as parse_ui_policy, ratchet as ratchet_ui,
+    LayoutSnapshot, ResponsiveProbe, UiFindingState, UiIntegrityDelta, UiIntegrityFinding,
+    UiIntegrityPolicy, UiIntegritySnapshot, detect as detect_ui, next_responsive_probe,
+    parse_policy as parse_ui_policy, ratchet as ratchet_ui, responsive_failure_intervals,
+    responsive_probe_plan,
 };
 
 use crate::commands::{
@@ -1075,7 +1078,19 @@ impl LiveService {
             .into_iter()
             .filter(|item| item.starts_with("ui:"))
             .collect::<BTreeSet<_>>();
-        let delta = ratchet_ui(&base_snapshot, &head_snapshot, &previously_fixed, &policy);
+        let mut delta = ratchet_ui(&base_snapshot, &head_snapshot, &previously_fixed, &policy);
+        if policy.responsive.enabled {
+            let (intervals, truncated) = self.measure_responsive_ui(
+                &range,
+                &compiled,
+                &policy,
+                &base_snapshot,
+                &head_snapshot,
+                &previously_fixed,
+            )?;
+            delta.responsive_intervals = intervals;
+            delta.responsive_truncated = truncated;
+        }
         // Remember what this change fixed so a later reintroduction is
         // `returned` rather than `new`.
         let fixed = delta.fixed_fingerprints();
@@ -1123,6 +1138,19 @@ impl LiveService {
                 .to_owned(),
             measured_states,
             findings,
+            responsive_breakpoints: serde_json::from_value(
+                document
+                    .get("responsive_breakpoints")
+                    .cloned()
+                    .unwrap_or(json!([])),
+            )
+            .map_err(|err| {
+                BusError::Store(format!("malformed stored responsive breakpoints: {err}"))
+            })?,
+            responsive_breakpoints_incomplete: document
+                .get("responsive_breakpoints_incomplete")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             truncated: document
                 .get("truncated")
                 .and_then(Value::as_bool)
@@ -1197,6 +1225,176 @@ impl LiveService {
         Ok(analyse_ui_snapshots(&evidence.revision, policy, &borrowed)?.snapshot)
     }
 
+    /// Probe the parsed CSS/container boundaries on base and head, then bisect
+    /// only intervals whose measured finding sets disagree.
+    #[allow(clippy::too_many_arguments)]
+    fn measure_responsive_ui(
+        &self,
+        range: &RevisionRange,
+        compiled: &Compiled,
+        policy: &UiIntegrityPolicy,
+        base_default: &UiIntegritySnapshot,
+        head_default: &UiIntegritySnapshot,
+        previously_fixed: &BTreeSet<String>,
+    ) -> Result<(Vec<wvq_ui::ResponsiveFailureInterval>, bool), BusError> {
+        let engine = load_browser_policy(&self.repo, &compiled.obligations)?
+            .map(|browser| browser.module_root)
+            .ok_or_else(|| {
+                BusError::Runtime("no browser runtime is configured for this repository".into())
+            })?;
+        let base_worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
+        let base_revision = WeavatrixProvider
+            .analyze(&base_worktree.path)
+            .map_err(|err| BusError::Intelligence(err.to_string()))?
+            .revision;
+        let base_browser =
+            load_browser_policy_with(&base_worktree.path, &compiled.obligations, Some(&engine))?
+                .ok_or_else(|| {
+                    BusError::Runtime("base has no browser runtime configuration".into())
+                })?;
+        let head_browser =
+            load_browser_policy_with(&self.repo, &compiled.obligations, Some(&engine))?
+                .ok_or_else(|| {
+                    BusError::Runtime("head has no browser runtime configuration".into())
+                })?;
+        let head_revision = RevisionId::new(&head_default.revision)
+            .map_err(|err| BusError::Identity(err.to_string()))?;
+
+        let breakpoints = base_default
+            .responsive_breakpoints
+            .union(&head_default.responsive_breakpoints)
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let plan = responsive_probe_plan(&policy.responsive, &breakpoints);
+        let mut truncated = plan.truncated
+            || base_default.responsive_breakpoints_incomplete
+            || head_default.responsive_breakpoints_incomplete;
+        let mut probes = Vec::new();
+        for width in plan.widths {
+            probes.push(self.measure_responsive_probe(
+                width,
+                &base_worktree.path,
+                &base_revision,
+                &base_browser,
+                &head_revision,
+                &head_browser,
+                policy,
+                previously_fixed,
+            )?);
+        }
+        while let Some(width) = next_responsive_probe(&policy.responsive, &probes) {
+            probes.push(self.measure_responsive_probe(
+                width,
+                &base_worktree.path,
+                &base_revision,
+                &base_browser,
+                &head_revision,
+                &head_browser,
+                policy,
+                previously_fixed,
+            )?);
+        }
+        probes.sort_by_key(|probe| probe.width);
+        truncated |= probes
+            .iter()
+            .any(|probe| probe.delta.truncated || !probe.delta.unmeasured_states.is_empty());
+        let exhaustive_policy = wvq_ui::ResponsivePolicy {
+            max_probes: 128,
+            ..policy.responsive
+        };
+        truncated |= next_responsive_probe(&exhaustive_policy, &probes).is_some();
+        Ok((
+            responsive_failure_intervals(&policy.responsive, &probes),
+            truncated,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn measure_responsive_probe(
+        &self,
+        width: u32,
+        base_repo: &Path,
+        base_revision: &RevisionId,
+        base_browser: &BrowserPolicy,
+        head_revision: &RevisionId,
+        head_browser: &BrowserPolicy,
+        policy: &UiIntegrityPolicy,
+        previously_fixed: &BTreeSet<String>,
+    ) -> Result<ResponsiveProbe, BusError> {
+        let viewport = BrowserViewport {
+            width,
+            height: policy.responsive.height,
+        };
+        let base = self.measure_ui_at(
+            base_repo,
+            base_revision,
+            base_browser,
+            policy,
+            viewport,
+            "base",
+        )?;
+        let head = self.measure_ui_at(
+            &self.repo,
+            head_revision,
+            head_browser,
+            policy,
+            viewport,
+            "head",
+        )?;
+        Ok(ResponsiveProbe {
+            width,
+            delta: ratchet_ui(&base, &head, previously_fixed, policy),
+        })
+    }
+
+    fn measure_ui_at(
+        &self,
+        repo: &Path,
+        revision: &RevisionId,
+        browser: &BrowserPolicy,
+        policy: &UiIntegrityPolicy,
+        viewport: BrowserViewport,
+        side: &str,
+    ) -> Result<UiIntegritySnapshot, BusError> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut runs = Vec::new();
+        for configured in &browser.programs {
+            let result = run_browser_program_at(
+                &BrowserRunConfig {
+                    base_url: browser.base_url.clone(),
+                    browser: browser.browser.clone(),
+                    headless: browser.headless,
+                    timeout: browser.timeout,
+                    module_root: browser.module_root.clone(),
+                    runtime_dir: self
+                        .repo
+                        .join(".weavatrix-quality/runtime/playwright-runner"),
+                    evidence_dir: repo
+                        .join(".weavatrix-quality")
+                        .join("browser-evidence")
+                        .join(format!(
+                            "responsive-{side}-{}-{}",
+                            viewport.width,
+                            safe_file_token(configured.program.id.as_str())
+                        )),
+                    viewport: Some(viewport),
+                    ui_integrity: ui_collection_config(policy, &configured.oracles),
+                    cancel: Arc::clone(&cancel),
+                },
+                &configured.program,
+                &configured.oracles,
+                revision.as_str(),
+            )
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+            runs.push((configured, result));
+        }
+        let borrowed = runs
+            .iter()
+            .map(|(configured, result)| (*configured, result.clone()))
+            .collect::<Vec<_>>();
+        Ok(analyse_ui_snapshots(revision, policy, &borrowed)?.snapshot)
+    }
+
     /// Store the base snapshot and the classified delta on the head run.
     fn persist_ui_delta(
         store: &Store,
@@ -1216,6 +1414,8 @@ impl LiveService {
                     "revision": base.revision,
                     "measured_states": base.measured_states,
                     "findings": base.findings,
+                    "responsive_breakpoints": base.responsive_breakpoints,
+                    "responsive_breakpoints_incomplete": base.responsive_breakpoints_incomplete,
                     "truncated": base.truncated,
                 }),
                 &mut handles,
@@ -5157,7 +5357,11 @@ fn ui_integrity_axis(
         truncated: document
             .get("truncated")
             .and_then(Value::as_bool)
-            .unwrap_or(false),
+            .unwrap_or(false)
+            || document
+                .get("responsive_truncated")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
     };
     Ok((axis, Vec::new()))
 }
@@ -5658,6 +5862,7 @@ fn ui_collection_config(
         settle_timeout_ms: 2_000,
         test_id_attribute: "data-testid".into(),
         required_test_ids: required.into_iter().collect(),
+        responsive_breakpoints: policy.responsive.enabled,
     })
 }
 
@@ -7597,7 +7802,7 @@ const MAX_UI_REPLY_FINDINGS: usize = 25;
 fn ui_delta_document(delta: &UiIntegrityDelta) -> Value {
     let state = if delta.blocks() {
         "blocking"
-    } else if delta.truncated || !delta.unmeasured_states.is_empty() {
+    } else if delta.truncated || delta.responsive_truncated || !delta.unmeasured_states.is_empty() {
         "unmeasured"
     } else if delta.new.is_empty() && delta.returned.is_empty() && delta.existing.is_empty() {
         "clean"
@@ -7610,16 +7815,59 @@ fn ui_delta_document(delta: &UiIntegrityDelta) -> Value {
     json!({
         "schema_v": 1,
         "state": state,
-        "new": ui_finding_refs(&delta.new),
-        "returned": ui_finding_refs(&delta.returned),
+        "new": ui_finding_refs_with_intervals(&delta.new, &delta.responsive_intervals, UiFindingState::New),
+        "returned": ui_finding_refs_with_intervals(&delta.returned, &delta.responsive_intervals, UiFindingState::Returned),
         "existing": delta.existing.len(),
         "fixed": delta.fixed.len(),
         "excepted": delta.excepted.len(),
         "unmeasured_states": delta.unmeasured_states,
         "truncated": delta.truncated,
         "expired_policy": delta.expired_policy,
+        "responsive_intervals": delta.responsive_intervals,
+        "responsive_truncated": delta.responsive_truncated,
         "runtime_llm_tokens": 0,
     })
+}
+
+fn ui_finding_refs_with_intervals(
+    findings: &[UiIntegrityFinding],
+    intervals: &[wvq_ui::ResponsiveFailureInterval],
+    state: UiFindingState,
+) -> Vec<Value> {
+    let mut out = ui_finding_refs(findings);
+    out.extend(
+        intervals
+            .iter()
+            .filter(|interval| interval.state == state)
+            .take(MAX_UI_REPLY_FINDINGS.saturating_sub(out.len()))
+            .map(|interval| {
+                let height = interval
+                    .finding
+                    .viewport
+                    .split_once('x')
+                    .map_or("?", |(_, height)| height);
+                json!({
+                    "check": interval.finding.check.id(),
+                    "severity": match interval.finding.severity {
+                        Severity::Info => "info",
+                        Severity::Warn => "warn",
+                        Severity::Error => "error",
+                    },
+                    "subject": interval.finding.subject,
+                    "route": interval.finding.route,
+                    "viewport": format!("{}-{}x{height}", interval.first_width, interval.last_width),
+                    "detail": format!(
+                        "{}; responsive failure interval {}..={} px (lower exact: {}, upper exact: {})",
+                        interval.finding.detail,
+                        interval.first_width,
+                        interval.last_width,
+                        interval.lower_boundary_exact,
+                        interval.upper_boundary_exact,
+                    ),
+                })
+            }),
+    );
+    out
 }
 
 fn ui_finding_refs(findings: &[UiIntegrityFinding]) -> Vec<Value> {
@@ -7692,6 +7940,8 @@ fn persist_ui_integrity(
             "revision": revision.as_str(),
             "measured_states": collected.snapshot.measured_states,
             "findings": collected.snapshot.findings,
+            "responsive_breakpoints": collected.snapshot.responsive_breakpoints,
+            "responsive_breakpoints_incomplete": collected.snapshot.responsive_breakpoints_incomplete,
             "truncated": collected.snapshot.truncated,
             "runtime_llm_tokens": 0,
         }),
@@ -7746,6 +7996,10 @@ fn analyse_ui_snapshots(
             let output = detect_ui(&layout, policy)
                 .map_err(|err| BusError::Runtime(format!("ui integrity: {err}")))?;
             snapshot.truncated |= output.truncated;
+            snapshot
+                .responsive_breakpoints
+                .extend(layout.responsive_breakpoints.iter().copied());
+            snapshot.responsive_breakpoints_incomplete |= !layout.responsive_breakpoints_complete;
             snapshot.measured_states.insert(layout.state_key());
             snapshot.findings.extend(output.findings);
             hit_map.push(hit_test_summary(&layout));

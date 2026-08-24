@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: real browser viewport transport for responsive measurement
+Session: adaptive responsive failure intervals in the default UI verdict
 
 ## Now
 
@@ -52,13 +52,13 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | UI Integrity in MCP/Studio | ✅ | ✅ | ✅ | ✅ `quality_verify`, `quality_explain`, summary |
 | React render profiler | ✅ idea | ❌ | ❌ | ❌ |
 | Duplicate mutation requests | ✅ idea | ❌ | ❌ | ❌ deferred: no action-span protocol |
-| Responsive interval search | ✅ idea | ❌ | ❌ | ❌ |
+| Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
 Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.2 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Responsive measurements now set the actual Playwright viewport through the Rust-owned browser protocol. The Chromium regression fixture asserts the returned layout snapshot is the requested 767×720 viewport; it no longer relabels a 1280×720 render after collection. Adaptive breakpoint discovery and interval search remain the next independently reviewable task.
+Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `max-width: 767px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 162 Rust tests passed across all targets of the touched `wvq-proof`, `wvq-command-bus`, and `wvq-cli` crates, including all five committed product scenarios; warnings-denied Clippy passed for the same scope. The pre-B5 full workspace baseline was 493 Rust tests with zero failures. The prior 20 Playwright-runner tests, 5 npm package tests, and strict public `NodeNext` declarations remain unchanged by this Rust-owned path.
+Current validation: the responsive layer passes 71 `wvq-ui` tests, 20 command-bus library tests, all 6 real Chromium UI-integration scenarios, and 21 Playwright-runner tests. The new end-to-end scenario verifies both the exact 320–767 px interval and the blocking composite verdict while the default desktop point stays clean. Warnings-denied Clippy covers `wvq-ui`, `wvq-runtime`, and `wvq-command-bus`. The pre-responsive full-workspace baseline was 493 Rust tests with zero failures.
 
 ## Composite change verdict
 
@@ -226,7 +226,6 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining committed product-fixture paths before adding another feature family:
 
-1. **Responsive failure interval search.** Bisect around CSS and container breakpoints instead of testing a fixed viewport list, so the exact width a control breaks at is reported rather than guessed.
-2. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
+1. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
 
-After that: add the typed action-span protocol before duplicate-mutation detection, then finish the live mutation producer, metamorphic project adapter, closed-loop cheap explorer, responsive UI wave, and Studio frontend. Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.
+After that: add the typed action-span protocol before duplicate-mutation detection, then finish the live mutation producer, metamorphic project adapter, closed-loop cheap explorer, and Studio frontend. Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

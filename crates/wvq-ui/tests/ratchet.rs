@@ -20,6 +20,8 @@ fn state_key(step: u32) -> wvq_ui::UiStateKey {
             width: 1280,
             height: 720,
         },
+        responsive_breakpoints: Vec::new(),
+        responsive_breakpoints_complete: true,
         document: wvq_ui::DocumentMetrics::default(),
         nodes: vec![UiNode {
             id: UiNodeId::new("n1").unwrap(),
@@ -60,6 +62,7 @@ fn snapshot(revision: &str, findings: Vec<UiIntegrityFinding>) -> UiIntegritySna
         measured_states: [state_key(3)].into_iter().collect(),
         findings,
         truncated: false,
+        ..UiIntegritySnapshot::default()
     }
 }
 

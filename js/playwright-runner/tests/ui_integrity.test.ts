@@ -85,6 +85,20 @@ test("real Chromium collection produces a bounded, settled layout snapshot", asy
   );
 });
 
+test("parsed media and container width breakpoints become bounded probe hints", async () => {
+  const { snapshot, limitations } = await collect(`<!doctype html>
+    <html><head><style media="(width <= 900px)">
+      @media (max-width: 48rem) { body { padding: 1px } }
+      main { container-type: inline-size }
+      @container (inline-size < 640px) { button { width: 100% } }
+    </style></head><body><main><button>Save</button></main></body></html>`, {
+    responsive_breakpoints: true,
+  });
+  assert.deepEqual(snapshot.responsive_breakpoints, [640, 768, 900]);
+  assert.equal(snapshot.responsive_breakpoints_complete, true);
+  assert.deepEqual(limitations, []);
+});
+
 test("an overlay is recorded as the topmost node over the control it covers", async () => {
   const { snapshot } = await collect(`<!doctype html>
     <html><body>

@@ -89,6 +89,8 @@ export type LayoutSnapshot = {
         width: number;
         height: number;
     };
+    responsive_breakpoints: number[];
+    responsive_breakpoints_complete: boolean;
     document: DocumentMetrics;
     nodes: UiNode[];
     hit_tests: HitTestSample[];
@@ -107,6 +109,8 @@ export type UiIntegrityConfig = {
     test_id_attribute?: string;
     /** Extra semantic targets sealed predicates name, so they are never dropped. */
     required_test_ids?: string[];
+    /** Discover parsed CSS/container width transitions for adaptive probing. */
+    responsive_breakpoints?: boolean;
 };
 type ResolvedConfig = Required<Omit<UiIntegrityConfig, "required_test_ids">> & {
     required_test_ids: string[];

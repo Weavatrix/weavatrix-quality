@@ -201,6 +201,13 @@ ui_integrity:
   geometry_tolerance_px: 1
   occlusion_failure_ratio: 0.5
 
+  responsive:
+    enabled: true
+    min_width: 320
+    max_width: 1440
+    height: 720
+    max_probes: 32
+
   allowed_overlaps:
     - top:
         role: tooltip
@@ -240,6 +247,16 @@ Playwright bridge collects one bounded layout snapshot per executed step —
 geometry, semantic identity, and hit-test results, never `innerHTML`, form
 values, cookies, or unbounded text — and Rust decides what any of it means.
 Detection costs zero model tokens and zero vision calls.
+
+Responsive search is enabled with UI integrity by default. The browser exposes
+the parsed width conditions from media rules, stylesheet `media` attributes,
+and container queries; WVQ probes each boundary and its neighbours, then
+bisects only measured base/head transitions down to one CSS pixel. It does not
+run a fixed viewport matrix. `max_probes` is a per-revision browser-run budget;
+exhausting it, or being unable to inspect an applied stylesheet, makes the axis
+`unmeasured` rather than clean. A new error found only at a narrow width is
+included in the ordinary `quality_verify` verdict with its exact measured
+failure interval.
 
 The section fails closed. An unknown field, an allowance that names no node, a
 path-shaped matcher value, a ratio outside `0.0 … 1.0`, a malformed `expires`

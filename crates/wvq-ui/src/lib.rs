@@ -22,6 +22,7 @@ mod detect;
 mod finding;
 mod policy;
 mod ratchet;
+mod responsive;
 mod snapshot;
 mod spatial;
 
@@ -29,13 +30,19 @@ pub use detect::{DetectionOutput, detect};
 pub use finding::{UiCheck, UiEvidence, UiIntegrityFinding, sort_findings};
 pub use policy::{
     AcceptedTruncation, AllowedOverlap, DEFAULT_GEOMETRY_TOLERANCE_PX, DEFAULT_MAX_NODES,
-    DEFAULT_OCCLUSION_FAILURE_PERMILLE, NodeMatcher, UiException, UiIntegrityPolicy, parse_policy,
+    DEFAULT_OCCLUSION_FAILURE_PERMILLE, DEFAULT_RESPONSIVE_HEIGHT, DEFAULT_RESPONSIVE_MAX_PROBES,
+    DEFAULT_RESPONSIVE_MAX_WIDTH, DEFAULT_RESPONSIVE_MIN_WIDTH, NodeMatcher, ResponsivePolicy,
+    UiException, UiIntegrityPolicy, parse_policy,
 };
 pub use ratchet::{UiFindingState, UiIntegrityDelta, UiIntegritySnapshot, ratchet};
+pub use responsive::{
+    ResponsiveFailureInterval, ResponsiveProbe, ResponsiveProbePlan, next_responsive_probe,
+    responsive_failure_intervals, responsive_probe_plan,
+};
 pub use snapshot::{
     DocumentMetrics, HitTestSample, LAYOUT_SNAPSHOT_SCHEMA_V, LayoutSnapshot, MAX_HIT_TEST_SAMPLES,
-    MAX_LABEL_CHARS, MAX_NODES, MAX_ROUTE_CHARS, Point, Rect, SnapshotIndex, UiNode, UiNodeId,
-    UiStateKey, Viewport,
+    MAX_LABEL_CHARS, MAX_NODES, MAX_RESPONSIVE_BREAKPOINTS, MAX_ROUTE_CHARS, Point, Rect,
+    SnapshotIndex, UiNode, UiNodeId, UiStateKey, Viewport,
 };
 pub use spatial::{CandidatePairs, MAX_CANDIDATE_PAIRS, overlapping_pairs};
 

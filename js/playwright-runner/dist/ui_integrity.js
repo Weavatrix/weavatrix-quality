@@ -39,6 +39,7 @@ export function resolveConfig(config) {
         settle_timeout_ms: clampInt(raw.settle_timeout_ms ?? 2_000, 1, 30_000),
         test_id_attribute: raw.test_id_attribute ?? "data-testid",
         required_test_ids: (raw.required_test_ids ?? []).filter((value) => typeof value === "string" && value.trim() !== ""),
+        responsive_breakpoints: raw.responsive_breakpoints ?? false,
     };
 }
 function clampInt(value, low, high) {
@@ -76,6 +77,12 @@ export async function collectLayoutSnapshot(page, identity, config) {
         limitations.push(`hit testing hit the ${HARD_MAX_HIT_TESTS}-sample ceiling`);
     }
     const viewport = page.viewportSize() ?? { width: 0, height: 0 };
+    const responsive = resolved.responsive_breakpoints
+        ? await readResponsiveBreakpoints(page)
+        : { widths: [], complete: true };
+    if (!responsive.complete) {
+        limitations.push("responsive breakpoint discovery could not inspect every applied stylesheet");
+    }
     const snapshot = {
         schema_v: LAYOUT_SNAPSHOT_SCHEMA_V,
         revision: identity.revision,
@@ -84,6 +91,8 @@ export async function collectLayoutSnapshot(page, identity, config) {
         route: routeOf(page.url()),
         state_digest: identity.stateDigest,
         viewport,
+        responsive_breakpoints: responsive.widths,
+        responsive_breakpoints_complete: responsive.complete,
         document: stable.document,
         nodes: stable.nodes,
         hit_tests: stable.hitTests,
@@ -91,6 +100,58 @@ export async function collectLayoutSnapshot(page, identity, config) {
         truncated: limitations.length > 0,
     };
     return { snapshot, limitations };
+}
+/** Read parsed media/container width conditions; source text is never reparsed. */
+async function readResponsiveBreakpoints(page) {
+    return page.evaluate(() => {
+        const widths = new Set();
+        let complete = true;
+        const rootPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const add = (raw, unit) => {
+            const value = Number.parseFloat(raw);
+            const pixels = unit.toLowerCase() === "px" ? value : value * rootPx;
+            if (Number.isFinite(pixels)) {
+                const rounded = Math.round(pixels);
+                if (rounded >= 1 && rounded <= 16_384)
+                    widths.add(rounded);
+            }
+        };
+        const inspectCondition = (condition) => {
+            const patterns = [
+                /(?:min-|max-)?(?:width|inline-size)\s*:\s*(-?\d+(?:\.\d+)?)\s*(px|rem|em)/gi,
+                /(?:width|inline-size)\s*[<>=]+\s*(-?\d+(?:\.\d+)?)\s*(px|rem|em)/gi,
+                /(-?\d+(?:\.\d+)?)\s*(px|rem|em)\s*[<>=]+\s*(?:width|inline-size)/gi,
+            ];
+            for (const pattern of patterns) {
+                for (const match of condition.matchAll(pattern)) {
+                    const value = match[1];
+                    const unit = match[2];
+                    if (value && unit)
+                        add(value, unit);
+                }
+            }
+        };
+        const visit = (rules) => {
+            for (const rule of Array.from(rules)) {
+                const candidate = rule;
+                if (typeof candidate.conditionText === "string")
+                    inspectCondition(candidate.conditionText);
+                if (candidate.cssRules)
+                    visit(candidate.cssRules);
+            }
+        };
+        for (const sheet of Array.from(document.styleSheets)) {
+            try {
+                if (sheet.media.mediaText)
+                    inspectCondition(sheet.media.mediaText);
+                visit(sheet.cssRules);
+            }
+            catch {
+                complete = false;
+            }
+        }
+        return { widths: Array.from(widths).sort((a, b) => a - b).slice(0, 128), complete };
+    });
 }
 /**
  * Stop time inside the page.

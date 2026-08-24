@@ -25,6 +25,9 @@ pub const MAX_NODES: usize = 20_000;
 /// Hard ceiling on hit-test samples in one snapshot.
 pub const MAX_HIT_TEST_SAMPLES: usize = 40_000;
 
+/// Maximum CSS/container width breakpoints carried by one snapshot.
+pub const MAX_RESPONSIVE_BREAKPOINTS: usize = 128;
+
 /// Longest accessible name, label, or text hint kept in evidence.
 pub const MAX_LABEL_CHARS: usize = 120;
 
@@ -430,6 +433,12 @@ pub struct LayoutSnapshot {
     pub state_digest: ContentHash,
     /// Rendered viewport.
     pub viewport: Viewport,
+    /// Width transitions discovered from the browser's parsed CSSOM.
+    #[serde(default)]
+    pub responsive_breakpoints: Vec<u32>,
+    /// False when an applied stylesheet could not be inspected.
+    #[serde(default)]
+    pub responsive_breakpoints_complete: bool,
     /// Document scroll metrics.
     #[serde(default)]
     pub document: DocumentMetrics,
@@ -457,6 +466,14 @@ impl UiStateKey {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Program/step/route identity with the viewport suffix removed.
+    #[must_use]
+    pub fn without_viewport(&self) -> &str {
+        self.0
+            .rsplit_once('@')
+            .map_or(self.0.as_str(), |(state, _)| state)
     }
 }
 
@@ -588,6 +605,21 @@ impl LayoutSnapshot {
         if self.viewport.width == 0 || self.viewport.height == 0 {
             return Err(UiError::Malformed(
                 "layout snapshot viewport must have a non-zero extent".into(),
+            ));
+        }
+        if self.responsive_breakpoints.len() > MAX_RESPONSIVE_BREAKPOINTS {
+            return Err(UiError::Bounded(format!(
+                "layout snapshot has {} responsive breakpoints, the hard ceiling is {MAX_RESPONSIVE_BREAKPOINTS}",
+                self.responsive_breakpoints.len()
+            )));
+        }
+        if self
+            .responsive_breakpoints
+            .iter()
+            .any(|width| !(1..=16_384).contains(width))
+        {
+            return Err(UiError::Malformed(
+                "layout snapshot responsive breakpoints must be between 1 and 16384 pixels".into(),
             ));
         }
         if self.nodes.len() > MAX_NODES {

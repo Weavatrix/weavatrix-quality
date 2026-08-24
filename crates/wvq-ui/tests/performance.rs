@@ -54,6 +54,8 @@ fn snapshot(nodes: Vec<UiNode>) -> LayoutSnapshot {
             width: 1280,
             height: 720,
         },
+        responsive_breakpoints: Vec::new(),
+        responsive_breakpoints_complete: true,
         document: DocumentMetrics {
             scroll_width: 1280.0,
             client_width: 1280.0,

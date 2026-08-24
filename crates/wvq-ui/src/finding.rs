@@ -62,6 +62,18 @@ impl UiCheck {
             Self::ForbiddenOverlap,
         ]
     }
+
+    /// Whether the finding can change as viewport width changes.
+    #[must_use]
+    pub fn is_responsive(self) -> bool {
+        matches!(
+            self,
+            Self::InteractiveOcclusion
+                | Self::ViewportOverflow
+                | Self::TextClipping
+                | Self::ForbiddenOverlap
+        )
+    }
 }
 
 impl std::fmt::Display for UiCheck {
@@ -157,6 +169,18 @@ impl UiIntegrityFinding {
                 out
             });
         format!("ui:{}:{digest}", self.check.id())
+    }
+
+    /// Stable identity across viewport widths for responsive interval search.
+    #[must_use]
+    pub fn responsive_identity(&self) -> String {
+        format!(
+            "{}\0{}\0{}\0{}",
+            self.check.id(),
+            self.state.without_viewport(),
+            self.subject,
+            self.counterpart.as_deref().unwrap_or("")
+        )
     }
 
     /// Sort key that keeps artifacts and replies byte-stable.

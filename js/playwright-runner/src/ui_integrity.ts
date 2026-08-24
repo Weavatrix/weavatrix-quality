@@ -88,6 +88,8 @@ export type LayoutSnapshot = {
   route: string;
   state_digest: string;
   viewport: { width: number; height: number };
+  responsive_breakpoints: number[];
+  responsive_breakpoints_complete: boolean;
   document: DocumentMetrics;
   nodes: UiNode[];
   hit_tests: HitTestSample[];
@@ -107,6 +109,8 @@ export type UiIntegrityConfig = {
   test_id_attribute?: string;
   /** Extra semantic targets sealed predicates name, so they are never dropped. */
   required_test_ids?: string[];
+  /** Discover parsed CSS/container width transitions for adaptive probing. */
+  responsive_breakpoints?: boolean;
 };
 
 type ResolvedConfig = Required<Omit<UiIntegrityConfig, "required_test_ids">> & {
@@ -125,6 +129,7 @@ export function resolveConfig(config: UiIntegrityConfig | undefined): ResolvedCo
     required_test_ids: (raw.required_test_ids ?? []).filter(
       (value) => typeof value === "string" && value.trim() !== "",
     ),
+    responsive_breakpoints: raw.responsive_breakpoints ?? false,
   };
 }
 
@@ -181,6 +186,12 @@ export async function collectLayoutSnapshot(
   }
 
   const viewport = page.viewportSize() ?? { width: 0, height: 0 };
+  const responsive = resolved.responsive_breakpoints
+    ? await readResponsiveBreakpoints(page)
+    : { widths: [], complete: true };
+  if (!responsive.complete) {
+    limitations.push("responsive breakpoint discovery could not inspect every applied stylesheet");
+  }
   const snapshot: LayoutSnapshot = {
     schema_v: LAYOUT_SNAPSHOT_SCHEMA_V,
     revision: identity.revision,
@@ -189,6 +200,8 @@ export async function collectLayoutSnapshot(
     route: routeOf(page.url()),
     state_digest: identity.stateDigest,
     viewport,
+    responsive_breakpoints: responsive.widths,
+    responsive_breakpoints_complete: responsive.complete,
     document: stable.document,
     nodes: stable.nodes,
     hit_tests: stable.hitTests,
@@ -196,6 +209,58 @@ export async function collectLayoutSnapshot(
     truncated: limitations.length > 0,
   };
   return { snapshot, limitations };
+}
+
+type ResponsiveBreakpoints = { widths: number[]; complete: boolean };
+
+/** Read parsed media/container width conditions; source text is never reparsed. */
+async function readResponsiveBreakpoints(page: Page): Promise<ResponsiveBreakpoints> {
+  return page.evaluate(() => {
+    const widths = new Set<number>();
+    let complete = true;
+    const rootPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const add = (raw: string, unit: string): void => {
+      const value = Number.parseFloat(raw);
+      const pixels = unit.toLowerCase() === "px" ? value : value * rootPx;
+      if (Number.isFinite(pixels)) {
+        const rounded = Math.round(pixels);
+        if (rounded >= 1 && rounded <= 16_384) widths.add(rounded);
+      }
+    };
+    const inspectCondition = (condition: string): void => {
+      const patterns = [
+        /(?:min-|max-)?(?:width|inline-size)\s*:\s*(-?\d+(?:\.\d+)?)\s*(px|rem|em)/gi,
+        /(?:width|inline-size)\s*[<>=]+\s*(-?\d+(?:\.\d+)?)\s*(px|rem|em)/gi,
+        /(-?\d+(?:\.\d+)?)\s*(px|rem|em)\s*[<>=]+\s*(?:width|inline-size)/gi,
+      ];
+      for (const pattern of patterns) {
+        for (const match of condition.matchAll(pattern)) {
+          const value = match[1];
+          const unit = match[2];
+          if (value && unit) add(value, unit);
+        }
+      }
+    };
+    const visit = (rules: CSSRuleList): void => {
+      for (const rule of Array.from(rules)) {
+        const candidate = rule as CSSRule & {
+          conditionText?: string;
+          cssRules?: CSSRuleList;
+        };
+        if (typeof candidate.conditionText === "string") inspectCondition(candidate.conditionText);
+        if (candidate.cssRules) visit(candidate.cssRules);
+      }
+    };
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        if (sheet.media.mediaText) inspectCondition(sheet.media.mediaText);
+        visit(sheet.cssRules);
+      } catch {
+        complete = false;
+      }
+    }
+    return { widths: Array.from(widths).sort((a, b) => a - b).slice(0, 128), complete };
+  });
 }
 
 /**

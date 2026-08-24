@@ -19,6 +19,42 @@ pub const DEFAULT_MAX_NODES: u32 = 5_000;
 pub const DEFAULT_GEOMETRY_TOLERANCE_PX: u32 = 1;
 /// Default share of hit-test points a control may lose before it is occluded.
 pub const DEFAULT_OCCLUSION_FAILURE_PERMILLE: u16 = 500;
+/// Narrowest viewport included in responsive search.
+pub const DEFAULT_RESPONSIVE_MIN_WIDTH: u32 = 320;
+/// Widest viewport included in responsive search.
+pub const DEFAULT_RESPONSIVE_MAX_WIDTH: u32 = 1_440;
+/// Viewport height used while width transitions are isolated.
+pub const DEFAULT_RESPONSIVE_HEIGHT: u32 = 720;
+/// Hard run budget per revision for responsive search.
+pub const DEFAULT_RESPONSIVE_MAX_PROBES: u32 = 32;
+
+/// Bounded policy for finding exact responsive failure transitions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResponsivePolicy {
+    /// Whether adaptive viewport probing runs with UI integrity.
+    pub enabled: bool,
+    /// Inclusive minimum width.
+    pub min_width: u32,
+    /// Inclusive maximum width.
+    pub max_width: u32,
+    /// Fixed height while width is searched.
+    pub height: u32,
+    /// Maximum browser runs on each revision.
+    pub max_probes: u32,
+}
+
+impl Default for ResponsivePolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_width: DEFAULT_RESPONSIVE_MIN_WIDTH,
+            max_width: DEFAULT_RESPONSIVE_MAX_WIDTH,
+            height: DEFAULT_RESPONSIVE_HEIGHT,
+            max_probes: DEFAULT_RESPONSIVE_MAX_PROBES,
+        }
+    }
+}
 
 /// Which node an allowance or exception applies to.
 ///
@@ -147,6 +183,8 @@ pub struct UiIntegrityPolicy {
     pub geometry_tolerance_px: u32,
     /// Share of hit-test points a control may lose, in permille.
     pub occlusion_failure_permille: u16,
+    /// Adaptive responsive-width search.
+    pub responsive: ResponsivePolicy,
     /// Intentional overlaps.
     pub allowed_overlaps: Vec<AllowedOverlap>,
     /// Intentional text truncation.
@@ -167,6 +205,7 @@ impl Default for UiIntegrityPolicy {
             max_nodes: DEFAULT_MAX_NODES,
             geometry_tolerance_px: DEFAULT_GEOMETRY_TOLERANCE_PX,
             occlusion_failure_permille: DEFAULT_OCCLUSION_FAILURE_PERMILLE,
+            responsive: ResponsivePolicy::default(),
             allowed_overlaps: Vec::new(),
             accepted_text_truncation: Vec::new(),
             exceptions: Vec::new(),
@@ -240,6 +279,7 @@ pub fn parse_policy(section: &Value, today: &str) -> Result<UiIntegrityPolicy, U
             "max_nodes",
             "geometry_tolerance_px",
             "occlusion_failure_ratio",
+            "responsive",
             "allowed_overlaps",
             "accepted_text_truncation",
             "exceptions",
@@ -263,12 +303,40 @@ pub fn parse_policy(section: &Value, today: &str) -> Result<UiIntegrityPolicy, U
             64,
         )?,
         occlusion_failure_permille: ratio_permille(root, "occlusion_failure_ratio")?,
+        responsive: parse_responsive(root)?,
         ..UiIntegrityPolicy::default()
     };
 
     parse_allowed_overlaps(root, today, &mut policy)?;
     parse_accepted_truncation(root, today, &mut policy)?;
     parse_exceptions(root, today, &mut policy)?;
+    Ok(policy)
+}
+
+fn parse_responsive(root: &Mapping) -> Result<ResponsivePolicy, UiError> {
+    let Some(value) = root.get(Value::from("responsive")) else {
+        return Ok(ResponsivePolicy::default());
+    };
+    let map = value
+        .as_mapping()
+        .ok_or_else(|| UiError::Policy("ui_integrity responsive must be a mapping".into()))?;
+    known_keys(
+        map,
+        "responsive",
+        &["enabled", "min_width", "max_width", "height", "max_probes"],
+    )?;
+    let policy = ResponsivePolicy {
+        enabled: bool_field(map, "enabled", true)?,
+        min_width: bounded_u32(map, "min_width", DEFAULT_RESPONSIVE_MIN_WIDTH, 1, 16_384)?,
+        max_width: bounded_u32(map, "max_width", DEFAULT_RESPONSIVE_MAX_WIDTH, 1, 16_384)?,
+        height: bounded_u32(map, "height", DEFAULT_RESPONSIVE_HEIGHT, 1, 16_384)?,
+        max_probes: bounded_u32(map, "max_probes", DEFAULT_RESPONSIVE_MAX_PROBES, 2, 128)?,
+    };
+    if policy.min_width >= policy.max_width {
+        return Err(UiError::Policy(
+            "ui_integrity responsive min_width must be smaller than max_width".into(),
+        ));
+    }
     Ok(policy)
 }
 

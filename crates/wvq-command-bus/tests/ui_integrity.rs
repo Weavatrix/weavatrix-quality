@@ -252,7 +252,11 @@ fn duplicate_save_page() -> &'static str {
 /// Variant C: content wider than a 767px viewport.
 fn overflow_page() -> &'static str {
     leak(page(
-        r#"<div id="wide" style="width:1400px;height:12px;background:#eee"></div>"#,
+        r#"<style>
+              #responsive-menu { position:absolute;left:100px;top:500px;width:140px;height:40px }
+              @media (max-width: 767px) { #responsive-menu { left:900px } }
+            </style>
+            <button id="responsive-menu" data-testid="responsive-menu">Menu</button>"#,
     ))
 }
 
@@ -526,6 +530,50 @@ fn an_overlay_that_blocks_export_blocks_the_change_end_to_end() {
     assert_eq!(verified.quality.ai.state.as_str(), "not_applicable");
 }
 
+#[test]
+fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(base_page());
+    let head_server = PageServer::start(overflow_page());
+    let repo = checkout_repo(&base_server.url());
+    switch_to_head(&repo.0, &head_server.url());
+    let service = LiveService::new(&repo.0);
+
+    let delta = service
+        .ui_integrity_view("checkout-ui", "HEAD", "WORKTREE")
+        .unwrap();
+    assert!(
+        delta.new.iter().all(|finding| {
+            finding.subject != "testid:responsive-menu" || finding.viewport != "1280x720"
+        }),
+        "the default desktop run must be clean for the responsive control"
+    );
+    let interval = delta
+        .responsive_intervals
+        .iter()
+        .find(|interval| {
+            interval.finding.check == wvq_ui::UiCheck::ViewportOverflow
+                && interval.finding.subject == "testid:responsive-menu"
+        })
+        .unwrap_or_else(|| panic!("responsive interval missing: {}", describe(&delta)));
+    assert_eq!((interval.first_width, interval.last_width), (320, 767));
+    assert!(interval.lower_boundary_exact);
+    assert!(interval.upper_boundary_exact);
+    assert!(!delta.responsive_truncated);
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.state, "BLOCKED");
+    assert!(verified.quality.blocking_reasons.iter().any(|reason| {
+        reason.axis == "ui_integrity"
+            && reason.subject == "testid:responsive-menu"
+            && reason.detail.contains("320-767x720")
+    }));
+}
+
 // ---------------------------------------------------------------------------
 // The remaining head variants, against the same base
 // ---------------------------------------------------------------------------
@@ -679,8 +727,9 @@ fn variant_c_horizontal_overflow_at_767px_is_new() {
     assert!(
         found
             .iter()
-            .any(|(check, subject)| *check == "WVQ-UI-LAYOUT-002" && subject == "document"),
-        "a 1400px child must overflow a 767px viewport: {found:?}"
+            .any(|(check, subject)| *check == "WVQ-UI-LAYOUT-002"
+                && subject == "testid:responsive-menu"),
+        "the responsive menu must leave a 767px viewport: {found:?}"
     );
 }
 

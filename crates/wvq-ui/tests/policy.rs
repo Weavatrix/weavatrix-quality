@@ -52,6 +52,31 @@ fn defaults_apply_when_only_enabled_is_given() {
         policy.occlusion_failure_permille,
         DEFAULT_OCCLUSION_FAILURE_PERMILLE
     );
+    assert!(policy.responsive.enabled);
+    assert_eq!(policy.responsive.min_width, 320);
+    assert_eq!(policy.responsive.max_width, 1_440);
+    assert_eq!(policy.responsive.max_probes, 32);
+}
+
+#[test]
+fn responsive_search_is_bounded_and_fail_closed() {
+    let policy = parse(
+        "enabled: true\nresponsive:\n  enabled: true\n  min_width: 360\n  max_width: 1280\n  height: 800\n  max_probes: 24\n",
+    )
+    .unwrap();
+    assert_eq!(policy.responsive.min_width, 360);
+    assert_eq!(policy.responsive.max_width, 1_280);
+    assert_eq!(policy.responsive.height, 800);
+    assert_eq!(policy.responsive.max_probes, 24);
+
+    assert!(
+        message("enabled: true\nresponsive:\n  min_width: 800\n  max_width: 640\n")
+            .contains("min_width must be smaller")
+    );
+    assert!(
+        message("enabled: true\nresponsive:\n  max_probe: 8\n")
+            .contains("unknown field `max_probe`")
+    );
 }
 
 #[test]

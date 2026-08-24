@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::finding::{UiIntegrityFinding, sort_findings};
 use crate::policy::UiIntegrityPolicy;
+use crate::responsive::ResponsiveFailureInterval;
 use crate::snapshot::UiStateKey;
 
 /// Everything one revision measured.
@@ -27,6 +28,12 @@ pub struct UiIntegritySnapshot {
     pub measured_states: BTreeSet<UiStateKey>,
     /// Findings across those states.
     pub findings: Vec<UiIntegrityFinding>,
+    /// CSS/container width transitions discovered while collecting layouts.
+    #[serde(default)]
+    pub responsive_breakpoints: BTreeSet<u32>,
+    /// True when any applied stylesheet could not be inspected for transitions.
+    #[serde(default)]
+    pub responsive_breakpoints_incomplete: bool,
     /// True when any collection hit a bound.
     pub truncated: bool,
 }
@@ -93,6 +100,12 @@ pub struct UiIntegrityDelta {
     pub truncated: bool,
     /// Expired allowances, kept visible instead of silently reapplied.
     pub expired_policy: Vec<String>,
+    /// New or returned layout regressions isolated across viewport widths.
+    #[serde(default)]
+    pub responsive_intervals: Vec<ResponsiveFailureInterval>,
+    /// True when the responsive probe budget could not isolate every seed or transition.
+    #[serde(default)]
+    pub responsive_truncated: bool,
 }
 
 impl UiIntegrityDelta {
@@ -113,6 +126,10 @@ impl UiIntegrityDelta {
             .iter()
             .chain(&self.returned)
             .any(|finding| finding.severity == wvq_domain::Severity::Error)
+            || self
+                .responsive_intervals
+                .iter()
+                .any(|interval| interval.finding.severity == wvq_domain::Severity::Error)
     }
 
     /// Whether anything at all was measured on both revisions.
@@ -123,6 +140,7 @@ impl UiIntegrityDelta {
             && self.existing.is_empty()
             && self.fixed.is_empty()
             && self.excepted.is_empty()
+            && self.responsive_intervals.is_empty()
     }
 }
 
