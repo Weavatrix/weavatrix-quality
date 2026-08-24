@@ -306,9 +306,17 @@ fn quality_config(
 fn product_fixture(scenario: HeadScenario) -> ProductFixture {
     let base_server =
         PageServer::start("<!doctype html><span data-testid=\"viewer-label\">Viewer</span>");
-    let head_server = PageServer::start(
-        "<!doctype html><span data-testid=\"viewer-label\">Viewer</span><button data-testid=\"delete-widget\">Delete</button>",
-    );
+    let head_page = match scenario {
+        HeadScenario::HealthyRefactor | HeadScenario::DeletedProtector => {
+            "<!doctype html><span data-testid=\"viewer-label\">Viewer</span>"
+        }
+        HeadScenario::PhantomProtector
+        | HeadScenario::ApprovedExpectationReplacement
+        | HeadScenario::MissingSpecChangedSymbol => {
+            "<!doctype html><span data-testid=\"viewer-label\">Viewer</span><button data-testid=\"delete-widget\">Delete</button>"
+        }
+    };
+    let head_server = PageServer::start(head_page);
     let root = unique_repo();
 
     write(
