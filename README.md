@@ -28,7 +28,8 @@ The canonical development checklist is implemented, but its items have different
 - SQLite + CAS preserve runs, evidence, proof-artifact provenance, debt history, AI usage, and immutable proofs across processes;
 - proof requires the exact configured runner case or Playwright assertion, not a green file path;
 - unambiguous single-case coverage is attributed to its exact bound test; aggregate coverage stays executor-level instead of being guessed onto cases;
-- a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, and sole-protector deletion across CLI, MCP, and `qualityd`;
+- a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, sole-protector deletion, and an approved business-expectation replacement across CLI, MCP, and `qualityd`;
+- when an `OracleSeal` changes, WVQ prepares one immutable base/head/merge-base/content-revision review packet; ordinary analysis is automatic, while only an exact digest-matching QA or product-owner acceptance can authorize the new intent;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 - every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.

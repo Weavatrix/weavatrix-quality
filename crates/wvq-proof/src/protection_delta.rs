@@ -95,6 +95,14 @@ pub struct DeltaContext {
     pub intentionally_removed: Vec<String>,
     /// Base flow → head flow, when a refactor renamed it.
     pub relocations: Vec<(String, String)>,
+    /// Base-only flows made obsolete by an approved expectation replacement.
+    pub approved_replaced_flows: Vec<String>,
+    /// Obligation ids whose sealed expectation changed between revisions.
+    pub changed_obligations: Vec<String>,
+    /// Base obligation → head obligation for one declared expectation replacement.
+    pub obligation_replacements: Vec<(String, String)>,
+    /// The exact revision-bound replacement proposal has intent-owner approval.
+    pub oracle_replacement_approved: bool,
 }
 
 /// Summary counts for the `quality_verify` protection block.
@@ -190,6 +198,19 @@ fn compare(
     let (state, lost_critical, lost_obligations) = match (base, head) {
         (Some(base), None) => {
             if context
+                .approved_replaced_flows
+                .iter()
+                .any(|item| item == flow)
+            {
+                reasons.push(
+                    "an approved OracleSeal replacement made this proof path obsolete".into(),
+                );
+                (
+                    ProtectionDeltaState::ObsoleteRemoved,
+                    Vec::new(),
+                    Vec::new(),
+                )
+            } else if context
                 .intentionally_removed
                 .iter()
                 .any(|item| item == flow)
@@ -248,7 +269,24 @@ fn compare_present(
     reasons: &mut Vec<String>,
 ) -> (ProtectionDeltaState, Vec<String>, Vec<String>) {
     let lost_critical = critical_losses(base, &head.covered_branches, context);
-    let lost_obligations = difference(&base.proven_obligations, &head.proven_obligations);
+    let raw_lost_obligations = difference(&base.proven_obligations, &head.proven_obligations);
+    let expectation_changed = base
+        .proven_obligations
+        .iter()
+        .chain(&head.proven_obligations)
+        .any(|obligation| context.changed_obligations.contains(obligation));
+    let lost_obligations = if context.oracle_replacement_approved {
+        raw_lost_obligations
+            .into_iter()
+            .filter(|base_obligation| {
+                !context.obligation_replacements.iter().any(|(from, to)| {
+                    from == base_obligation && head.proven_obligations.contains(to)
+                })
+            })
+            .collect()
+    } else {
+        raw_lost_obligations
+    };
 
     let state = if !base.is_protected() && !head.is_protected() {
         reasons.push("flow is measured but unprotected on both revisions".into());
@@ -263,9 +301,22 @@ fn compare_present(
         ));
         reasons.push("a global coverage gain does not offset this".into());
         ProtectionDeltaState::Lost
+    } else if context
+        .approved_replaced_flows
+        .iter()
+        .any(|item| item == &base.flow)
+    {
+        reasons.push("an approved OracleSeal replacement made this proof path obsolete".into());
+        ProtectionDeltaState::ObsoleteRemoved
     } else if !head.is_protected() {
         reasons.push("no test or session reaches this flow any more".into());
         ProtectionDeltaState::Lost
+    } else if expectation_changed && !context.oracle_replacement_approved {
+        reasons.push(
+            "sealed expectation changed without intent-owner approval of this exact revision-bound replacement"
+                .into(),
+        );
+        ProtectionDeltaState::Degraded
     } else if !lost_obligations.is_empty() {
         reasons.push(format!(
             "obligation(s) {} are no longer proved",

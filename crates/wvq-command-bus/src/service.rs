@@ -8,6 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -23,12 +24,12 @@ use wvq_proof::{
     AiAxis, AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, AxisState,
     ChangeQualityVerdict, DebtAxis, DebtItem, DeltaContext, ExecutionEvidence, FailureEvidence,
     FlakeClass, FlowProtection, FlowView, HealEdit, Limitation, LocalModelConfig,
-    LocalModelRequest, ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionCheckInput,
-    ProtectionDelta, ProtectionDeltaState, ProtectionFinding, ProtectionPolicy, ProtectionSnapshot,
-    ProtectionView, StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef,
-    UiIntegrityAxis, VerdictInputs, apply_heal, assemble, call_local_model, compose,
-    debt_rule_blocks, fingerprint_id, gate_protection, protection_delta, snapshot, summarise,
-    triage,
+    LocalModelRequest, OracleReplacementReview, ProofOutcome, ProofVerdict, ProtectionAxis,
+    ProtectionCheckInput, ProtectionDelta, ProtectionDeltaState, ProtectionFinding,
+    ProtectionPolicy, ProtectionSnapshot, ProtectionView, StabilityAxis, TestChange,
+    TestLineageView, TimingBucket, UiFindingRef, UiIntegrityAxis, VerdictInputs, apply_heal,
+    assemble, call_local_model, compose, debt_rule_blocks, fingerprint_id, gate_protection,
+    protection_delta, snapshot, summarise, triage,
 };
 use wvq_runtime::{
     BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
@@ -71,6 +72,9 @@ use crate::replies::{
 
 /// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
 const UI_INTEGRITY_DELTA_KIND: &str = "ui-integrity-delta";
+
+/// CAS artifact kind for the exact expectation replacement a QA reviewed.
+const ORACLE_REPLACEMENT_KIND: &str = "oracle-replacement-proposal";
 
 /// Command-bus failure. Unknown values fail closed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -925,6 +929,7 @@ impl LiveService {
         head: &str,
     ) -> Result<ProtectionView, BusError> {
         let compiled = self.compiled(change)?;
+        let head_oracle = oracle_identity(&self.repo, &compiled)?;
         let range = self.revision_range(base, head)?;
         let files = changed_files(&self.repo, &range)?;
         let all_files = files.all();
@@ -959,20 +964,42 @@ impl LiveService {
             )));
         }
         let head_snapshot = self.stored_protection_snapshot(&head_run.run_id)?;
-        let (base_snapshot, base_graph) = self.measure_base_protection(&range, &all_files)?;
+        let (base_snapshot, base_graph, base_compiled, base_oracle) =
+            self.measure_base_protection(&range, &all_files, &compiled.change)?;
         // Replaying the base suite is the one expensive part of protection, so
         // the measurement is persisted against the head run. `quality_verify`
         // then composes a real protection axis from stored evidence without
         // executing anything itself.
         self.persist_base_protection(&head_run.run_id, &base_snapshot)?;
+        let oracle_replacement =
+            if base_oracle.id == head_oracle.id && base_oracle.digest == head_oracle.digest {
+                None
+            } else {
+                let (changed_obligations, obligation_replacements) =
+                    expectation_change(&base_compiled.obligations, &compiled.obligations, true);
+                let document = OracleReplacementDocument {
+                    schema_v: 1,
+                    change: compiled.change.clone(),
+                    base_revision: range.merge_base.clone(),
+                    head_revision: range.head_commit.clone(),
+                    head_content_revision: revision.to_string(),
+                    merge_base: range.merge_base.clone(),
+                    base_seal: base_oracle.id,
+                    base_seal_digest: base_oracle.digest,
+                    head_seal: head_oracle.id,
+                    head_seal_digest: head_oracle.digest,
+                    changed_obligations,
+                    obligation_replacements,
+                };
+                Some(self.persist_oracle_replacement(&head_run.run_id, &document)?)
+            };
         Ok(build_protection_view(
             &compiled.obligations,
             &diff,
-            &base_snapshot,
-            &head_snapshot,
-            &base_graph,
-            &head_graph,
+            (&base_snapshot, &head_snapshot),
+            (&base_graph, &head_graph),
             &files,
+            oracle_replacement,
         ))
     }
 
@@ -1209,6 +1236,46 @@ impl LiveService {
         )
     }
 
+    /// Persist one immutable, revision-bound expectation replacement proposal.
+    ///
+    /// A human decision is stored separately and must match both the derived
+    /// subject and the CAS digest of these exact bytes.
+    fn persist_oracle_replacement(
+        &self,
+        run: &str,
+        document: &OracleReplacementDocument,
+    ) -> Result<OracleReplacementReview, BusError> {
+        let run = RunId::new(run).map_err(|err| BusError::Identity(err.to_string()))?;
+        let store = self.store()?;
+        if let Some((stored, review)) = stored_oracle_replacement(&store, &run)? {
+            if &stored != document {
+                return Err(BusError::Ambiguous(format!(
+                    "run {run} already carries a different OracleSeal replacement proposal"
+                )));
+            }
+            return Ok(review);
+        }
+        let bytes = serde_json::to_vec_pretty(document).map_err(|err| {
+            BusError::Runtime(format!("cannot encode OracleSeal replacement: {err}"))
+        })?;
+        let mut handles = Vec::new();
+        put_run_artifact(
+            &store,
+            &run,
+            &format!("artifact-{run}-oracle-replacement"),
+            ORACLE_REPLACEMENT_KIND,
+            &bytes,
+            &mut handles,
+        )?;
+        stored_oracle_replacement(&store, &run)?
+            .map(|(_, review)| review)
+            .ok_or_else(|| {
+                BusError::Store(format!(
+                    "run {run} did not retain its OracleSeal replacement proposal"
+                ))
+            })
+    }
+
     /// Gather every axis `quality_verify` composes, from stored evidence only.
     ///
     /// `verify` never executes. Each axis therefore reports one of three honest
@@ -1231,7 +1298,7 @@ impl LiveService {
         };
         let store = self.store()?;
         let range = stored_range(&store, &run.id);
-        let (protection, protection_limits) = Self::protection_axis(&store, run, compiled)?;
+        let (protection, protection_limits) = self.protection_axis(&store, run, compiled)?;
         let (debt, debt_limits) = self.debt_axis(compiled, range.as_ref());
         let (stability, stability_limits) = stability_axis(&self.repo, &store, run, compiled);
         let ai = self.ai_axis(&store, compiled)?;
@@ -1260,6 +1327,7 @@ impl LiveService {
     /// `unmeasured`, never `clean` — a change cannot be shown to have preserved
     /// protection it never compared against.
     fn protection_axis(
+        &self,
         store: &Store,
         run: &StoredRun,
         compiled: &Compiled,
@@ -1268,8 +1336,41 @@ impl LiveService {
         let base = snapshot_artifact(store, &run.id, "base-protection-snapshot")?;
         match (base, head) {
             (Some(base), Some(head)) => {
+                let oracle_replacement = stored_oracle_replacement(store, &run.id)?;
+                let review = oracle_replacement.as_ref().map(|(_, review)| review);
+                if let Some((document, _)) = &oracle_replacement {
+                    let range = stored_range(store, &run.id).ok_or_else(|| {
+                        BusError::Store(format!(
+                            "run {} has an OracleSeal replacement without revision-range evidence",
+                            run.id
+                        ))
+                    })?;
+                    let current_oracle = oracle_identity(&self.repo, compiled)?;
+                    if document.change != compiled.change
+                        || document.base_revision != range.merge_base
+                        || document.head_revision != range.head_commit
+                        || document.head_content_revision != range.head_content_revision
+                        || document.merge_base != range.merge_base
+                        || document.head_content_revision != run.revision.as_str()
+                        || document.head_seal != current_oracle.id
+                        || document.head_seal_digest != current_oracle.digest
+                    {
+                        return Err(BusError::Ambiguous(format!(
+                            "run {} carries an OracleSeal replacement for a different change, revision range, or head seal",
+                            run.id
+                        )));
+                    }
+                }
                 let context = DeltaContext {
                     relocations: snapshot_relocations(&base, &head),
+                    changed_obligations: review
+                        .map(|review| review.changed_obligations.clone())
+                        .unwrap_or_default(),
+                    obligation_replacements: review
+                        .map(|review| review.obligation_replacements.clone())
+                        .unwrap_or_default(),
+                    oracle_replacement_approved: review.is_some_and(|review| review.approved),
+                    approved_replaced_flows: approved_replaced_flows(&base, &head, review),
                     ..DeltaContext::default()
                 };
                 let deltas = protection_delta(&base, &head, &context);
@@ -1284,7 +1385,13 @@ impl LiveService {
                 };
                 let findings = gate_protection(&ProtectionCheckInput {
                     deltas: deltas.clone(),
-                    tests: protection_test_changes(&base, &head, &deltas, &BTreeSet::new()),
+                    tests: protection_test_changes(
+                        &base,
+                        &head,
+                        &deltas,
+                        &BTreeSet::new(),
+                        &context,
+                    ),
                     trends: Vec::new(),
                     policy: ProtectionPolicy {
                         high_risk_flows,
@@ -1414,13 +1521,16 @@ impl LiveService {
         &self,
         range: &RevisionRange,
         files: &[String],
-    ) -> Result<(ProtectionSnapshot, Value), BusError> {
+        change: &str,
+    ) -> Result<(ProtectionSnapshot, Value, Compiled, OracleIdentity), BusError> {
         if let Some(err) = &self.executor_init_error {
             return Err(BusError::Runtime(format!(
                 "registered executor initialization failed: {err}"
             )));
         }
         let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
+        let compiled = compile_repository(&worktree.path, change)?;
+        let oracle = oracle_identity(&worktree.path, &compiled)?;
         let evidence = WeavatrixProvider
             .analyze(&worktree.path)
             .map_err(|err| BusError::Intelligence(err.to_string()))?;
@@ -1459,7 +1569,7 @@ impl LiveService {
                 "base protection replay produced no coverage for the impacted graph".into(),
             )
         })?;
-        Ok((protection, graph))
+        Ok((protection, graph, compiled, oracle))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<RunState>> {
@@ -1469,15 +1579,7 @@ impl LiveService {
     }
 
     fn compiled(&self, change: &str) -> Result<Compiled, BusError> {
-        let change = resolve_change(&self.repo, change)?;
-        let spec = read_change(&self.repo, &change)?;
-        let contract = load_quality_contract(&self.repo, &change)?;
-        let obligations = compile_obligations(&contract, &spec)?;
-        Ok(Compiled {
-            change,
-            spec,
-            obligations,
-        })
+        compile_repository(&self.repo, change)
     }
 
     fn store(&self) -> Result<Store, BusError> {
@@ -1526,11 +1628,13 @@ impl LiveService {
         };
         let base_commit = self.resolve_commit(base)?;
         let merge_base = self.resolve_merge_base(&base_commit, &head_commit)?;
+        let head_content_revision = self.revision()?.to_string();
         Ok(RevisionRange {
             base_ref: base.to_owned(),
             base_commit,
             head_ref: head.to_owned(),
             head_commit,
+            head_content_revision,
             merge_base,
         })
     }
@@ -1646,11 +1750,57 @@ struct Compiled {
     obligations: Vec<TestObligation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OracleIdentity {
+    id: String,
+    digest: String,
+}
+
+/// Immutable proposal bytes stored in CAS before a human decision exists.
+/// Approval state is deliberately not part of this document or its digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct OracleReplacementDocument {
+    schema_v: u32,
+    change: String,
+    base_revision: String,
+    head_revision: String,
+    head_content_revision: String,
+    merge_base: String,
+    base_seal: String,
+    base_seal_digest: String,
+    head_seal: String,
+    head_seal_digest: String,
+    changed_obligations: Vec<String>,
+    obligation_replacements: Vec<(String, String)>,
+}
+
+fn compile_repository(repo: &Path, change: &str) -> Result<Compiled, BusError> {
+    let change = resolve_change(repo, change)?;
+    let spec = read_change(repo, &change)?;
+    let contract = load_quality_contract(repo, &change)?;
+    let obligations = compile_obligations(&contract, &spec)?;
+    Ok(Compiled {
+        change,
+        spec,
+        obligations,
+    })
+}
+
+fn oracle_identity(repo: &Path, compiled: &Compiled) -> Result<OracleIdentity, BusError> {
+    let contract = load_quality_contract(repo, &compiled.change)?;
+    let oracle = seal(&contract, &compiled.obligations, &compiled.spec)?;
+    Ok(OracleIdentity {
+        id: oracle.id.to_string(),
+        digest: oracle.digest.to_string(),
+    })
+}
+
 struct RevisionRange {
     base_ref: String,
     base_commit: String,
     head_ref: String,
     head_commit: String,
+    head_content_revision: String,
     merge_base: String,
 }
 
@@ -4680,6 +4830,72 @@ fn snapshot_artifact(
             serde_json::from_slice(&bytes)
                 .map_err(|err| BusError::Store(format!("invalid {kind} on run {run}: {err}")))?,
         );
+    }
+    Ok(found)
+}
+
+fn stored_oracle_replacement(
+    store: &Store,
+    run: &RunId,
+) -> Result<Option<(OracleReplacementDocument, OracleReplacementReview)>, BusError> {
+    let mut found = None;
+    for artifact in store
+        .run_artifacts(run)
+        .map_err(|err| BusError::Store(err.to_string()))?
+    {
+        let (record, bytes) = store
+            .read_artifact(&artifact)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        if record.kind != ORACLE_REPLACEMENT_KIND {
+            continue;
+        }
+        if found.is_some() {
+            return Err(BusError::Store(format!(
+                "run {run} has more than one OracleSeal replacement proposal"
+            )));
+        }
+        let document: OracleReplacementDocument =
+            serde_json::from_slice(&bytes).map_err(|err| {
+                BusError::Store(format!(
+                    "invalid OracleSeal replacement proposal on run {run}: {err}"
+                ))
+            })?;
+        if document.schema_v != 1 {
+            return Err(BusError::Store(format!(
+                "unknown OracleSeal replacement schema {} on run {run}",
+                document.schema_v
+            )));
+        }
+        let digest = record.content_hash.to_string();
+        let subject = format!("oracle-replacement-{}", &digest[..16]);
+        let approval_decision = store
+            .human_decisions_for_subject(&subject)
+            .map_err(|err| BusError::Store(err.to_string()))?
+            .into_iter()
+            .find(|decision| {
+                matches!(decision.role.as_str(), "qa" | "product")
+                    && decision.decision == "accept_as_intended"
+                    && decision.artifact_digest == digest
+            })
+            .map(|decision| decision.id);
+        let review = OracleReplacementReview {
+            subject,
+            artifact_digest: digest,
+            change: document.change.clone(),
+            base_revision: document.base_revision.clone(),
+            head_revision: document.head_revision.clone(),
+            head_content_revision: document.head_content_revision.clone(),
+            merge_base: document.merge_base.clone(),
+            base_seal: document.base_seal.clone(),
+            base_seal_digest: document.base_seal_digest.clone(),
+            head_seal: document.head_seal.clone(),
+            head_seal_digest: document.head_seal_digest.clone(),
+            changed_obligations: document.changed_obligations.clone(),
+            obligation_replacements: document.obligation_replacements.clone(),
+            approved: approval_decision.is_some(),
+            approval_decision,
+        };
+        found = Some((document, review));
     }
     Ok(found)
 }
@@ -7957,6 +8173,7 @@ fn parse_revision_range_evidence(bytes: &[u8]) -> Result<RevisionRange, BusError
         base_commit: stored.base.commit,
         head_ref: stored.head.reference,
         head_commit: stored.head.commit,
+        head_content_revision: stored.head.content_revision.unwrap_or_default(),
         merge_base: stored.merge_base,
     })
 }
@@ -8441,15 +8658,69 @@ fn coverage_graph_mismatch(nodes: &[Value], coverage_files: BTreeSet<String>) ->
     ))
 }
 
+fn expectation_change(
+    base: &[TestObligation],
+    head: &[TestObligation],
+    seal_changed: bool,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let mut changed = BTreeSet::new();
+    for before in base {
+        if let Some(after) = head.iter().find(|item| item.id == before.id)
+            && before != after
+        {
+            changed.insert(before.id.to_string());
+        }
+    }
+    let removed = base
+        .iter()
+        .filter(|before| !head.iter().any(|after| after.id == before.id))
+        .collect::<Vec<_>>();
+    let added = head
+        .iter()
+        .filter(|after| !base.iter().any(|before| before.id == after.id))
+        .collect::<Vec<_>>();
+    let same_slot = |before: &TestObligation, after: &TestObligation| {
+        before.requirement == after.requirement
+            && before.scenario == after.scenario
+            && before.kind == after.kind
+    };
+    let mut replacements = Vec::new();
+    for before in &removed {
+        changed.insert(before.id.to_string());
+        let candidates = added
+            .iter()
+            .filter(|after| same_slot(before, after))
+            .collect::<Vec<_>>();
+        if candidates.len() == 1
+            && removed
+                .iter()
+                .filter(|candidate| same_slot(candidate, candidates[0]))
+                .count()
+                == 1
+        {
+            replacements.push((before.id.to_string(), candidates[0].id.to_string()));
+        }
+    }
+    changed.extend(added.iter().map(|item| item.id.to_string()));
+    if seal_changed && changed.is_empty() {
+        changed.extend(base.iter().map(|item| item.id.to_string()));
+        changed.extend(head.iter().map(|item| item.id.to_string()));
+    }
+    replacements.sort();
+    replacements.dedup();
+    (changed.into_iter().collect(), replacements)
+}
+
 fn build_protection_view(
     obligations: &[TestObligation],
     diff: &Value,
-    base: &ProtectionSnapshot,
-    head: &ProtectionSnapshot,
-    base_graph: &Value,
-    head_graph: &Value,
+    snapshots: (&ProtectionSnapshot, &ProtectionSnapshot),
+    graphs: (&Value, &Value),
     files: &ChangedFiles,
+    oracle_replacement: Option<OracleReplacementReview>,
 ) -> ProtectionView {
+    let (base, head) = snapshots;
+    let (base_graph, head_graph) = graphs;
     let mut relocations = graph_relocations(diff);
     relocations.extend(snapshot_relocations(base, head));
     relocations.sort();
@@ -8457,12 +8728,24 @@ fn build_protection_view(
     let context = DeltaContext {
         critical_branches: Vec::new(),
         intentionally_removed: Vec::new(),
+        approved_replaced_flows: approved_replaced_flows(base, head, oracle_replacement.as_ref()),
         relocations,
+        changed_obligations: oracle_replacement
+            .as_ref()
+            .map(|review| review.changed_obligations.clone())
+            .unwrap_or_default(),
+        obligation_replacements: oracle_replacement
+            .as_ref()
+            .map(|review| review.obligation_replacements.clone())
+            .unwrap_or_default(),
+        oracle_replacement_approved: oracle_replacement
+            .as_ref()
+            .is_some_and(|review| review.approved),
     };
     let deltas = protection_delta(base, head, &context);
     let lineage = protection_lineage(base, head);
     let changed_tests = files.changed_tests().into_iter().collect::<BTreeSet<_>>();
-    let tests = protection_test_changes(base, head, &deltas, &changed_tests);
+    let tests = protection_test_changes(base, head, &deltas, &changed_tests, &context);
     let any_high_risk = obligations
         .iter()
         .any(|item| matches!(item.risk, RiskLevel::High | RiskLevel::Critical));
@@ -8523,6 +8806,7 @@ fn build_protection_view(
         findings,
         lineage,
         flows,
+        oracle_replacement,
     }
 }
 
@@ -8531,6 +8815,7 @@ fn protection_test_changes(
     head: &ProtectionSnapshot,
     deltas: &[ProtectionDelta],
     changed_tests: &BTreeSet<String>,
+    context: &DeltaContext,
 ) -> Vec<TestChange> {
     let mut changes = Vec::new();
     for item in protection_lineage(base, head) {
@@ -8558,17 +8843,86 @@ fn protection_test_changes(
                 lost_obligations: delta
                     .map(|delta| delta.lost_obligations.clone())
                     .unwrap_or_default(),
-                replaced_by: None,
+                replaced_by: replacement_test_for_flow(base, head, flow, context),
                 assertions_weakened: false,
                 changed_with_implementation: changed_tests
                     .iter()
                     .any(|path| test_identity_has_path(&item.test, path)),
-                new_oracle_seal: false,
-                declared_spec_delta: false,
+                new_oracle_seal: context.oracle_replacement_approved,
+                declared_spec_delta: !context.changed_obligations.is_empty(),
             });
         }
     }
     changes
+}
+
+fn approved_replaced_flows(
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+    review: Option<&OracleReplacementReview>,
+) -> Vec<String> {
+    let Some(review) = review.filter(|review| review.approved) else {
+        return Vec::new();
+    };
+    let proven_on_head = head
+        .flows
+        .iter()
+        .flat_map(|flow| flow.proven_obligations.iter().map(String::as_str))
+        .collect::<BTreeSet<_>>();
+    base.flows
+        .iter()
+        .filter(|flow| {
+            head.flow(&flow.flow)
+                .is_none_or(|candidate| !candidate.is_protected())
+        })
+        .filter(|flow| {
+            !flow.proven_obligations.is_empty()
+                && flow.proven_obligations.iter().all(|before| {
+                    review
+                        .obligation_replacements
+                        .iter()
+                        .any(|(from, to)| from == before && proven_on_head.contains(to.as_str()))
+                })
+        })
+        .map(|flow| flow.flow.clone())
+        .collect()
+}
+
+fn replacement_test_for_flow(
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+    flow: &str,
+    context: &DeltaContext,
+) -> Option<String> {
+    if !context.oracle_replacement_approved {
+        return None;
+    }
+    let before = base.flow(flow)?;
+    let targets = before
+        .proven_obligations
+        .iter()
+        .filter_map(|obligation| {
+            context
+                .obligation_replacements
+                .iter()
+                .find(|(from, _)| from == obligation)
+                .map(|(_, to)| to.as_str())
+        })
+        .collect::<BTreeSet<_>>();
+    if targets.len() != before.proven_obligations.len() {
+        return None;
+    }
+    head.flows
+        .iter()
+        .filter(|candidate| {
+            candidate
+                .proven_obligations
+                .iter()
+                .any(|obligation| targets.contains(obligation.as_str()))
+        })
+        .flat_map(|candidate| candidate.tests.iter())
+        .min()
+        .cloned()
 }
 
 fn test_identity_has_path(identity: &str, path: &str) -> bool {

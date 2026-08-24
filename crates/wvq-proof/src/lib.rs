@@ -61,5 +61,7 @@ pub use protection_delta::{
     DeltaContext, ProtectionDelta, ProtectionDeltaState, ProtectionSummary, protection_delta,
     summarise,
 };
-pub use protection_view::{FlowView, ProtectionReport, ProtectionView, TestLineageView};
+pub use protection_view::{
+    FlowView, OracleReplacementReview, ProtectionReport, ProtectionView, TestLineageView,
+};
 pub use verdict::{ProofVerdict, VerdictInput, decide_verdict};

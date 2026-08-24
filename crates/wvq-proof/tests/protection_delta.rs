@@ -127,6 +127,55 @@ fn a_different_test_proving_the_same_thing_is_replaced() {
 }
 
 #[test]
+fn a_changed_expectation_is_not_replaced_until_the_intent_owner_approves_the_exact_seal() {
+    let base = snap(
+        "rev-base",
+        vec![flow(
+            "permission",
+            "rev-base",
+            &["deny-test"],
+            &["guard"],
+            &["viewer-deny"],
+        )],
+    );
+    let head = snap(
+        "rev-head",
+        vec![flow(
+            "permission",
+            "rev-head",
+            &["allow-test"],
+            &["guard"],
+            &["viewer-allow"],
+        )],
+    );
+    let unapproved = DeltaContext {
+        changed_obligations: vec!["viewer-deny".into(), "viewer-allow".into()],
+        obligation_replacements: vec![("viewer-deny".into(), "viewer-allow".into())],
+        ..DeltaContext::default()
+    };
+
+    let delta = only(&protection_delta(&base, &head, &unapproved), "permission");
+    assert_eq!(delta.state, ProtectionDeltaState::Degraded);
+    assert_eq!(delta.lost_obligations, ["viewer-deny"]);
+    assert!(
+        delta
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("intent-owner")),
+        "the gate must say which authority is missing: {:?}",
+        delta.reasons
+    );
+
+    let approved = DeltaContext {
+        oracle_replacement_approved: true,
+        ..unapproved
+    };
+    let delta = only(&protection_delta(&base, &head, &approved), "permission");
+    assert_eq!(delta.state, ProtectionDeltaState::Replaced);
+    assert!(delta.lost_obligations.is_empty());
+}
+
+#[test]
 fn protection_that_follows_a_refactor_is_relocated() {
     let base = snap(
         "rev-base",

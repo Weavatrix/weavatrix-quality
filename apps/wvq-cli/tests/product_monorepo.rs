@@ -126,6 +126,7 @@ enum HeadScenario {
     HealthyRefactor,
     PhantomProtector,
     DeletedProtector,
+    ApprovedExpectationReplacement,
 }
 
 fn workspace() -> PathBuf {
@@ -282,15 +283,20 @@ fn frontend_test(regression: bool) -> &'static str {
         "import { viewerLabel } from '../src/DeleteWidgetButton.mjs';\n\
          test('viewer cannot delete a widget', () => {\n  expect(viewerLabel()).toBe('Viewer');\n});\n"
     } else {
-        "import { canDelete, DeleteWidgetButton } from '../src/DeleteWidgetButton.mjs';\n\
-         test('viewer cannot delete a widget', () => {\n  expect(canDelete('viewer')).toBe(false);\n  expect(DeleteWidgetButton({ role: 'viewer' }).type).toBe('span');\n});\n"
+        "import { canDelete } from '../src/DeleteWidgetButton.mjs';\n\
+         test('viewer cannot delete a widget', () => {\n  expect(canDelete('viewer')).toBe(false);\n});\n"
     }
 }
 
-fn quality_config(base_url: &str, binding_path: &str) -> String {
+fn quality_config(
+    base_url: &str,
+    binding_path: &str,
+    binding_case: &str,
+    binding_obligation: &str,
+) -> String {
     format!(
         "quality_policy_v: 1\n\n\
-         test_bindings:\n  - path: {binding_path}\n    runner: go-test\n    suite: fixture.local/product/service\n    case: TestViewerCannotDelete\n    obligations: [viewer-deny]\n    cost: 10\n    flake_penalty: 0\n\n\
+         test_bindings:\n  - path: {binding_path}\n    runner: go-test\n    suite: fixture.local/product/service\n    case: {binding_case}\n    obligations: [{binding_obligation}]\n    cost: 10\n    flake_penalty: 0\n\n\
          browser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  timeout_ms: 120000\n  module_root: node_modules/playwright\n  programs:\n    - .weavatrix-quality/programs/viewer.json\n"
     )
 }
@@ -392,13 +398,18 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
     write(
         &root,
         ".weavatrix-quality/config.yaml",
-        quality_config(&base_server.url, "service/permission_test.go"),
+        quality_config(
+            &base_server.url,
+            "service/permission_test.go",
+            "TestViewerCannotDelete",
+            "viewer-deny",
+        ),
     );
 
     git(&root, &["init", "-q"]);
     let base = commit(&root, "A: viewer denial is protected");
 
-    let (message, binding_path) = match scenario {
+    let (message, binding_path, binding_case, binding_obligation) = match scenario {
         HeadScenario::HealthyRefactor => {
             std::fs::rename(
                 root.join("service/permission.go"),
@@ -418,6 +429,8 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
             (
                 "B1: implementation and protector move together",
                 "service/authorization_test.go",
+                "TestViewerCannotDelete",
+                "viewer-deny",
             )
         }
         HeadScenario::PhantomProtector => {
@@ -444,6 +457,8 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
             (
                 "B2: guard disappears while tests stay green",
                 "service/permission_test.go",
+                "TestViewerCannotDelete",
+                "viewer-deny",
             )
         }
         HeadScenario::DeletedProtector => {
@@ -457,13 +472,80 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
             (
                 "B3: delete the only viewer-denial test",
                 "service/permission_test.go",
+                "TestViewerCannotDelete",
+                "viewer-deny",
+            )
+        }
+        HeadScenario::ApprovedExpectationReplacement => {
+            write(
+                &root,
+                "frontend/src/DeleteWidgetButton.mjs",
+                frontend_source(true),
+            );
+            write(
+                &root,
+                "frontend/tests/delete-widget.test.mjs",
+                "import { canDelete, DeleteWidgetButton } from '../src/DeleteWidgetButton.mjs';\n\
+                 test('viewer can delete a widget', () => {\n  expect(canDelete('viewer')).toBe(true);\n  expect(DeleteWidgetButton({ role: 'viewer' }).type).toBe('button');\n});\n",
+            );
+            write(
+                &root,
+                "service/permission.go",
+                "package service\n\nfunc ViewerLabel() string { return \"Viewer\" }\n\nfunc CanDelete(_role string) bool { return true }\n",
+            );
+            write(
+                &root,
+                "service/permission_test.go",
+                "package service\n\nimport \"testing\"\n\nfunc TestViewerCanDelete(t *testing.T) {\n\tif !CanDelete(\"viewer\") { t.Fatal(\"viewer must be allowed\") }\n}\n",
+            );
+            write(
+                &root,
+                "openspec/changes/viewer-delete/specs/widgets/spec.md",
+                "# Widget permissions\n\n## ADDED Requirements\n\n### Requirement: Viewer permissions\nThe system SHALL allow a viewer to delete a widget.\n\n#### Scenario: Viewer opens a widget\n- GIVEN a viewer\n- WHEN the widget is opened\n- THEN the delete action is available\n",
+            );
+            write(
+                &root,
+                "openspec/changes/viewer-delete/quality.yaml",
+                "quality_contract_v: 1\nchange: viewer-delete\n\nrisk:\n  default: high\n\nrequirements:\n  - capability: widgets\n    requirement: viewer-permissions\n    scenarios:\n      - scenario: viewer-opens-a-widget\n        obligations:\n          - id: viewer-allow\n            kind: invariant\n          - id: viewer-delete-visible\n            kind: behavioral\n            expected:\n              kind: visible\n              target:\n                test_id: delete-widget\n        evidence:\n          required: []\n          on_failure: [screenshot]\n\nai:\n  planning_tokens: 100\n  runtime_tokens: 0\n",
+            );
+            write(
+                &root,
+                ".weavatrix-quality/programs/viewer.json",
+                r#"{
+  "schema_v": 1,
+  "id": "viewer-widget",
+  "source": "authored",
+  "obligations": ["viewer-delete-visible"],
+  "steps": [
+    {"action": "navigate", "route": "/"},
+    {"action": "assert", "obligation": "viewer-delete-visible"}
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "never",
+    "network": "always",
+    "console": "always",
+    "storage": "never"
+  }
+}"#,
+            );
+            (
+                "B4: replace denial with an intended allow rule",
+                "service/permission_test.go",
+                "TestViewerCanDelete",
+                "viewer-allow",
             )
         }
     };
     write(
         &root,
         ".weavatrix-quality/config.yaml",
-        quality_config(&head_server.url, binding_path),
+        quality_config(
+            &head_server.url,
+            binding_path,
+            binding_case,
+            binding_obligation,
+        ),
     );
     let head = commit(&root, message);
     link_node_modules(&root);
@@ -649,4 +731,166 @@ fn committed_monorepo_reports_a_deleted_sole_protector_as_protect_003() {
             .iter()
             .any(|finding| finding.check.as_str() == "WVQ-PROTECT-003")
     );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn committed_monorepo_replaces_an_expectation_only_after_one_exact_approval() {
+    let fixture = product_fixture(HeadScenario::ApprovedExpectationReplacement);
+    let live = LiveService::new(&fixture.repo.0);
+    let pending = live
+        .protection_view("viewer-delete", &fixture.base, &fixture.head)
+        .expect("measure committed expectation replacement");
+    let review = pending
+        .oracle_replacement
+        .clone()
+        .expect("a changed OracleSeal creates one review packet");
+    assert_eq!(review.base_revision, fixture.base);
+    assert_eq!(review.head_revision, fixture.head);
+    assert_eq!(review.merge_base, fixture.base);
+    assert_ne!(review.base_seal_digest, review.head_seal_digest);
+    assert_eq!(
+        review.obligation_replacements,
+        [
+            ("viewer-deny".into(), "viewer-allow".into()),
+            (
+                "viewer-label-visible".into(),
+                "viewer-delete-visible".into()
+            ),
+        ]
+    );
+    assert!(!review.approved);
+    assert!(pending.report().blocking);
+
+    let studio_service: Arc<dyn QualityService> = Arc::new(LiveService::new(&fixture.repo.0));
+    let studio = Studio::new(
+        studio_service,
+        Store::open(&fixture.repo.0).expect("fixture store"),
+    );
+
+    // A broad or stale approval cannot silently bless a different proposal.
+    let stale = studio.handle(&HttpRequest {
+        method: "POST".into(),
+        path: "/api/v1/human-decisions".into(),
+        body: json!({
+            "id": "hd-b4-stale",
+            "reviewer": "quality-agent",
+            "role": "product",
+            "subject": review.subject,
+            "artifact_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+            "decision": "accept_as_intended",
+            "comment": "proposal prepared automatically; stale digest must not match",
+            "decided_at": "2026-08-24T12:00:00Z"
+        })
+        .to_string(),
+    });
+    assert_eq!(stale.status, 201, "{}", stale.body);
+    let still_pending = live
+        .verify(&VerifyCommand {
+            change: "viewer-delete".into(),
+        })
+        .expect("stale approval stays pending");
+    assert_eq!(still_pending.state, "BLOCKED");
+
+    let developer = studio.handle(&HttpRequest {
+        method: "POST".into(),
+        path: "/api/v1/human-decisions".into(),
+        body: json!({
+            "id": "hd-b4-developer",
+            "reviewer": "implementation-agent",
+            "role": "developer",
+            "subject": review.subject,
+            "artifact_digest": review.artifact_digest,
+            "decision": "accept_as_intended",
+            "comment": "implementation evidence cannot establish business intent",
+            "decided_at": "2026-08-24T12:00:30Z"
+        })
+        .to_string(),
+    });
+    assert_eq!(developer.status, 201, "{}", developer.body);
+    assert_eq!(
+        live.verify(&VerifyCommand {
+            change: "viewer-delete".into(),
+        })
+        .expect("developer approval cannot seal intent")
+        .state,
+        "BLOCKED"
+    );
+
+    // All analysis is automatic. The only human action is accepting this one
+    // exact, immutable replacement packet.
+    let accepted = studio.handle(&HttpRequest {
+        method: "POST".into(),
+        path: "/api/v1/human-decisions".into(),
+        body: json!({
+            "id": "hd-b4-exact",
+            "reviewer": "intent-owner",
+            "role": "product",
+            "subject": review.subject,
+            "artifact_digest": review.artifact_digest,
+            "decision": "accept_as_intended",
+            "comment": "the replacement shown by WVQ is the intended business behavior",
+            "decided_at": "2026-08-24T12:01:00Z"
+        })
+        .to_string(),
+    });
+    assert_eq!(accepted.status, 201, "{}", accepted.body);
+
+    let direct = live
+        .verify(&VerifyCommand {
+            change: "viewer-delete".into(),
+        })
+        .expect("exact approval unlocks the composite verdict");
+    assert_eq!(direct.verdict, "PROVEN");
+    assert!(
+        matches!(direct.state.as_str(), "PASS" | "PASS_WITH_WARNINGS"),
+        "approved expectation replacement must pass: {:?}",
+        direct.quality.blocking_reasons
+    );
+    assert!(direct.quality.protection.summary.replaced >= 1);
+    assert_eq!(direct.quality.ai.runtime_tokens, 0);
+
+    let root = fixture.repo.0.to_str().expect("UTF-8 fixture path");
+    let cli = wvq_cli::run(&[
+        "--repo".into(),
+        root.into(),
+        "verify".into(),
+        "--change".into(),
+        "viewer-delete".into(),
+    ]);
+    assert_eq!(cli.code, 0, "{}", cli.stderr);
+    let cli_json: Value = serde_json::from_str(&cli.stdout).expect("CLI JSON");
+    assert_eq!(cli_json["body"]["verdict"], "PROVEN");
+    assert!(matches!(
+        cli_json["body"]["state"].as_str(),
+        Some("PASS" | "PASS_WITH_WARNINGS")
+    ));
+    assert!(
+        cli_json["body"]["quality"]["protection"]["summary"]["replaced"]
+            .as_u64()
+            .is_some_and(|count| count >= 1)
+    );
+
+    let mcp_service: Arc<dyn QualityService> = Arc::new(LiveService::new(&fixture.repo.0));
+    let mcp = protocol_verify(&mcp_service);
+    assert!(mcp.contains("\"verdict\":\"PROVEN\""), "{mcp}");
+    assert!(
+        mcp.contains("\"state\":\"PASS\"") || mcp.contains("\"state\":\"PASS_WITH_WARNINGS\""),
+        "{mcp}"
+    );
+    assert!(mcp.contains("\"replaced\":"), "{mcp}");
+
+    let summary = studio.handle(&HttpRequest {
+        method: "GET".into(),
+        path: "/api/v1/changes/viewer-delete/summary".into(),
+        body: String::new(),
+    });
+    assert_eq!(summary.status, 200, "{}", summary.body);
+    let summary: Value = serde_json::from_str(&summary.body).expect("Studio summary JSON");
+    assert_eq!(summary["verdict"], "PROVEN");
+    assert_eq!(summary["blocking"], false);
+    assert!(matches!(
+        summary["state"].as_str(),
+        Some("PASS" | "PASS_WITH_WARNINGS")
+    ));
 }

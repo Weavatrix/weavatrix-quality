@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: Weavatrix 2.7.1 and committed protection continuity
+Session: exact OracleSeal replacement through the committed B4 product path
 
 ## Now
 
@@ -44,7 +44,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
 | Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
 | Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
-| Committed product fixture | ✅ A/B1–B5 | 🟡 A/B1–B3 | 🟡 CLI/MCP/Studio for B2 | 🟡 A/B1–B3; B4/B5 not connected |
+| Committed product fixture | ✅ A/B1–B5 | 🟡 A/B1–B4 | 🟡 CLI/MCP/Studio for B2/B4 | 🟡 A/B1–B4; B5 not connected |
 | Sealed UI predicates | ✅ | ✅ | ✅ | ✅ Chromium, each asserted both ways |
 | `LayoutSnapshot` v1 | ✅ | ✅ | ✅ | ✅ bounded, redacted, settle-checked |
 | UI Integrity detectors | ✅ | ✅ | ✅ | ✅ Chromium base/head fixture |
@@ -54,9 +54,9 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Duplicate mutation requests | ✅ idea | ❌ | ❌ | ❌ deferred: no action-span protocol |
 | Responsive interval search | ✅ idea | ❌ | ❌ | ❌ |
 
-Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.1 and adds a clean committed A/B1/B2/B3 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published live vertical through BehaviorGraph (`7ed6db4`) passed GitHub Actions run [32412625159](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32412625159) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.1 and adds a clean committed A/B1/B2/B3/B4 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/sergii-ziborov/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Local validation: 491 Rust tests, 20 Playwright-runner tests, and 5 npm package tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied, and the public TypeScript declarations compile under strict `NodeNext`.
+Local validation: 493 Rust tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied. The prior 20 Playwright-runner tests, 5 npm package tests, and strict public `NodeNext` declarations remain unchanged by this Rust-owned path.
 
 ## Composite change verdict
 
@@ -77,10 +77,11 @@ The product fixture creates a real temporary Git monorepo with two clean commits
 - **A → B1, healthy refactor:** implementation and its exact protector move files and the function moves to a different source line. Symbol identity is relocated without using the old path or source position, measured protection is preserved, and the composite verdict passes.
 - **A → B2, phantom protector:** the exact Go case still passes but stops executing `CanDelete`; an unrelated covered symbol cannot hide the loss. The optional protection view emits `WVQ-PROTECT-002`, and the same stored loss blocks ordinary `quality_verify`, actual MCP JSON-RPC, and the Studio summary while behavioural proof remains `PROVEN`.
 - **A → B3, deleted protector:** the sole exact protector disappears while the remaining suite is green. Both the detailed view and default verdict retain `WVQ-PROTECT-003` and block.
+- **A → B4, intended expectation replacement:** OpenSpec, its compiled obligations, the Go protector, and the Playwright assertion change from viewer denial to viewer allowance. WVQ stores one immutable proposal containing base/head/merge-base, the exact Weavatrix content revision, both full seal digests, and the explicit obligation mapping. A stale digest or developer acceptance cannot authorize it. One exact QA or product-owner acceptance makes the old helper paths obsolete, the new protector `REPLACED`, and CLI, MCP, and Studio return `PROVEN` with a non-blocking composite state and zero runtime model tokens.
 
 Coverage is assigned to an exact case only when normalized evidence contains one passing case and its runner, suite, and case match a repository binding. Multi-case coverage remains executor-level evidence; WVQ does not guess which case reached a symbol. Current Weavatrix nested spans are read at symbol granularity, and the file node is used only as a fallback when that source has no symbol spans.
 
-The fixture does not yet prove B4 or B5 end to end. B4 requires a persisted human-approved OracleSeal replacement to reach protection context. B5 requires the live recovery producer to emit candidates for changed public symbols, not only endpoint/route/contract/event additions and removals. The library rules exist, but those two producers are the remaining connection work.
+The fixture does not yet prove B5 end to end. The live recovery producer must emit candidates for changed public symbols, not only endpoint/route/contract/event additions and removals. The library review rules already prevent implementation evidence from establishing intent or auto-sealing a candidate; the remaining work is the producer and its transport-level proof.
 
 ## UI integrity
 
@@ -159,7 +160,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
-Current validation: 491 Rust tests, 20 Playwright-runner tests, and 5 JS package tests pass with zero failures. Public TypeScript declarations compile in strict `NodeNext`; workspace Clippy passes for all targets with warnings denied. The real shadow benchmark also passed both sequential scopes and produced a corroborated normalized-case audit.
+Current validation: 493 Rust tests pass with zero failures, and workspace Clippy passes for all targets with warnings denied. The prior 20 Playwright-runner tests, 5 JS package tests, strict public `NodeNext` declarations, and corroborated real shadow benchmark remain unchanged by the B4 path.
 
 ## JS/npm distribution
 
@@ -187,6 +188,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
 | ui integrity | Collects one bounded, settle-checked layout snapshot per step, runs the detectors in Rust, and persists `ui-layout-snapshot`, `ui-hit-test-map`, and `ui-integrity-findings`; `ui_integrity_view` replays the base and stores the classified `ui-integrity-delta` |
 | proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
+| expectation replacement | Compares base/head `OracleSeal` documents, persists one immutable revision-bound proposal, refuses stale or developer-only approval, and feeds an exact QA/product-owner acceptance into the default protection verdict |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
 | verdict | Composes proof, protection, debt, stability, AI, and UI integrity into one ranked change-level state from stored evidence, without executing anything |
@@ -222,10 +224,9 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining committed product-fixture paths before adding another feature family:
 
-1. **B4 — approved expectation replacement.** Persist the QA decision and new OracleSeal against the exact change/revision, feed that approval into `DeltaContext`, and prove `REPLACED / PROVEN` through CLI, MCP, and `qualityd`.
-2. **B5 — changed-symbol recovery.** Produce a bounded candidate when a public function and its test change without an OpenSpec delta, route it to `QA_REVIEW`, and prove that neither recovery nor implementation evidence can auto-seal it.
-3. **Executed-protector inventory.** Store exact normalized test identities independently of covered flows, so a surviving case that reaches no impacted symbol is still classified as phantom instead of merely absent.
-4. **Responsive failure interval search.** Bisect around CSS and container breakpoints instead of testing a fixed viewport list, so the exact width a control breaks at is reported rather than guessed.
-5. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
+1. **B5 — changed-symbol recovery.** Produce a bounded candidate when a public function and its test change without an OpenSpec delta, route it to `QA_REVIEW`, and prove that neither recovery nor implementation evidence can auto-seal it. Keep QA load to one bounded decision packet; deterministic checks and optional AI preparation must do the analysis.
+2. **Executed-protector inventory.** Store exact normalized test identities independently of covered flows, so a surviving case that reaches no impacted symbol is still classified as phantom instead of merely absent.
+3. **Responsive failure interval search.** Bisect around CSS and container breakpoints instead of testing a fixed viewport list, so the exact width a control breaks at is reported rather than guessed.
+4. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
 
 After that: add the typed action-span protocol before duplicate-mutation detection, then finish the live mutation producer, metamorphic project adapter, closed-loop cheap explorer, responsive UI wave, and Studio frontend. Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

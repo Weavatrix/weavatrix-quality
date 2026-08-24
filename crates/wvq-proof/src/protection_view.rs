@@ -3,7 +3,7 @@
 //! One view object so both transports answer the same question the same way:
 //! *what protected this flow before the change, and what protects it now?*
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::protection_checks::{ProtectionFinding, blocks};
 use crate::protection_delta::{ProtectionDelta, ProtectionSummary, summarise};
@@ -52,6 +52,44 @@ pub struct FlowView {
     pub proof_after: Vec<String>,
 }
 
+/// Exact human-review identity for one changed sealed expectation.
+///
+/// The digest belongs to the revision-bound proposal artifact. A generic QA
+/// decision about the change or the new seal is deliberately insufficient.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OracleReplacementReview {
+    /// One concrete decision subject derived from the proposal digest.
+    pub subject: String,
+    /// CAS digest of the proposal the reviewer must have seen.
+    pub artifact_digest: String,
+    /// `OpenSpec` change.
+    pub change: String,
+    /// Exact base commit measured.
+    pub base_revision: String,
+    /// Exact head commit measured.
+    pub head_revision: String,
+    /// Exact Weavatrix content revision executed on head/worktree.
+    pub head_content_revision: String,
+    /// Common ancestor used for comparison.
+    pub merge_base: String,
+    /// Seal that governed base.
+    pub base_seal: String,
+    /// Full digest of the base seal document.
+    pub base_seal_digest: String,
+    /// Proposed seal on head.
+    pub head_seal: String,
+    /// Full digest of the proposed head seal document.
+    pub head_seal_digest: String,
+    /// Obligation ids whose sealed meaning changed.
+    pub changed_obligations: Vec<String>,
+    /// Explicit base → head obligation replacements.
+    pub obligation_replacements: Vec<(String, String)>,
+    /// True only after an exact digest-matching QA or product-owner acceptance.
+    pub approved: bool,
+    /// Provenance of the acceptance.
+    pub approval_decision: Option<String>,
+}
+
 /// Everything the protection surfaces serve.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProtectionView {
@@ -63,6 +101,8 @@ pub struct ProtectionView {
     pub lineage: Vec<TestLineageView>,
     /// Full before/after detail per flow.
     pub flows: Vec<FlowView>,
+    /// Human review required when the sealed expectation changed.
+    pub oracle_replacement: Option<OracleReplacementReview>,
 }
 
 /// `quality_protection` reply.
@@ -78,6 +118,8 @@ pub struct ProtectionReport {
     pub findings: Vec<ProtectionFinding>,
     /// Whether anything must fail CI.
     pub blocking: bool,
+    /// Exact proposal to review, when the `OracleSeal` changed.
+    pub oracle_replacement: Option<OracleReplacementReview>,
 }
 
 impl ProtectionView {
@@ -98,6 +140,7 @@ impl ProtectionView {
             suppressed_healthy: healthy.len(),
             findings: self.findings.clone(),
             blocking: blocks(&self.findings),
+            oracle_replacement: self.oracle_replacement.clone(),
         }
     }
 
