@@ -73,6 +73,23 @@ fn one_changed_obligation_cannot_authorize_a_mixed_program() {
 }
 
 #[test]
+fn a_program_that_asserts_no_obligation_is_never_authorized() {
+    let scope = SpecChangeScope::from_parts(vec!["product.export-report".into()], Vec::new());
+    let delta = scoped_spec_delta(
+        &scope,
+        &[obligation(
+            "export-csv",
+            "product.export-report",
+            "csv-export",
+        )],
+        &[],
+    );
+    assert!(!delta.changed);
+    assert!(delta.authorized_obligations.is_empty());
+    assert!(delta.unauthorized_obligations.is_empty());
+}
+
+#[test]
 fn matrix_matches_spec_table() {
     assert_eq!(
         classify_triangle(true, true, true),
