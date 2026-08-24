@@ -307,7 +307,7 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
     write(
         &root,
         ".gitignore",
-        "node_modules/\nfrontend/coverage/\nfrontend/.weavatrix-quality/\n\
+        "node_modules\nfrontend/coverage/\nfrontend/.weavatrix-quality/\n\
          backend/.weavatrix-quality/\nservice/.weavatrix-quality/\n\
          .weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n.weavatrix-quality/objects/\n\
          .weavatrix-quality/runtime/\n.weavatrix-quality/browser-evidence/\n",
@@ -467,7 +467,8 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
     );
     let head = commit(&root, message);
     link_node_modules(&root);
-    assert!(git(&root, &["status", "--porcelain"]).is_empty());
+    let status = git(&root, &["status", "--porcelain"]);
+    assert!(status.is_empty(), "fixture worktree is dirty:\n{status}");
 
     ProductFixture {
         repo: TempRepo(root),
