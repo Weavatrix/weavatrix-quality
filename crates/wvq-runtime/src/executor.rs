@@ -151,6 +151,40 @@ impl ExecutorRegistry {
             None,
         )?)?;
         registry.register(spec(
+            "storybook-vitest",
+            npm,
+            &[
+                "exec",
+                "--offline",
+                "--yes=false",
+                "--",
+                "vitest",
+                "run",
+                "--project=storybook",
+                "--reporter=junit",
+                "--outputFile=.weavatrix-quality/junit.xml",
+            ],
+            None,
+        )?)?;
+        registry.register(spec(
+            "storybook-vitest-v8",
+            npm,
+            &[
+                "exec",
+                "--offline",
+                "--yes=false",
+                "--",
+                "vitest",
+                "run",
+                "--project=storybook",
+                "--coverage",
+                "--coverage.reporter=lcov",
+                "--reporter=junit",
+                "--outputFile=.weavatrix-quality/junit.xml",
+            ],
+            None,
+        )?)?;
+        registry.register(spec(
             "jest",
             "jest",
             &["--runInBand"],
@@ -290,7 +324,10 @@ fn spec(
         filter_flag: filter_flag.map(ToOwned::to_owned),
         capabilities: ExecutorCapabilities {
             cases: true,
-            coverage: matches!(id, "vitest" | "jest" | "bun-test" | "go-test"),
+            coverage: matches!(
+                id,
+                "vitest" | "storybook-vitest-v8" | "jest" | "bun-test" | "go-test"
+            ),
         },
     })
 }

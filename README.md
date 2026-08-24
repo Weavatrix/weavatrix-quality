@@ -7,7 +7,7 @@ The Spec-to-Proof quality layer of the [Weavatrix ecosystem](https://weavatrix.c
 
 **Turn product intent and a repository change into revision-bound proof — without spending LLM tokens on the green path.**
 
-Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` 2.7.2 as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
+Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` 2.7.4 as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
 
 ```text
 OpenSpec says what should remain true.
@@ -58,7 +58,7 @@ A Rust, TS/JS, Bun, Go, or Playwright repository can:
 2. compare base/head Weavatrix graph evidence;
 3. classify quality debt as `new / existing / fixed / returned / excepted`;
 4. combine static impact with policy-bound obligation coverage;
-5. execute Cargo, npm, Vitest, Jest, Bun, Go, or Playwright through registered bounded argv;
+5. execute Cargo, npm, Vitest, Storybook/Vitest, Jest, Bun, Go, or Playwright through registered bounded argv;
 6. normalize runner output and fresh coverage artifacts;
 7. reject a revision change during execution;
 8. assemble and persist same-revision Proofs;
@@ -71,6 +71,8 @@ Fresh normalized JUnit, Go, and typed browser results also feed persistent test 
 Playwright observations also feed the live BehaviorGraph. WVQ hashes canonical route + accessibility + viewport state, persists semantic transitions between adjacent observations, links them to the program's sealed obligations and observed API operations, and reports both run-local and newly learned state/edge counts. The bounded `behavior-contribution` artifact records exact run/revision provenance and zero runtime LLM tokens. Browser coverage stays explicitly `unmeasured` until a browser coverage producer exists; it is never inferred from a DOM observation.
 
 For a package whose test script is exactly `vitest` or `vitest run`, WVQ selects the registered Vitest executor and adds the runner's built-in JUnit reporter automatically. It resolves the repository-local binary through offline, non-interactive npm execution, imports the report, and deletes only WVQ's private `.weavatrix-quality/junit.xml` before checking the revision. Repository-owned report paths are never removed. More complex package scripts stay on the generic npm boundary and can still contribute any fresh supported JUnit/LCOV artifacts they produce.
+
+Repositories using Storybook's official Vitest addon get a separate bounded browser-project executor. An impacted run unions the base and head Weavatrix surfaces, selects an existing `.stories.*` file only when that story is in the union, and invokes `vitest run --project=storybook` rather than the ordinary Vitest project. When `@vitest/coverage-v8` is declared, the executor also emits LCOV; otherwise WVQ records the real browser case without pretending coverage exists. JUnit failures override a zero process exit code, so a reporter-only failure cannot become a false pass.
 
 Measured coverage can teach later selections without replacing Weavatrix. WVQ attributes graph nodes to a test only when a successful executor invocation ran exactly one test path; aggregate coverage from multi-test batches is never guessed onto each member. A historical test enters the base/head candidate union only after the same test-node relation was observed in two distinct runs. The bounded `selection-decision` artifact shows every chosen path, its evidence chain, the observation floor, and uncovered obligations.
 

@@ -1271,7 +1271,7 @@ impl LiveService {
             || head_default.responsive_breakpoints_incomplete;
         let mut probes = Vec::new();
         for width in plan.widths {
-            probes.push(self.measure_responsive_probe(
+            probes.push(self.measure_responsive_probe_with_retry(
                 width,
                 &base_worktree.path,
                 &base_revision,
@@ -1283,7 +1283,7 @@ impl LiveService {
             )?);
         }
         while let Some(width) = next_responsive_probe(&policy.responsive, &probes) {
-            probes.push(self.measure_responsive_probe(
+            probes.push(self.measure_responsive_probe_with_retry(
                 width,
                 &base_worktree.path,
                 &base_revision,
@@ -1307,6 +1307,48 @@ impl LiveService {
             responsive_failure_intervals(&policy.responsive, &probes),
             truncated,
         ))
+    }
+
+    /// A browser can report a bounded transient collection limitation (for
+    /// example, one state still settling) even when the repository is static.
+    /// Retry that exact width once. A second incomplete measurement is kept and
+    /// therefore still fails closed; retries never turn missing evidence into a
+    /// pass.
+    #[allow(clippy::too_many_arguments)]
+    fn measure_responsive_probe_with_retry(
+        &self,
+        width: u32,
+        base_repo: &Path,
+        base_revision: &RevisionId,
+        base_browser: &BrowserPolicy,
+        head_revision: &RevisionId,
+        head_browser: &BrowserPolicy,
+        policy: &UiIntegrityPolicy,
+        previously_fixed: &BTreeSet<String>,
+    ) -> Result<ResponsiveProbe, BusError> {
+        let first = self.measure_responsive_probe(
+            width,
+            base_repo,
+            base_revision,
+            base_browser,
+            head_revision,
+            head_browser,
+            policy,
+            previously_fixed,
+        )?;
+        if !responsive_probe_incomplete(&first) {
+            return Ok(first);
+        }
+        self.measure_responsive_probe(
+            width,
+            base_repo,
+            base_revision,
+            base_browser,
+            head_revision,
+            head_browser,
+            policy,
+            previously_fixed,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2455,6 +2497,7 @@ impl QualityService for LiveService {
             &self.repo,
             &static_selection,
             &graph_diff,
+            &impact,
             &obligation_needs,
             &browser_bindings,
             &historical_selection,
@@ -3316,6 +3359,7 @@ impl QualityService for LiveService {
             &self.repo,
             &static_report,
             &diff,
+            &impact,
             &obligations,
             &browser_bindings,
             &historical_selection,
@@ -5695,6 +5739,8 @@ fn load_test_bindings(repo: &Path) -> Result<Vec<TestBinding>, BusError> {
                 runner,
                 "cargo-test"
                     | "vitest"
+                    | "storybook-vitest"
+                    | "storybook-vitest-v8"
                     | "jest"
                     | "bun-test"
                     | "go-test"
@@ -6673,10 +6719,31 @@ fn merge_historical_selection(
     }
 }
 
+fn merge_impacted_stories(
+    repo: &Path,
+    impact: &wvq_intelligence::ImpactedSurface,
+    selected: &mut Vec<String>,
+    explanations: &mut BTreeMap<String, BTreeSet<String>>,
+) {
+    for path in impact
+        .all_nodes()
+        .iter()
+        .filter_map(|node| test_path_from_node_id(node))
+        .filter(|path| is_story_path(path) && repo.join(path).is_file())
+    {
+        explanations
+            .entry(path.clone())
+            .or_default()
+            .insert("selected as a Storybook state in the base/head Weavatrix impact union".into());
+        selected.push(path);
+    }
+}
+
 fn build_live_selection(
     repo: &Path,
     static_report: &Value,
     diff: &Value,
+    impact: &wvq_intelligence::ImpactedSurface,
     obligations: &[ObligationNeed],
     additional_bindings: &[TestBinding],
     historical: &[HistoricalTestCandidate],
@@ -6689,6 +6756,7 @@ fn build_live_selection(
         .map(|(path, reasons)| (path, reasons.into_iter().collect::<BTreeSet<_>>()))
         .collect::<BTreeMap<_, _>>();
     merge_historical_selection(repo, historical, &mut static_selected, &mut explanations);
+    merge_impacted_stories(repo, impact, &mut static_selected, &mut explanations);
     let known = obligations
         .iter()
         .map(|obligation| obligation.id.clone())
@@ -7160,7 +7228,7 @@ fn build_execution_requests(
         matching.sort_by_key(|target| std::cmp::Reverse(target.cwd.components().count()));
         let Some(target) = matching
             .into_iter()
-            .find(|target| supports_path_filters(target.executor.as_str()))
+            .find(|target| target_accepts_filter(target, selected))
         else {
             return full_execution_requests(
                 targets,
@@ -7258,7 +7326,24 @@ fn batch_filter_groups(grouped: FilterGroups) -> Vec<ExecutionRequest> {
 }
 
 fn supports_path_filters(executor: &str) -> bool {
-    matches!(executor, "vitest" | "jest" | "bun-test" | "playwright")
+    matches!(
+        executor,
+        "vitest" | "storybook-vitest" | "storybook-vitest-v8" | "jest" | "bun-test" | "playwright"
+    )
+}
+
+fn target_accepts_filter(target: &ExecutorTarget, path: &str) -> bool {
+    if is_story_path(path) {
+        matches!(
+            target.executor.as_str(),
+            "storybook-vitest" | "storybook-vitest-v8"
+        )
+    } else {
+        !matches!(
+            target.executor.as_str(),
+            "storybook-vitest" | "storybook-vitest-v8"
+        ) && supports_path_filters(target.executor.as_str())
+    }
 }
 
 fn available_test_paths(
@@ -7286,7 +7371,7 @@ fn available_test_paths(
         .filter(|path| {
             let absolute = repo.join(path);
             targets.iter().any(|target| {
-                supports_path_filters(target.executor.as_str()) && absolute.starts_with(&target.cwd)
+                target_accepts_filter(target, path) && absolute.starts_with(&target.cwd)
             })
         })
         .collect::<BTreeSet<_>>();
@@ -7306,6 +7391,14 @@ fn full_execution_requests(
     (
         targets
             .iter()
+            .filter(|target| {
+                !matches!(
+                    target.executor.as_str(),
+                    "storybook-vitest" | "storybook-vitest-v8"
+                ) || !targets.iter().any(|candidate| {
+                    candidate.cwd == target.cwd && candidate.executor.as_str() == "vitest"
+                })
+            })
             .cloned()
             .map(|target| ExecutionRequest {
                 target,
@@ -7399,6 +7492,16 @@ fn is_test_path(path: &str) -> bool {
         || file.starts_with("test_")
         || file.contains(".test.")
         || file.contains(".spec.")
+        || file.contains(".stories.")
+}
+
+fn is_story_path(path: &str) -> bool {
+    normalize_path(path)
+        .rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .to_ascii_lowercase()
+        .contains(".stories.")
 }
 
 fn normalize_path(path: &str) -> String {
@@ -7827,6 +7930,10 @@ fn ui_delta_document(delta: &UiIntegrityDelta) -> Value {
         "responsive_truncated": delta.responsive_truncated,
         "runtime_llm_tokens": 0,
     })
+}
+
+fn responsive_probe_incomplete(probe: &ResponsiveProbe) -> bool {
+    probe.delta.truncated || !probe.delta.unmeasured_states.is_empty()
 }
 
 fn ui_finding_refs_with_intervals(
@@ -9015,9 +9122,11 @@ fn coverage_graph_mismatch(nodes: &[Value], coverage_files: BTreeSet<String>) ->
                     .or_else(|| node.get("file"))?
                     .as_str()?,
                 node.pointer("/span/start_line")
+                    .or_else(|| node.pointer("/span/start/line"))
                     .or_else(|| node.get("start_line"))?
                     .as_u64()?,
                 node.pointer("/span/end_line")
+                    .or_else(|| node.pointer("/span/end/line"))
                     .or_else(|| node.get("end_line"))
                     .and_then(Value::as_u64)
                     .unwrap_or(0)
@@ -10007,14 +10116,19 @@ fn attach_normalized_artifacts(
         let normalized = match kind {
             "junit" => parse_junit(text)
                 .and_then(|run| {
-                    serde_json::to_vec_pretty(&run).map_err(|err| {
-                        wvq_runtime::RuntimeError::Malformed {
+                    let failed_cases = run
+                        .cases
+                        .iter()
+                        .filter(|case| matches!(case.status, TestStatus::Fail | TestStatus::Error))
+                        .count();
+                    serde_json::to_vec_pretty(&run)
+                        .map_err(|err| wvq_runtime::RuntimeError::Malformed {
                             kind: "normalized-test-run".into(),
                             message: err.to_string(),
-                        }
-                    })
+                        })
+                        .map(|bytes| (bytes, failed_cases))
                 })
-                .map(|bytes| ("normalized-test-run", bytes)),
+                .map(|(bytes, failed_cases)| ("normalized-test-run", bytes, failed_cases)),
             "lcov" => parse_lcov(text)
                 .map(|mut coverage| {
                     normalize_coverage_paths(repo, cwd, &mut coverage);
@@ -10028,7 +10142,7 @@ fn attach_normalized_artifacts(
                         }
                     })
                 })
-                .map(|bytes| ("coverage", bytes)),
+                .map(|bytes| ("coverage", bytes, 0)),
             "go-coverprofile" => parse_go_coverprofile(text)
                 .map(|mut coverage| {
                     normalize_coverage_paths(repo, cwd, &mut coverage);
@@ -10042,15 +10156,25 @@ fn attach_normalized_artifacts(
                         }
                     })
                 })
-                .map(|bytes| ("coverage", bytes)),
+                .map(|bytes| ("coverage", bytes, 0)),
             _ => continue,
         };
         match normalized {
-            Ok((normalized_kind, bytes)) => record.artifacts.push(ProducedArtifact {
-                kind: normalized_kind.into(),
-                path: format!("{display_path}#normalized"),
-                bytes,
-            }),
+            Ok((normalized_kind, bytes, failed_cases)) => {
+                if failed_cases > 0 {
+                    set_record_error(
+                        record,
+                        format!(
+                            "runner artifact {display_path} reports {failed_cases} failed or errored test case(s)"
+                        ),
+                    );
+                }
+                record.artifacts.push(ProducedArtifact {
+                    kind: normalized_kind.into(),
+                    path: format!("{display_path}#normalized"),
+                    bytes,
+                });
+            }
             Err(err) => set_record_error(record, err.to_string()),
         }
     }
@@ -10229,6 +10353,63 @@ mod tests {
             test_path_from_node_id("file:src/widget/Widget.test.tsx"),
             Some("src/widget/Widget.test.tsx".into())
         );
+        assert_eq!(
+            test_path_from_node_id("file:src/widget/Widget.stories.tsx"),
+            Some("src/widget/Widget.stories.tsx".into())
+        );
+    }
+
+    #[test]
+    fn an_impacted_story_routes_only_to_the_storybook_vitest_project() {
+        let root = TempDir::new("storybook-impact-routing");
+        std::fs::create_dir_all(root.0.join("src/widget")).unwrap();
+        let story = "src/widget/Widget.stories.tsx";
+        std::fs::write(root.0.join(story), "export const Default = {};").unwrap();
+        let impact = wvq_intelligence::ImpactedSurface {
+            head_only: vec![format!("file:{story}")],
+            ..wvq_intelligence::ImpactedSurface::default()
+        };
+        let diff = json!({
+            "counts": {
+                "nodes_added": 0,
+                "nodes_removed": 0,
+                "nodes_changed": 0,
+                "edges_added": 0,
+                "edges_removed": 0
+            },
+            "nodes": {"added": [], "removed": [], "changed": []},
+            "edges": {"added": [], "removed": []}
+        });
+        let selection = build_live_selection(
+            &root.0,
+            &json!({"tests": []}),
+            &diff,
+            &impact,
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(selection.selected, [story]);
+        assert!(selection.explanations[0][0].contains("base/head Weavatrix impact union"));
+
+        let targets = vec![
+            ExecutorTarget {
+                executor: wvq_runtime::ExecutorId::new("storybook-vitest-v8").unwrap(),
+                cwd: root.0.clone(),
+            },
+            ExecutorTarget {
+                executor: wvq_runtime::ExecutorId::new("vitest").unwrap(),
+                cwd: root.0.clone(),
+            },
+        ];
+        let (requests, scope, _, executed) =
+            build_execution_requests(&root.0, &targets, &selection, &BTreeSet::new(), "impacted");
+        assert_eq!(scope, "impacted");
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].target.executor.as_str(), "storybook-vitest-v8");
+        assert_eq!(requests[0].filters, [story]);
+        assert_eq!(executed, Some(BTreeSet::from([story.into()])));
     }
 
     #[test]
@@ -10494,6 +10675,33 @@ mod tests {
                 .is_some_and(|message| message.contains("truncated junit"))
         );
         assert_eq!(record.artifacts.len(), 1, "raw evidence remains auditable");
+    }
+
+    #[test]
+    fn failed_junit_fails_the_record_even_when_the_process_exits_zero() {
+        let root = TempDir::new("failed-junit-zero-exit");
+        let started = SystemTime::now();
+        std::fs::write(
+            root.0.join("junit.xml"),
+            "<testsuite name=\"suite\" failures=\"1\"><testcase name=\"fails\"><failure message=\"boom\"/></testcase></testsuite>",
+        )
+        .unwrap();
+        let mut record = record("storybook-vitest-v8");
+
+        attach_normalized_artifacts(&root.0, &root.0, started, &mut record);
+
+        assert!(!record.passed);
+        assert!(
+            record.error.as_deref().is_some_and(|message| {
+                message.contains("reports 1 failed or errored test case")
+            })
+        );
+        assert!(
+            record
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.kind == "normalized-test-run")
+        );
     }
 
     #[test]
@@ -10818,6 +11026,7 @@ mod tests {
             &root.0,
             &static_report,
             &diff,
+            &wvq_intelligence::ImpactedSurface::default(),
             &[],
             &[],
             &[HistoricalTestCandidate {
@@ -10943,6 +11152,26 @@ mod tests {
     fn current_utc_date_uses_iso_ordering() {
         let today = utc_date();
         assert!(valid_iso_date(&today));
+    }
+
+    #[test]
+    fn responsive_probe_retries_only_incomplete_evidence() {
+        let complete = ResponsiveProbe {
+            width: 767,
+            delta: UiIntegrityDelta::default(),
+        };
+        assert!(!responsive_probe_incomplete(&complete));
+
+        let mut truncated = complete.clone();
+        truncated.delta.truncated = true;
+        assert!(responsive_probe_incomplete(&truncated));
+
+        let mut unmeasured = complete;
+        unmeasured
+            .delta
+            .unmeasured_states
+            .push("checkout#0@/@767x720".into());
+        assert!(responsive_probe_incomplete(&unmeasured));
     }
 
     #[test]

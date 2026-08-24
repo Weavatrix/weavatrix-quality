@@ -106,6 +106,21 @@ fn discover_package(
         ))
     })?;
     let scripts = json.get("scripts").and_then(Value::as_object);
+    if has_dependency(&json, "vitest")
+        && (has_dependency(&json, "@storybook/addon-vitest")
+            || has_dependency(&json, "@storybook/experimental-addon-test"))
+        && cwd.join(".storybook").is_dir()
+    {
+        insert(
+            targets,
+            if has_dependency(&json, "@vitest/coverage-v8") {
+                "storybook-vitest-v8"
+            } else {
+                "storybook-vitest"
+            },
+            cwd,
+        )?;
+    }
     if scripts
         .and_then(|value| value.get("test"))
         .and_then(Value::as_str)

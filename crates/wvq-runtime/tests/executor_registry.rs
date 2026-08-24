@@ -95,6 +95,26 @@ fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
         ]
     );
 
+    let mut storybook = request("storybook-vitest-v8", BTreeMap::new());
+    storybook.filters = vec!["src/Button.stories.tsx".into()];
+    assert_eq!(
+        registry.prepare(storybook).unwrap().args,
+        [
+            "exec",
+            "--offline",
+            "--yes=false",
+            "--",
+            "vitest",
+            "run",
+            "--project=storybook",
+            "--coverage",
+            "--coverage.reporter=lcov",
+            "--reporter=junit",
+            "--outputFile=.weavatrix-quality/junit.xml",
+            "src/Button.stories.tsx"
+        ]
+    );
+
     let mut jest = request("jest", BTreeMap::new());
     jest.filters = paths;
     assert_eq!(
@@ -106,6 +126,26 @@ fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
             "tests/beta.test.ts"
         ]
     );
+}
+
+#[test]
+fn storybook_vitest_is_discovered_as_a_distinct_browser_project() {
+    let root = std::env::temp_dir().join(format!("wvq-discovery-storybook-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join(".storybook")).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"scripts":{"test":"vitest run"},"devDependencies":{"vitest":"4","@storybook/addon-vitest":"10","@vitest/coverage-v8":"4"}}"#,
+    )
+    .unwrap();
+
+    let targets = discover_executor_targets(&root).unwrap();
+    let ids = targets
+        .iter()
+        .map(|target| target.executor.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["storybook-vitest-v8", "vitest"]);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

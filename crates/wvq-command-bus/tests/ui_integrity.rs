@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use wvq_command_bus::{LiveService, QualityService, RunCommand, VerifyCommand};
+use wvq_command_bus::{EvidenceCommand, LiveService, QualityService, RunCommand, VerifyCommand};
 
 /// Chromium is expensive and the fixtures bind loopback ports; serialise them.
 mod browser_lock;
@@ -260,6 +260,29 @@ fn overflow_page() -> &'static str {
     ))
 }
 
+/// A focused base/head pair for adaptive search. Both revisions contain the
+/// same controls; the head revision alone moves Menu outside narrow viewports.
+/// Keeping unrelated layout transitions out of this fixture makes the probe
+/// budget test the responsive boundary rather than the complexity of `BODY`.
+fn responsive_page(broken: bool) -> &'static str {
+    let media_rule = if broken {
+        "@media (width < 768px) { #responsive-menu { left:900px } }"
+    } else {
+        ""
+    };
+    leak(format!(
+        r#"<!doctype html><html><head><title>WVQ</title>
+           <style>
+             #export {{ position:absolute;left:20px;top:20px;width:140px;height:44px }}
+             #responsive-menu {{ position:absolute;left:100px;top:100px;width:140px;height:40px }}
+             {media_rule}
+           </style></head><body style="margin:0">
+             <button data-testid="export" id="export">Export</button>
+             <button data-testid="responsive-menu" id="responsive-menu">Menu</button>
+           </body></html>"#
+    ))
+}
+
 /// Variant D: a critical control whose label no longer fits and has no
 /// accessible name to fall back on.
 fn clipped_page() -> &'static str {
@@ -371,6 +394,84 @@ fn checkout_repo(base_url: &str) -> TempRepo {
     .unwrap();
     git(&root, &["init", "-q"]);
     commit(&root, "baseline");
+    TempRepo(root)
+}
+
+fn storybook_repo() -> TempRepo {
+    let root = unique_temp_repo("wvq-storybook-impact");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("fixtures/storybook-vitest");
+    for directory in [
+        ".storybook",
+        "src",
+        ".weavatrix-quality",
+        "openspec/changes/storybook-button/specs/controls",
+    ] {
+        std::fs::create_dir_all(root.join(directory)).unwrap();
+    }
+    for path in [
+        "package.json",
+        "vitest.config.ts",
+        ".storybook/main.ts",
+        "src/Button.tsx",
+        "src/Button.stories.tsx",
+    ] {
+        std::fs::copy(fixture.join(path), root.join(path)).unwrap();
+    }
+    link_node_modules(&root);
+    std::fs::write(
+        root.join(".gitignore"),
+        "node_modules/\ncoverage/\n.weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n\
+         .weavatrix-quality/junit.xml\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("openspec/changes/storybook-button/specs/controls/spec.md"),
+        "# Delta for Controls\n\n## ADDED Requirements\n\n### Requirement: Save control\n\
+         The system SHALL expose an operable Save control.\n\n#### Scenario: Save\n\
+         - GIVEN the component is rendered\n- WHEN Save is activated\n- THEN its action is invoked\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("openspec/changes/storybook-button/quality.yaml"),
+        r"quality_contract_v: 1
+change: storybook-button
+
+risk:
+  default: high
+
+requirements:
+  - capability: controls
+    requirement: save-control
+    scenarios:
+      - scenario: save
+        obligations:
+          - id: save-operates
+            kind: invariant
+        evidence:
+          required: [coverage]
+          on_failure: []
+",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".weavatrix-quality/config.yaml"),
+        r"quality_policy_v: 1
+
+test_bindings:
+  - path: src/Button.stories.tsx
+    runner: storybook-vitest-v8
+    suite: src/Button.stories.tsx
+    case: Saves
+    obligations: [save-operates]
+    cost: 2
+    flake_penalty: 0
+",
+    )
+    .unwrap();
+    git(&root, &["init", "-q"]);
+    commit(&root, "storybook baseline");
     TempRepo(root)
 }
 
@@ -533,8 +634,8 @@ fn an_overlay_that_blocks_export_blocks_the_change_end_to_end() {
 #[test]
 fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
     let _guard = BrowserLock::acquire();
-    let base_server = PageServer::start(base_page());
-    let head_server = PageServer::start(overflow_page());
+    let base_server = PageServer::start(responsive_page(false));
+    let head_server = PageServer::start(responsive_page(true));
     let repo = checkout_repo(&base_server.url());
     switch_to_head(&repo.0, &head_server.url());
     let service = LiveService::new(&repo.0);
@@ -556,7 +657,12 @@ fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
                 && interval.finding.subject == "testid:responsive-menu"
         })
         .unwrap_or_else(|| panic!("responsive interval missing: {}", describe(&delta)));
-    assert_eq!((interval.first_width, interval.last_width), (320, 767));
+    assert_eq!(
+        (interval.first_width, interval.last_width),
+        (320, 767),
+        "all responsive intervals: {:#?}",
+        delta.responsive_intervals
+    );
     assert!(interval.lower_boundary_exact);
     assert!(interval.upper_boundary_exact);
     assert!(!delta.responsive_truncated);
@@ -572,6 +678,73 @@ fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
             && reason.subject == "testid:responsive-menu"
             && reason.detail.contains("320-767x720")
     }));
+}
+
+#[test]
+fn impacted_story_runs_in_real_storybook_vitest_browser_mode() {
+    let _guard = BrowserLock::acquire();
+    let repo = storybook_repo();
+    std::fs::write(
+        repo.0.join("src/Button.tsx"),
+        "import type { MouseEventHandler } from \"react\";\n\n\
+         export function Button(props: { label: string; onClick?: MouseEventHandler<HTMLButtonElement> }) {\n\
+           return <button className=\"primary\" onClick={props.onClick}>{props.label}</button>;\n}\n",
+    )
+    .unwrap();
+
+    let service = LiveService::new(&repo.0);
+    let run = service
+        .run(&RunCommand {
+            change: "storybook-button".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "impacted".into(),
+            evidence_policy: "standard".into(),
+        })
+        .unwrap();
+    assert_eq!(run.scope, "impacted", "{}", run.scope_reason);
+    assert_eq!(run.selected_test_count, 1);
+    assert_eq!(run.executor_invocations, 1);
+    assert_eq!(run.recorded_test_count, 1);
+    assert_eq!(run.failed_test_count, 0);
+    assert_eq!(run.outcome, "passed");
+
+    let mut kinds = Vec::new();
+    let mut execution_map = None;
+    for handle in &run.artifact_handles {
+        let evidence = service
+            .evidence(&EvidenceCommand {
+                handle: handle.clone(),
+            })
+            .unwrap();
+        if evidence.kind == "obligation-execution-map" {
+            execution_map = evidence.inline_text;
+        }
+        kinds.push(evidence.kind);
+    }
+    assert!(kinds.iter().any(|kind| kind == "normalized-test-run"));
+    assert!(kinds.iter().any(|kind| kind == "coverage"));
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "storybook-button".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.verdict, "PROVEN");
+    assert!(
+        verified
+            .proofs
+            .iter()
+            .any(|proof| proof.obligation == "save-operates" && proof.verdict == "PROVEN")
+    );
+    let execution_map: serde_json::Value =
+        serde_json::from_str(execution_map.as_deref().expect("execution evidence")).unwrap();
+    let execution = &execution_map["obligations"]["save-operates"][0];
+    assert_eq!(execution["executor"], "storybook-vitest-v8");
+    assert_eq!(execution["suite"], "src/Button.stories.tsx");
+    assert_eq!(execution["case"], "Saves");
+    assert_eq!(execution["status"], "passed");
+    assert_eq!(execution["invocation_passed"], true);
 }
 
 // ---------------------------------------------------------------------------

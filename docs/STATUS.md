@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: adaptive responsive failure intervals in the default UI verdict
+Session: impacted Storybook/Vitest browser execution
 
 ## Now
 
@@ -18,12 +18,13 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | OracleSeal integrity | ✅ | ✅ | ✅ | ✅ |
 | Executable oracle | ✅ | ✅ | ✅ | ✅ Playwright |
 | Committed/worktree revision range | ✅ | ✅ | ✅ | ✅ base SHA + head SHA + merge-base |
-| Weavatrix embed | ✅ | ✅ | ✅ | ✅ 2.7.2 |
+| Weavatrix embed | ✅ | ✅ | ✅ | ✅ 2.7.4 |
 | Quality Debt Ratchet | ✅ | ✅ | ✅ | ✅ |
 | Test selection | ✅ | ✅ | ✅ | ✅ Cargo/Vitest shadow runs |
 | Exact case-level proof binding | ✅ | ✅ | ✅ | ✅ Cargo/Playwright; ✅ unambiguous single-case JUnit/Go; 🟡 aggregate coverage |
 | Runner-specific file filtering | ✅ | ✅ | ✅ | ✅ Vitest/Jest/Bun/Playwright; generic npm widens |
-| Executor registry | ✅ | ✅ | ✅ | ✅ Cargo/npm/Vitest/Jest/Bun/Go/Playwright |
+| Executor registry | ✅ | ✅ | ✅ | ✅ Cargo/npm/Vitest/Storybook/Jest/Bun/Go/Playwright |
+| Impacted Storybook/Vitest | ✅ | ✅ | ✅ | ✅ official addon + Playwright Chromium + JUnit/LCOV |
 | Runner normalization | ✅ | ✅ | ✅ | ✅ Cargo/JUnit/Go/browser |
 | SQLite/CAS | ✅ | ✅ | ✅ | ✅ |
 | Proof assembly and provenance | ✅ | ✅ | ✅ | ✅ exact case/assertion + CAS links |
@@ -54,11 +55,13 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Duplicate mutation requests | ✅ idea | ❌ | ❌ | ❌ deferred: no action-span protocol |
 | Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
-Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.2 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `max-width: 767px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
+Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
 
-Current validation: the responsive layer passes 71 `wvq-ui` tests, 20 command-bus library tests, all 6 real Chromium UI-integration scenarios, and 21 Playwright-runner tests. The new end-to-end scenario verifies both the exact 320–767 px interval and the blocking composite verdict while the default desktop point stays clean. Warnings-denied Clippy covers `wvq-ui`, `wvq-runtime`, and `wvq-command-bus`. The pre-responsive full-workspace baseline was 493 Rust tests with zero failures.
+Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
+
+Current validation: 71 `wvq-ui` tests, 23 command-bus library tests, 35 command-bus integration tests, all 7 real Chromium UI/Storybook scenarios, 48 runtime tests, and 21 Playwright-runner tests pass. The responsive acceptance passed three consecutive focused reruns before the complete integration binary; it verifies both the exact 320–767 px interval and the blocking composite verdict while the default desktop point stays clean. Warnings-denied Clippy covers all targets in `wvq-runtime` and `wvq-command-bus` plus their transitive WVQ crates. The pre-responsive full-workspace baseline was 493 Rust tests with zero failures.
 
 ## Composite change verdict
 
@@ -83,7 +86,7 @@ The product fixture creates a real temporary Git monorepo with two clean commits
 
 Coverage is assigned to an exact case only when normalized evidence contains one passing case and its runner, suite, and case match a repository binding. Multi-case coverage remains executor-level evidence; WVQ does not guess which case reached a symbol. Separately, every passing normalized case is stored in the revision snapshot even when it reaches no impacted flow. This separation lets lineage distinguish a deleted protector from a surviving phantom without weakening coverage attribution. Snapshots written before the inventory remain readable and derive their known executed identities from measured flow protectors. Current Weavatrix nested spans are read at symbol granularity, and the file node is used only as a fallback when that source has no symbol spans.
 
-**A → B5, missing declared intent:** the Go `CanDelete` implementation and its exact protector change while nested OpenSpec does not. Weavatrix 2.7.2 identifies the concrete exported function from a full declaration fingerprint; WVQ filters private helpers and test declarations, prepares one bounded candidate, and exposes the same `QA_REVIEW` state through `wvq recover`, the opt-in MCP recovery profile, and Studio. The changed implementation plus its own test is marked as a weak oracle, requires intent-owner escalation, spends zero model tokens, and cannot auto-seal. A real OpenSpec delta suppresses this recovery candidate instead of asking for redundant review.
+**A → B5, missing declared intent:** the Go `CanDelete` implementation and its exact protector change while nested OpenSpec does not. Weavatrix 2.7.4 identifies the concrete exported function from a full declaration fingerprint; WVQ filters private helpers and test declarations, prepares one bounded candidate, and exposes the same `QA_REVIEW` state through `wvq recover`, the opt-in MCP recovery profile, and Studio. The changed implementation plus its own test is marked as a weak oracle, requires intent-owner escalation, spends zero model tokens, and cannot auto-seal. A real OpenSpec delta suppresses this recovery candidate instead of asking for redundant review.
 
 ## UI integrity
 
@@ -224,8 +227,11 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Close the remaining committed product-fixture paths before adding another feature family:
+Close the remaining maturity gaps without adding another feature family:
 
-1. **Storybook/Vitest impacted-story adapter.** Reuse the existing impacted-surface union to pick affected stories, giving UI integrity a cheap per-component measurement point next to the whole-page one.
+1. **Typed action-span protocol.** Carry exact start/end observations for every action so duplicate-mutation detection can distinguish one request retried from two user intents.
+2. **Manual recorder and default Delta Triangle.** Record a bounded manual session into the existing `TestProgram` contract and compose real base/head behavior comparison into the ordinary verdict.
+3. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+4. **Studio frontend.** Build the exception-first UI over the existing API, including measured React render profiling.
 
-After that: add the typed action-span protocol before duplicate-mutation detection, then finish the live mutation producer, metamorphic project adapter, closed-loop cheap explorer, and Studio frontend. Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.
+Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.
