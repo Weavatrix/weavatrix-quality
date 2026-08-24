@@ -11,6 +11,13 @@ export type Observation = {
     route?: string;
     a11y_digest?: string;
     network: string[];
+    network_requests: Array<{
+        sequence: number;
+        method: string;
+        url: string;
+        status?: number;
+    }>;
+    network_requests_truncated: boolean;
     console: string[];
     storage: Record<string, string>;
     storage_available?: boolean;

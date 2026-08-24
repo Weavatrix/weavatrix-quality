@@ -283,6 +283,26 @@ fn responsive_page(broken: bool) -> &'static str {
     ))
 }
 
+/// Same Save intent on both revisions; head alone emits the mutation twice.
+fn mutation_page(duplicate: bool) -> &'static str {
+    let retry = if duplicate {
+        ".then(() => fetch('/api/save', {method: 'POST'}))"
+    } else {
+        ""
+    };
+    leak(format!(
+        r#"<!doctype html><html><head><title>WVQ</title></head><body>
+          <button data-testid="export">Export</button>
+          <button data-testid="save">Save</button>
+          <script>
+            document.querySelector('[data-testid=save]').addEventListener('click', () => {{
+              fetch('/api/save', {{method: 'POST'}}){retry};
+            }});
+          </script>
+        </body></html>"#
+    ))
+}
+
 /// Variant D: a critical control whose label no longer fits and has no
 /// accessible name to fall back on.
 fn clipped_page() -> &'static str {
@@ -304,6 +324,25 @@ const PROGRAM: &str = r#"{
   "obligations": ["export-usable"],
   "steps": [
     {"action": "navigate", "route": "/"},
+    {"action": "assert", "obligation": "export-usable"}
+  ],
+  "evidence_policy": {
+    "screenshot": "on_failure",
+    "trace": "never",
+    "network": "always",
+    "console": "always",
+    "storage": "never"
+  }
+}"#;
+
+const MUTATION_PROGRAM: &str = r#"{
+  "schema_v": 1,
+  "id": "checkout-ui",
+  "source": "authored",
+  "obligations": ["export-usable"],
+  "steps": [
+    {"action": "navigate", "route": "/"},
+    {"action": "activate", "target": {"test_id": "save"}},
     {"action": "assert", "obligation": "export-usable"}
   ],
   "evidence_policy": {
@@ -355,6 +394,10 @@ fn config(base_url: &str) -> String {
 
 /// A git repository whose base commit talks to `base_url`.
 fn checkout_repo(base_url: &str) -> TempRepo {
+    checkout_repo_with_program(base_url, PROGRAM)
+}
+
+fn checkout_repo_with_program(base_url: &str, program: &str) -> TempRepo {
     let root = unique_temp_repo("wvq-ui-checkout");
     std::fs::create_dir_all(root.join("openspec/changes/checkout-ui/specs/ui")).unwrap();
     std::fs::create_dir_all(root.join(".weavatrix-quality/programs")).unwrap();
@@ -384,7 +427,7 @@ fn checkout_repo(base_url: &str) -> TempRepo {
     .unwrap();
     std::fs::write(
         root.join(".weavatrix-quality/programs/checkout.json"),
-        PROGRAM,
+        program,
     )
     .unwrap();
     std::fs::write(
@@ -677,6 +720,40 @@ fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
         reason.axis == "ui_integrity"
             && reason.subject == "testid:responsive-menu"
             && reason.detail.contains("320-767x720")
+    }));
+}
+
+#[test]
+fn one_intent_that_emits_the_same_mutation_twice_blocks_the_change() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(mutation_page(false));
+    let head_server = PageServer::start(mutation_page(true));
+    let repo = checkout_repo_with_program(&base_server.url(), MUTATION_PROGRAM);
+    switch_to_head(&repo.0, &head_server.url());
+    let service = LiveService::new(&repo.0);
+
+    let delta = service
+        .ui_integrity_view("checkout-ui", "HEAD", "WORKTREE")
+        .unwrap();
+    let duplicate = delta
+        .new
+        .iter()
+        .find(|finding| finding.check == wvq_ui::UiCheck::DuplicateMutationRequest)
+        .unwrap_or_else(|| panic!("duplicate mutation finding missing: {}", describe(&delta)));
+    assert_eq!(duplicate.subject, "POST /api/save");
+    assert_eq!(duplicate.evidence.duplicate_count, 2);
+    assert!(duplicate.detail.contains("request sequences"));
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.state, "BLOCKED");
+    assert!(verified.quality.blocking_reasons.iter().any(|reason| {
+        reason.axis == "ui_integrity"
+            && reason.subject == "POST /api/save"
+            && reason.detail.contains("WVQ-UI-NET-001")
     }));
 }
 

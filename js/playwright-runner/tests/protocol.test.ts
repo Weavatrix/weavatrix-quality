@@ -31,7 +31,11 @@ test("unknown method fails closed", () => {
 test("screenshot omitted unless policy allows", () => {
   const filtered = filterObservation(
     {
-      network: [],
+      network: ["POST https://example.invalid/save 200"],
+      network_requests: [
+        { sequence: 1, method: "POST", url: "https://example.invalid/save", status: 200 },
+      ],
+      network_requests_truncated: true,
       console: [],
       storage: {},
       screenshot_handle: "cas:shot",
@@ -39,13 +43,16 @@ test("screenshot omitted unless policy allows", () => {
     {
       screenshot: "never",
       trace: "never",
-      network: "always",
+      network: "never",
       console: "always",
       storage: "never",
     },
     true,
   );
   assert.equal(filtered.screenshot_handle, undefined);
+  assert.deepEqual(filtered.network, []);
+  assert.deepEqual(filtered.network_requests, []);
+  assert.equal(filtered.network_requests_truncated, false);
 });
 
 test("handle initialize", async () => {

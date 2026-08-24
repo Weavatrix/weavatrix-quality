@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: impacted Storybook/Vitest browser execution
+Session: typed browser action spans and duplicate mutation detection
 
 ## Now
 
@@ -36,7 +36,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Test lineage | ✅ | ✅ | ✅ protection path | ✅ exact passing-case inventory independent of impacted coverage; aggregate coverage stays executor-level |
 | ProtectionSnapshot/Delta | ✅ | ✅ | ✅ default verdict axis; base replay stays explicit | ✅ base/head coverage replay |
 | Protection MCP/Studio | ✅ | ✅ | ✅ verdict axis + Studio summary; 🟡 opt-in profile/view | ✅ when measured coverage exists |
-| Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + sealed assertions + observations |
+| Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + exact spans + sealed assertions + observations |
 | Manual record → promoted replay | ✅ | 🟡 | 🟡 preview/promotion | 🟡 replay yes, manual recorder no |
 | Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
@@ -52,16 +52,18 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | UI Integrity ratchet | ✅ | ✅ | ✅ | ✅ new/existing/fixed/returned/excepted |
 | UI Integrity in MCP/Studio | ✅ | ✅ | ✅ | ✅ `quality_verify`, `quality_explain`, summary |
 | React render profiler | ✅ idea | ❌ | ❌ | ❌ |
-| Duplicate mutation requests | ✅ idea | ❌ | ❌ | ❌ deferred: no action-span protocol |
+| Duplicate mutation requests | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head action spans |
 | Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
 Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
 Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
 
+Every attempted measured browser step now owns exact start/end observation indexes; setup preconditions remain outside user-intent classification. The Playwright boundary keeps a bounded, monotonic request journal of method, URL and optional status, settles immediate application-level retries for at most two seconds, and records no request bodies or header values. Rust classifies repeated POST/PUT/PATCH/DELETE identities only inside one action span. Two identical requests in different spans remain two user intents; a repeated mutation within one span becomes base/head-ratcheted `WVQ-UI-NET-001` and blocks the default verdict. Disabled or truncated network evidence marks the measurement incomplete rather than clean. A real Chromium fixture proves a response-triggered POST retry is caught while the same sealed behavioral oracle still passes.
+
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 71 `wvq-ui` tests, 23 command-bus library tests, 35 command-bus integration tests, all 7 real Chromium UI/Storybook scenarios, 48 runtime tests, and 21 Playwright-runner tests pass. The responsive acceptance passed three consecutive focused reruns before the complete integration binary; it verifies both the exact 320–767 px interval and the blocking composite verdict while the default desktop point stays clean. Warnings-denied Clippy covers all targets in `wvq-runtime` and `wvq-command-bus` plus their transitive WVQ crates. The pre-responsive full-workspace baseline was 493 Rust tests with zero failures.
+Current validation: 71 `wvq-ui` tests, the 51-test runtime suite, 23 command-bus library tests, 35 command-bus integration tests, all 8 real Chromium UI/Storybook scenarios, and 21 Playwright-runner tests pass. The new real scenario proves a response-triggered POST retry is captured inside its originating action span and blocks the default composite verdict; the pure Rust cases prove the same request in two action spans remains two user intents. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
 
 ## Composite change verdict
 
@@ -96,7 +98,7 @@ Coverage is assigned to an exact case only when normalized evidence contains one
 
 Collection is deterministic or it says so. Fonts are awaited with a bounded timeout, animations and transitions are frozen and driven to their end state, and the page is read twice: two reads that disagree beyond tolerance mark the snapshot unsettled instead of trusting one of them. Geometry and hit testing happen in a single `evaluate`, so both describe one DOM state and node identities are derived once. Node, hit-test-sample, candidate-pair, artifact-byte, and label bounds are all explicit, and hitting any of them sets `truncated`, which propagates into the verdict as a limitation.
 
-Seven detectors ship: `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, and `WVQ-UI-LAYOUT-004` confirmed control overlap.
+Eight detectors ship: `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, `WVQ-UI-LAYOUT-004` confirmed control overlap, and `WVQ-UI-NET-001` a repeated mutating request inside one exact action span.
 
 Most of the work is refusing false positives, and each exclusion is a specific rule rather than a confidence threshold: repeated row actions are separated by entity scope; a control's own children never occlude it; `pointer-events: none` layers never intercept; ancestor/descendant containment is structure, not collision; content inside a scroll container is reachable by scrolling; an accepted ellipsis still needs the accessible full value to be present; and geometric overlap with no hit-test confirmation is not reported at all. When no row or dialog scope can be resolved, an ambiguous pair drops to a warning instead of blocking.
 
@@ -229,9 +231,8 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Typed action-span protocol.** Carry exact start/end observations for every action so duplicate-mutation detection can distinguish one request retried from two user intents.
-2. **Manual recorder and default Delta Triangle.** Record a bounded manual session into the existing `TestProgram` contract and compose real base/head behavior comparison into the ordinary verdict.
-3. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
-4. **Studio frontend.** Build the exception-first UI over the existing API, including measured React render profiling.
+1. **Manual recorder and default Delta Triangle.** Record a bounded manual session into the existing `TestProgram` contract and compose real base/head behavior comparison into the ordinary verdict.
+2. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+3. **Studio frontend.** Build the exception-first UI over the existing API, including measured React render profiling.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

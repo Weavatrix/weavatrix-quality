@@ -10,6 +10,7 @@ import type {
   BrowserContext,
   Locator,
   Page,
+  Request,
 } from "playwright";
 import type { Driver, Target, WaitCondition } from "./execute.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
@@ -96,7 +97,9 @@ type ResolvedBrowserConfig = Required<Omit<BrowserConfig, "viewport">> & {
   viewport: { width: number; height: number };
 };
 
-type NetworkEvent = { method: string; url: string; status: number };
+const MAX_NETWORK_REQUESTS = 2_048;
+
+type NetworkEvent = { sequence: number; method: string; url: string; status?: number };
 type ConsoleEvent = { type: string; text: string };
 type ApiResult = { status: number; json?: unknown };
 
@@ -108,12 +111,16 @@ export class PlaywrightDriver implements Driver {
   readonly #oracles: Map<string, ProgramOracle>;
   readonly #config: ResolvedBrowserConfig;
   readonly #network: NetworkEvent[] = [];
+  readonly #requestEvents = new WeakMap<Request, NetworkEvent>();
+  readonly #inflightMutations = new Set<Request>();
   readonly #console: ConsoleEvent[] = [];
   readonly #api = new Map<string, ApiResult>();
   readonly #featureFlags = new Map<string, string>();
   #failed = false;
   #closed = false;
   #traceStarted = false;
+  #networkRequestsTruncated = false;
+  #lastMutationChange = 0;
 
   private constructor(
     browser: Browser,
@@ -129,13 +136,32 @@ export class PlaywrightDriver implements Driver {
     this.#program = program;
     this.#oracles = new Map(oracles.map((oracle) => [oracle.obligation, oracle]));
     this.#config = config;
-    page.on("response", (response) => {
-      this.#network.push({
-        method: response.request().method(),
-        url: response.url(),
-        status: response.status(),
-      });
+    page.on("request", (request) => {
+      if (this.#network.length >= MAX_NETWORK_REQUESTS) {
+        this.#networkRequestsTruncated = true;
+        return;
+      }
+      const event: NetworkEvent = {
+        sequence: this.#network.length + 1,
+        method: request.method().toUpperCase(),
+        url: request.url(),
+      };
+      this.#network.push(event);
+      this.#requestEvents.set(request, event);
+      if (isMutationMethod(event.method)) {
+        this.#inflightMutations.add(request);
+        this.#lastMutationChange = Date.now();
+      }
     });
+    page.on("response", (response) => {
+      const event = this.#requestEvents.get(response.request());
+      if (event) event.status = response.status();
+    });
+    const mutationFinished = (request: Request): void => {
+      if (this.#inflightMutations.delete(request)) this.#lastMutationChange = Date.now();
+    };
+    page.on("requestfinished", mutationFinished);
+    page.on("requestfailed", mutationFinished);
     page.on("console", (message) => {
       this.#console.push({ type: message.type(), text: message.text() });
     });
@@ -298,7 +324,32 @@ export class PlaywrightDriver implements Driver {
     }
   }
 
-  async observe(failed: boolean): Promise<Observation> {
+  /**
+   * Let a mutation and an immediate application-level retry finish inside the
+   * action that caused them. Long polling and broken servers remain bounded by
+   * a two-second ceiling; incomplete journals are still reported separately.
+   */
+  async settleAction(): Promise<void> {
+    const deadline = Date.now() + Math.min(this.#config.timeout_ms, 2_000);
+    const quietMs = 50;
+    let observed = this.#network.length;
+    let quietSince = Date.now();
+    while (Date.now() < deadline) {
+      await this.#page.waitForTimeout(25);
+      if (this.#network.length !== observed) {
+        observed = this.#network.length;
+        quietSince = Date.now();
+      }
+      if (
+        this.#inflightMutations.size === 0 &&
+        Date.now() - Math.max(quietSince, this.#lastMutationChange) >= quietMs
+      ) {
+        return;
+      }
+    }
+  }
+
+  async observe(failed: boolean, captureScreenshot = true): Promise<Observation> {
     this.#failed ||= failed;
     const policy = this.#program.evidence_policy ?? defaultPolicy();
     const route = routeOf(new URL(this.#page.url()));
@@ -309,14 +360,16 @@ export class PlaywrightDriver implements Driver {
       route,
       a11y_digest: createHash("sha256").update(snapshot).digest("hex"),
       network: this.#network.map(
-        (event) => `${event.method} ${event.url} ${event.status}`,
+        (event) => `${event.method} ${event.url} ${event.status ?? "pending"}`,
       ),
+      network_requests: this.#network.map((event) => ({ ...event })),
+      network_requests_truncated: this.#networkRequestsTruncated,
       console: this.#console.map((event) => `${event.type}: ${event.text}`),
       storage: storageSnapshot.keys,
       storage_available: storageSnapshot.available,
     };
     if (viewport) observation.viewport = `${viewport.width}x${viewport.height}`;
-    if (captureAllowed(policy.screenshot, this.#failed)) {
+    if (captureScreenshot && captureAllowed(policy.screenshot, this.#failed)) {
       await mkdir(this.#config.evidence_dir, { recursive: true });
       const path = join(
         this.#config.evidence_dir,
@@ -683,6 +736,10 @@ function routeOf(url: URL): string {
 
 function safeName(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 100);
+}
+
+function isMutationMethod(method: string): boolean {
+  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
 function cssString(value: string): string {

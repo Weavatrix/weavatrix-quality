@@ -12,8 +12,11 @@ export function filterObservation(observation, policy, failed) {
         delete next.screenshot_handle;
         delete next.screenshot_path;
     }
-    if (!allowed(policy.network, failed))
+    if (!allowed(policy.network, failed)) {
         next.network = [];
+        next.network_requests = [];
+        next.network_requests_truncated = false;
+    }
     if (!allowed(policy.console, failed))
         next.console = [];
     if (!allowed(policy.storage, failed)) {

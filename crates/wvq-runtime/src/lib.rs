@@ -23,9 +23,10 @@ pub use behavior::{
     semantic_target,
 };
 pub use browser_bridge::{
-    BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError, BrowserProgramRun,
-    BrowserRunConfig, BrowserViewport, ProgramOracle, UiCollectionConfig, UiSnapshotEvidence,
-    run_browser_program, run_browser_program_at,
+    ActionSpan, BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError,
+    BrowserProgramRun, BrowserRunConfig, BrowserViewport, DuplicateMutationRequest, ProgramOracle,
+    UiCollectionConfig, UiSnapshotEvidence, duplicate_mutation_requests, run_browser_program,
+    run_browser_program_at,
 };
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,
@@ -49,6 +50,7 @@ pub use normalize::{
 };
 pub use process::ProcessLimits;
 pub use program::{
-    ApiOperation, CaptureWhen, EvidencePolicy, FaultSpec, Observation, ProgramError, ProgramSource,
-    Target, TestAction, TestProgram, WaitCondition, filter_observation,
+    ApiOperation, CaptureWhen, EvidencePolicy, FaultSpec, NetworkRequestObservation, Observation,
+    ProgramError, ProgramSource, Target, TestAction, TestProgram, WaitCondition,
+    filter_observation,
 };

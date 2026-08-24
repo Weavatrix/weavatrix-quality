@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { collectLayoutSnapshot, } from "./ui_integrity.js";
+const MAX_NETWORK_REQUESTS = 2_048;
 export class PlaywrightDriver {
     #browser;
     #context;
@@ -13,12 +14,16 @@ export class PlaywrightDriver {
     #oracles;
     #config;
     #network = [];
+    #requestEvents = new WeakMap();
+    #inflightMutations = new Set();
     #console = [];
     #api = new Map();
     #featureFlags = new Map();
     #failed = false;
     #closed = false;
     #traceStarted = false;
+    #networkRequestsTruncated = false;
+    #lastMutationChange = 0;
     constructor(browser, context, page, program, oracles, config) {
         this.#browser = browser;
         this.#context = context;
@@ -26,13 +31,34 @@ export class PlaywrightDriver {
         this.#program = program;
         this.#oracles = new Map(oracles.map((oracle) => [oracle.obligation, oracle]));
         this.#config = config;
-        page.on("response", (response) => {
-            this.#network.push({
-                method: response.request().method(),
-                url: response.url(),
-                status: response.status(),
-            });
+        page.on("request", (request) => {
+            if (this.#network.length >= MAX_NETWORK_REQUESTS) {
+                this.#networkRequestsTruncated = true;
+                return;
+            }
+            const event = {
+                sequence: this.#network.length + 1,
+                method: request.method().toUpperCase(),
+                url: request.url(),
+            };
+            this.#network.push(event);
+            this.#requestEvents.set(request, event);
+            if (isMutationMethod(event.method)) {
+                this.#inflightMutations.add(request);
+                this.#lastMutationChange = Date.now();
+            }
         });
+        page.on("response", (response) => {
+            const event = this.#requestEvents.get(response.request());
+            if (event)
+                event.status = response.status();
+        });
+        const mutationFinished = (request) => {
+            if (this.#inflightMutations.delete(request))
+                this.#lastMutationChange = Date.now();
+        };
+        page.on("requestfinished", mutationFinished);
+        page.on("requestfailed", mutationFinished);
         page.on("console", (message) => {
             this.#console.push({ type: message.type(), text: message.text() });
         });
@@ -176,7 +202,29 @@ export class PlaywrightDriver {
             throw new Error(`assertion_failed:${obligation}:sealed expectation was not met`);
         }
     }
-    async observe(failed) {
+    /**
+     * Let a mutation and an immediate application-level retry finish inside the
+     * action that caused them. Long polling and broken servers remain bounded by
+     * a two-second ceiling; incomplete journals are still reported separately.
+     */
+    async settleAction() {
+        const deadline = Date.now() + Math.min(this.#config.timeout_ms, 2_000);
+        const quietMs = 50;
+        let observed = this.#network.length;
+        let quietSince = Date.now();
+        while (Date.now() < deadline) {
+            await this.#page.waitForTimeout(25);
+            if (this.#network.length !== observed) {
+                observed = this.#network.length;
+                quietSince = Date.now();
+            }
+            if (this.#inflightMutations.size === 0 &&
+                Date.now() - Math.max(quietSince, this.#lastMutationChange) >= quietMs) {
+                return;
+            }
+        }
+    }
+    async observe(failed, captureScreenshot = true) {
         this.#failed ||= failed;
         const policy = this.#program.evidence_policy ?? defaultPolicy();
         const route = routeOf(new URL(this.#page.url()));
@@ -186,14 +234,16 @@ export class PlaywrightDriver {
         const observation = {
             route,
             a11y_digest: createHash("sha256").update(snapshot).digest("hex"),
-            network: this.#network.map((event) => `${event.method} ${event.url} ${event.status}`),
+            network: this.#network.map((event) => `${event.method} ${event.url} ${event.status ?? "pending"}`),
+            network_requests: this.#network.map((event) => ({ ...event })),
+            network_requests_truncated: this.#networkRequestsTruncated,
             console: this.#console.map((event) => `${event.type}: ${event.text}`),
             storage: storageSnapshot.keys,
             storage_available: storageSnapshot.available,
         };
         if (viewport)
             observation.viewport = `${viewport.width}x${viewport.height}`;
-        if (captureAllowed(policy.screenshot, this.#failed)) {
+        if (captureScreenshot && captureAllowed(policy.screenshot, this.#failed)) {
             await mkdir(this.#config.evidence_dir, { recursive: true });
             const path = join(this.#config.evidence_dir, `${safeName(this.#program.id)}-${Date.now()}.png`);
             await this.#page.screenshot({ path, fullPage: true });
@@ -535,6 +585,9 @@ function routeOf(url) {
 }
 function safeName(value) {
     return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 100);
+}
+function isMutationMethod(method) {
+    return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 function cssString(value) {
     return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');

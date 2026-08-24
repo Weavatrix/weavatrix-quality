@@ -69,7 +69,10 @@ class BridgeSession {
                 case "observe": {
                     const { program, driver } = this.#requirePrepared();
                     const failed = Boolean(request.params.failed) || this.#failed;
-                    const raw = await driver.observe(failed);
+                    if (request.params.settle_action === true)
+                        await driver.settleAction();
+                    const captureScreenshot = request.params.capture_screenshot !== false;
+                    const raw = await driver.observe(failed, captureScreenshot);
                     body = filterObservation(raw, program.evidence_policy ?? defaultPolicy(), failed);
                     break;
                 }

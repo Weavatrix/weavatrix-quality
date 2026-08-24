@@ -99,6 +99,21 @@ test("real Playwright executes actions and sealed predicates", async () => {
     assert.match(observation.a11y_digest, /^[a-f0-9]{64}$/);
     assert.equal(observation.storage["local:new-ui"], "present");
     assert(observation.network.some((event) => event.endsWith(" 503")));
+    assert.deepEqual(
+      observation.network_requests.map((event) => event.sequence),
+      observation.network_requests.map((_, index) => index + 1),
+    );
+    assert(
+      observation.network_requests.some(
+        (event) => event.url.endsWith("/fault") && event.status === 503,
+      ),
+    );
+    assert(
+      observation.network_requests.every(
+        (event) => !("body" in event) && !("headers" in event),
+      ),
+    );
+    assert.equal(observation.network_requests_truncated, false);
     await assert.rejects(
       driver.assert("conditional"),
       /condition_not_established:conditional/,

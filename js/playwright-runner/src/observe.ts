@@ -14,6 +14,13 @@ export type Observation = {
   route?: string;
   a11y_digest?: string;
   network: string[];
+  network_requests: Array<{
+    sequence: number;
+    method: string;
+    url: string;
+    status?: number;
+  }>;
+  network_requests_truncated: boolean;
   console: string[];
   storage: Record<string, string>;
   storage_available?: boolean;
@@ -38,7 +45,11 @@ export function filterObservation(
     delete next.screenshot_handle;
     delete next.screenshot_path;
   }
-  if (!allowed(policy.network, failed)) next.network = [];
+  if (!allowed(policy.network, failed)) {
+    next.network = [];
+    next.network_requests = [];
+    next.network_requests_truncated = false;
+  }
   if (!allowed(policy.console, failed)) next.console = [];
   if (!allowed(policy.storage, failed)) {
     next.storage = {};

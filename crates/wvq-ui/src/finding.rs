@@ -32,6 +32,9 @@ pub enum UiCheck {
     /// `WVQ-UI-LAYOUT-004` — two interactive nodes overlap by policy-forbidden
     /// geometry confirmed by hit testing.
     ForbiddenOverlap,
+    /// `WVQ-UI-NET-001` — one user-intent action emitted the same mutating
+    /// request more than once.
+    DuplicateMutationRequest,
 }
 
 impl UiCheck {
@@ -46,12 +49,13 @@ impl UiCheck {
             Self::ViewportOverflow => "WVQ-UI-LAYOUT-002",
             Self::TextClipping => "WVQ-UI-LAYOUT-003",
             Self::ForbiddenOverlap => "WVQ-UI-LAYOUT-004",
+            Self::DuplicateMutationRequest => "WVQ-UI-NET-001",
         }
     }
 
     /// Every P0 detector, in catalogue order.
     #[must_use]
-    pub fn all() -> [Self; 7] {
+    pub fn all() -> [Self; 8] {
         [
             Self::DuplicateDomId,
             Self::DuplicateTestId,
@@ -60,6 +64,7 @@ impl UiCheck {
             Self::ViewportOverflow,
             Self::TextClipping,
             Self::ForbiddenOverlap,
+            Self::DuplicateMutationRequest,
         ]
     }
 

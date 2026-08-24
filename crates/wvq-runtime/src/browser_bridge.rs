@@ -1,6 +1,6 @@
 //! Bounded Rust host for the bundled thin Playwright bridge.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -152,6 +152,36 @@ pub struct BrowserAssertionObservation {
     pub status: BrowserAssertionStatus,
 }
 
+/// Exact observation interval owned by one program action.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionSpan {
+    /// Zero-based step index in the immutable `TestProgram`.
+    pub step: usize,
+    /// Typed action whose intent owns this interval.
+    pub action: TestAction,
+    /// Observation immediately before the action.
+    pub start_observation: usize,
+    /// Observation immediately after the action attempt.
+    pub end_observation: usize,
+}
+
+/// Repeated mutating request caused inside one user-intent span.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DuplicateMutationRequest {
+    /// Program step that produced the repeated request.
+    pub step: usize,
+    /// Action from the immutable program.
+    pub action: TestAction,
+    /// Uppercase mutating method.
+    pub method: String,
+    /// Authority-free URL identity, retaining path and query.
+    pub url: String,
+    /// Ordered request identities observed inside this action only.
+    pub sequences: Vec<u64>,
+}
+
 /// Outcome of an individual browser assertion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -177,8 +207,11 @@ pub struct BrowserProgramRun {
     pub contradicted: Vec<String>,
     /// Per-assertion result with exact step and observation identity.
     pub assertions: Vec<BrowserAssertionObservation>,
-    /// Structured observations after each attempted step.
+    /// Initial observation followed by one observation after each attempted step.
     pub observations: Vec<Observation>,
+    /// One start/end observation pair per attempted action.
+    #[serde(default)]
+    pub action_spans: Vec<ActionSpan>,
     /// Screenshot files produced under [`BrowserRunConfig::evidence_dir`].
     pub screenshot_paths: Vec<PathBuf>,
     /// Optional trace file.
@@ -188,6 +221,68 @@ pub struct BrowserProgramRun {
     pub ui_snapshots: Vec<UiSnapshotEvidence>,
     /// Stable failure text.
     pub failure: Option<String>,
+}
+
+/// Find repeated POST/PUT/PATCH/DELETE requests within one action span.
+///
+/// Identical requests in different spans are separate user intents and are not
+/// duplicates. A truncated request journal is ignored here and must be handled
+/// by the caller as missing evidence rather than a clean result.
+#[must_use]
+pub fn duplicate_mutation_requests(run: &BrowserProgramRun) -> Vec<DuplicateMutationRequest> {
+    let mut duplicates = Vec::new();
+    for span in &run.action_spans {
+        let (Some(start), Some(end)) = (
+            run.observations.get(span.start_observation),
+            run.observations.get(span.end_observation),
+        ) else {
+            continue;
+        };
+        if start.network_requests_truncated || end.network_requests_truncated {
+            continue;
+        }
+        let seen = start
+            .network_requests
+            .iter()
+            .map(|request| request.sequence)
+            .collect::<BTreeSet<_>>();
+        let mut groups: BTreeMap<(String, String), Vec<u64>> = BTreeMap::new();
+        for request in end
+            .network_requests
+            .iter()
+            .filter(|request| !seen.contains(&request.sequence))
+        {
+            let method = request.method.to_ascii_uppercase();
+            if !matches!(method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE") {
+                continue;
+            }
+            groups
+                .entry((method, request_url_identity(&request.url)))
+                .or_default()
+                .push(request.sequence);
+        }
+        for ((method, url), sequences) in groups {
+            if sequences.len() > 1 {
+                duplicates.push(DuplicateMutationRequest {
+                    step: span.step,
+                    action: span.action.clone(),
+                    method,
+                    url,
+                    sequences,
+                });
+            }
+        }
+    }
+    duplicates
+}
+
+fn request_url_identity(url: &str) -> String {
+    let Some((_, after_scheme)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    after_scheme
+        .find('/')
+        .map_or_else(|| "/".into(), |index| after_scheme[index..].to_owned())
 }
 
 /// Browser bridge startup, protocol, or evidence failure.
@@ -285,9 +380,17 @@ pub fn run_browser_program_at(
     let mut contradicted = Vec::new();
     let mut assertions = Vec::new();
     let mut observations = Vec::new();
+    let mut action_spans = Vec::new();
     let mut screenshot_paths = Vec::new();
     let mut ui_snapshots = Vec::new();
+    let (initial, screenshot) =
+        observe_bridge(&mut bridge, false, false, false, &config.evidence_dir)?;
+    if let Some(path) = screenshot {
+        screenshot_paths.push(path);
+    }
+    observations.push(initial);
     for (index, step) in program.steps.iter().enumerate() {
+        let start_observation = observations.len().saturating_sub(1);
         let step_result = bridge.request("execute_step", &json!({"index": index}));
         let assertion = classify_assertion(step, &step_result, &mut asserted, &mut contradicted);
         if let Err(err) = step_result {
@@ -299,19 +402,24 @@ pub fn run_browser_program_at(
                 other => return Err(other),
             }
         }
-        let body = bridge.request("observe", &json!({"failed": !passed}))?;
-        if let Some(path) = body.get("screenshot_path").and_then(Value::as_str) {
-            screenshot_paths.push(validated_evidence_path(&config.evidence_dir, path)?);
+        let (observation, screenshot) =
+            observe_bridge(&mut bridge, !passed, true, true, &config.evidence_dir)?;
+        if let Some(path) = screenshot {
+            screenshot_paths.push(path);
         }
-        let state_digest = body
-            .get("a11y_digest")
-            .and_then(Value::as_str)
+        let state_digest = observation
+            .a11y_digest
+            .as_deref()
             .unwrap_or("00")
             .to_owned();
-        observations.push(
-            serde_json::from_value(body)
-                .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?,
-        );
+        observations.push(observation);
+        let end_observation = observations.len().saturating_sub(1);
+        action_spans.push(ActionSpan {
+            step: index,
+            action: step.clone(),
+            start_observation,
+            end_observation,
+        });
         if let Some(ui) = config.ui_integrity.as_ref().filter(|ui| ui.enabled) {
             ui_snapshots.push(collect_ui_snapshot(
                 &mut bridge,
@@ -325,7 +433,7 @@ pub fn run_browser_program_at(
             assertions.push(BrowserAssertionObservation {
                 obligation,
                 step: index,
-                observation: observations.len().saturating_sub(1),
+                observation: end_observation,
                 status,
             });
         }
@@ -349,11 +457,37 @@ pub fn run_browser_program_at(
         contradicted,
         assertions,
         observations,
+        action_spans,
         screenshot_paths,
         trace_path,
         ui_snapshots,
         failure,
     })
+}
+
+fn observe_bridge(
+    bridge: &mut BridgeProcess,
+    failed: bool,
+    settle_action: bool,
+    capture_screenshot: bool,
+    evidence_dir: &Path,
+) -> Result<(Observation, Option<PathBuf>), BrowserBridgeError> {
+    let body = bridge.request(
+        "observe",
+        &json!({
+            "failed": failed,
+            "settle_action": settle_action,
+            "capture_screenshot": capture_screenshot
+        }),
+    )?;
+    let screenshot = body
+        .get("screenshot_path")
+        .and_then(Value::as_str)
+        .map(|path| validated_evidence_path(evidence_dir, path))
+        .transpose()?;
+    let observation = serde_json::from_value(body)
+        .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    Ok((observation, screenshot))
 }
 
 /// Ask the bridge for one deterministic layout snapshot.

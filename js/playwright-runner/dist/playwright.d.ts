@@ -127,7 +127,13 @@ export declare class PlaywrightDriver implements Driver {
     injectFault(name: string): Promise<void>;
     apiCall(name: string, input: string): Promise<void>;
     assert(obligation: string): Promise<void>;
-    observe(failed: boolean): Promise<Observation>;
+    /**
+     * Let a mutation and an immediate application-level retry finish inside the
+     * action that caused them. Long polling and broken servers remain bounded by
+     * a two-second ceiling; incomplete journals are still reported separately.
+     */
+    settleAction(): Promise<void>;
+    observe(failed: boolean, captureScreenshot?: boolean): Promise<Observation>;
     /**
      * Collect one deterministic UI-integrity snapshot of the current state.
      *

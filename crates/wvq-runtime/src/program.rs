@@ -508,6 +508,21 @@ impl TestProgram {
     }
 }
 
+/// One ordered browser request. Bodies and header values are never captured.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkRequestObservation {
+    /// Monotonic identity within one browser program run.
+    pub sequence: u64,
+    /// Uppercase HTTP method.
+    pub method: String,
+    /// Request URL. Repository redaction policy may replace sensitive parts.
+    pub url: String,
+    /// Response status when it was observed before this snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+}
+
 /// Structured observation. Binary screenshots stay handles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Observation {
@@ -520,6 +535,12 @@ pub struct Observation {
     /// Network metadata (method + URL), not bodies.
     #[serde(default)]
     pub network: Vec<String>,
+    /// Ordered request identities used for exact per-action evidence.
+    #[serde(default)]
+    pub network_requests: Vec<NetworkRequestObservation>,
+    /// True when the bounded request journal omitted later requests.
+    #[serde(default)]
+    pub network_requests_truncated: bool,
     /// Console lines.
     #[serde(default)]
     pub console: Vec<String>,
@@ -551,6 +572,8 @@ pub fn filter_observation(
         || (matches!(policy.network, CaptureWhen::OnFailure) && !failed)
     {
         observation.network.clear();
+        observation.network_requests.clear();
+        observation.network_requests_truncated = false;
     }
     if matches!(policy.console, CaptureWhen::Never)
         || (matches!(policy.console, CaptureWhen::OnFailure) && !failed)

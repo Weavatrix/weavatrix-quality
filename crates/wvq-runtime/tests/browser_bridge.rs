@@ -15,8 +15,8 @@ use browser_lock::BrowserLock;
 use serde_json::json;
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
-    BrowserAssertionStatus, BrowserRunConfig, EvidencePolicy, ProgramOracle, ProgramSource,
-    TestAction, TestProgram, run_browser_program,
+    BrowserAssertionStatus, BrowserRunConfig, EvidencePolicy, ProgramOracle, ProgramSource, Target,
+    TestAction, TestProgram, duplicate_mutation_requests, run_browser_program,
 };
 
 struct TempDir(PathBuf);
@@ -76,6 +76,13 @@ fn rust_host_executes_a_real_playwright_program() {
         preconditions: Vec::new(),
         steps: vec![
             TestAction::Navigate { route: "/".into() },
+            TestAction::Activate {
+                target: Target {
+                    role: Some("button".into()),
+                    accessible_name: Some("Save".into()),
+                    ..Target::default()
+                },
+            },
             TestAction::Assert {
                 obligation: obligation.clone(),
             },
@@ -114,12 +121,25 @@ fn rust_host_executes_a_real_playwright_program() {
     assert!(result.passed, "{result:?}");
     assert_eq!(result.asserted, vec!["heading-visible"]);
     assert!(result.contradicted.is_empty());
-    assert_eq!(result.observations.len(), 2);
-    assert_eq!(result.observations[0].route.as_deref(), Some("/"));
+    assert_eq!(result.observations.len(), 4);
+    assert_eq!(result.observations[1].route.as_deref(), Some("/"));
+    assert_eq!(result.action_spans.len(), 3);
+    assert_eq!(result.action_spans[0].start_observation, 0);
+    assert_eq!(result.action_spans[0].end_observation, 1);
+    assert_eq!(result.action_spans[1].start_observation, 1);
+    assert_eq!(result.action_spans[1].end_observation, 2);
+    assert_eq!(result.action_spans[2].start_observation, 2);
+    assert_eq!(result.action_spans[2].end_observation, 3);
     assert_eq!(result.assertions.len(), 1);
-    assert_eq!(result.assertions[0].step, 1);
-    assert_eq!(result.assertions[0].observation, 1);
+    assert_eq!(result.assertions[0].step, 2);
+    assert_eq!(result.assertions[0].observation, 3);
     assert_eq!(result.assertions[0].status, BrowserAssertionStatus::Passed);
+    let duplicates = duplicate_mutation_requests(&result);
+    assert_eq!(duplicates.len(), 1, "{result:#?}");
+    assert_eq!(duplicates[0].step, 1);
+    assert_eq!(duplicates[0].method, "POST");
+    assert_eq!(duplicates[0].url, "/api/save");
+    assert_eq!(duplicates[0].sequences.len(), 2);
 
     let condition_missing = run_browser_program(
         &BrowserRunConfig {
@@ -168,7 +188,13 @@ fn respond(mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut request = [0_u8; 4096];
     let _ = stream.read(&mut request);
-    let body = b"<!doctype html><html><body><h1>WVQ real browser</h1></body></html>";
+    let body = br"<!doctype html><html><body><h1>WVQ real browser</h1>
+        <button>Save</button><script>
+          document.querySelector('button').addEventListener('click', () => {
+            fetch('/api/save', {method: 'POST'})
+              .then(() => fetch('/api/save', {method: 'POST'}));
+          });
+        </script></body></html>";
     write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

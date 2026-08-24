@@ -8079,7 +8079,19 @@ fn analyse_ui_snapshots(
     };
     let mut layouts = Vec::new();
     let mut hit_map = Vec::new();
-    for (_, result) in browser_runs {
+    for (configured, result) in browser_runs {
+        let duplicate_mutations = wvq_runtime::duplicate_mutation_requests(result);
+        if result
+            .observations
+            .iter()
+            .any(|observation| observation.network_requests_truncated)
+            || !matches!(
+                configured.program.evidence_policy.network,
+                CaptureWhen::Always
+            )
+        {
+            snapshot.truncated = true;
+        }
         for evidence in &result.ui_snapshots {
             if !evidence.limitations.is_empty() || evidence.snapshot.is_null() {
                 snapshot.truncated = true;
@@ -8109,6 +8121,12 @@ fn analyse_ui_snapshots(
             snapshot.responsive_breakpoints_incomplete |= !layout.responsive_breakpoints_complete;
             snapshot.measured_states.insert(layout.state_key());
             snapshot.findings.extend(output.findings);
+            snapshot.findings.extend(
+                duplicate_mutations
+                    .iter()
+                    .filter(|duplicate| duplicate.step == evidence.step)
+                    .map(|duplicate| duplicate_mutation_finding(&layout, duplicate)),
+            );
             hit_map.push(hit_test_summary(&layout));
             layouts.push(serde_json::to_value(&layout).map_err(|err| {
                 BusError::Runtime(format!("cannot encode layout snapshot: {err}"))
@@ -8129,6 +8147,38 @@ fn analyse_ui_snapshots(
         }),
         snapshot,
     })
+}
+
+fn duplicate_mutation_finding(
+    layout: &LayoutSnapshot,
+    duplicate: &wvq_runtime::DuplicateMutationRequest,
+) -> UiIntegrityFinding {
+    let count = u32::try_from(duplicate.sequences.len()).unwrap_or(u32::MAX);
+    UiIntegrityFinding {
+        check: wvq_ui::UiCheck::DuplicateMutationRequest,
+        severity: Severity::Error,
+        state: layout.state_key(),
+        route: layout.route.clone(),
+        viewport: format!("{}x{}", layout.viewport.width, layout.viewport.height),
+        subject: format!("{} {}", duplicate.method, duplicate.url),
+        counterpart: None,
+        component_hint: None,
+        nodes: Vec::new(),
+        evidence: wvq_ui::UiEvidence {
+            duplicate_count: count,
+            ..wvq_ui::UiEvidence::default()
+        },
+        detail: format!(
+            "one action at step {} emitted the same mutating request {count} times (request sequences {})",
+            duplicate.step,
+            duplicate
+                .sequences
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
 /// Per-target hit-test totals: what was probed, what got through, and what
@@ -8278,7 +8328,7 @@ fn persist_program_behavior(
     let mut edges = BTreeSet::new();
     let mut new_edges = BTreeSet::new();
     let mut api_operations = BTreeSet::new();
-    let mut previous: Option<(usize, ContentHash)> = None;
+    let mut observation_states = BTreeMap::new();
 
     for (index, observation) in result.observations.iter().enumerate() {
         api_operations.extend(
@@ -8289,7 +8339,6 @@ fn persist_program_behavior(
                 .filter(|operation| !operation.is_empty()),
         );
         let Some((digest, body)) = normalized_behavior_state(observation)? else {
-            previous = None;
             continue;
         };
         let digest_text = digest.to_string();
@@ -8300,25 +8349,21 @@ fn persist_program_behavior(
         {
             new_states.insert(digest_text);
         }
-        if let Some((previous_index, previous_digest)) = previous.take()
-            && previous_index.saturating_add(1) == index
-            && let Some(action) = configured.program.steps.get(index)
-        {
-            let (key, inserted) = persist_behavior_edge(store, &previous_digest, &digest, action)?;
+        observation_states.insert(index, digest);
+    }
+    for span in &result.action_spans {
+        if let (Some(previous_digest), Some(digest)) = (
+            observation_states.get(&span.start_observation),
+            observation_states.get(&span.end_observation),
+        ) {
+            let (key, inserted) =
+                persist_behavior_edge(store, previous_digest, digest, &span.action)?;
             edges.insert(key.clone());
             if inserted {
                 new_edges.insert(key);
             }
         }
-        previous = Some((index, digest));
-    }
-    for action in configured
-        .program
-        .steps
-        .iter()
-        .take(result.observations.len())
-    {
-        if let TestAction::ApiCall { operation, .. } = action {
+        if let TestAction::ApiCall { operation, .. } = &span.action {
             api_operations.insert(operation.clone());
         }
     }
@@ -8397,6 +8442,16 @@ fn program_behavior_artifact(
         bounded_set(new_states, BEHAVIOR_PROGRAM_SAMPLE_LIMIT);
     let (api_operations, api_operations_truncated) =
         bounded_set(api_operations, BEHAVIOR_PROGRAM_SAMPLE_LIMIT);
+    let duplicate_mutations = wvq_runtime::duplicate_mutation_requests(result);
+    let action_spans = result
+        .action_spans
+        .iter()
+        .take(BEHAVIOR_PROGRAM_SAMPLE_LIMIT)
+        .collect::<Vec<_>>();
+    let duplicate_samples = duplicate_mutations
+        .iter()
+        .take(BEHAVIOR_PROGRAM_SAMPLE_LIMIT)
+        .collect::<Vec<_>>();
     json!({
         "program": configured.program.id,
         "passed": result.passed,
@@ -8408,11 +8463,19 @@ fn program_behavior_artifact(
         "state_digests": state_digests,
         "new_state_digests": new_state_digests,
         "api_operations": api_operations,
+        "action_span_count": result.action_spans.len(),
+        "action_spans": action_spans,
+        "duplicate_mutation_request_count": duplicate_mutations.len(),
+        "duplicate_mutation_requests": duplicate_samples,
+        "network_request_evidence_truncated": result.observations.iter().any(|observation| observation.network_requests_truncated),
         "coverage_status": "unmeasured",
         "coverage_nodes": [],
         "truncated": state_digests_truncated
             || new_state_digests_truncated
-            || api_operations_truncated,
+            || api_operations_truncated
+            || result.action_spans.len() > BEHAVIOR_PROGRAM_SAMPLE_LIMIT
+            || duplicate_mutations.len() > BEHAVIOR_PROGRAM_SAMPLE_LIMIT
+            || result.observations.iter().any(|observation| observation.network_requests_truncated),
     })
 }
 
