@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use wvq_proof::{
     ExecutionEvidence, Explorer, ExplorerBudget, ExplorerDecision, MetaSample, MutantOracle,
-    MutantStatus, MutationSummary, ProofVerdict, assemble, builtins, execute, go_mutants, propose,
-    run_selected_mutants, seal_relation, ts_js_mutants,
+    MutantStatus, MutationSummary, ProofVerdict, assemble, builtins, execute, go_mutants,
+    plan_go_source_mutants, plan_ts_js_source_mutants, propose, run_selected_mutants,
+    seal_relation, ts_js_mutants,
 };
 use wvq_spec::EvidenceKind;
 
@@ -54,6 +55,148 @@ fn mutation_runs_selected_tests_only() {
     let summary = MutationSummary::from_results(&results);
     assert_eq!(summary.killed, 0);
     assert_eq!(summary.survived, u64::try_from(results.len()).unwrap());
+    assert_eq!(summary.invalid, 0);
+    assert!(!summary.unmeasured);
+}
+
+#[test]
+fn source_mutants_edit_only_changed_lines_with_concrete_safe_replacements() {
+    let ts = "const oldBoundary = value > 0;\nexport const allowed = value >= 5 && true;\n";
+    let mutants = plan_ts_js_source_mutants(
+        "src/limit.ts",
+        ts,
+        &BTreeSet::from([2]),
+        &["boundary_flip".into(), "bool_flip".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 2, "{mutants:#?}");
+    assert!(mutants.iter().all(|mutant| mutant.line == 2));
+    assert!(
+        mutants
+            .iter()
+            .all(|mutant| mutant.apply(ts).unwrap().contains("value > 0;\nexport"))
+    );
+    assert!(mutants.iter().any(|mutant| {
+        mutant.operator == "boundary_flip"
+            && mutant.apply(ts).unwrap().contains("value > 5 && true")
+    }));
+    assert!(mutants.iter().any(|mutant| {
+        mutant.operator == "bool_flip" && mutant.apply(ts).unwrap().contains("value >= 5 && false")
+    }));
+
+    let go = "package limit\nfunc allowed(value int) bool { return value >= 5 && true }\n";
+    let mutants = plan_go_source_mutants(
+        "limit.go",
+        go,
+        &BTreeSet::from([2]),
+        &["boundary_flip".into(), "invert_bool".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 2, "{mutants:#?}");
+    assert!(mutants.iter().all(|mutant| mutant.line == 2));
+    assert!(mutants.iter().any(|mutant| {
+        mutant.operator == "boundary_flip"
+            && mutant.apply(go).unwrap().contains("value > 5 && true")
+    }));
+}
+
+#[test]
+fn source_mutation_refuses_markup_comments_and_unrelated_error_line_comparisons() {
+    let ts = "// value >= 5\nconst markup = <Button>ok</Button>\nconst text = 'value >= 5'\n";
+    let mutants = plan_ts_js_source_mutants(
+        "src/view.tsx",
+        ts,
+        &BTreeSet::from([1, 2, 3]),
+        &["boundary_flip".into()],
+        16,
+    )
+    .unwrap();
+    assert!(mutants.is_empty(), "{mutants:#?}");
+
+    let go = "if err != nil && count == 2 { return err }\n";
+    let mutants = plan_go_source_mutants(
+        "worker.go",
+        go,
+        &BTreeSet::from([1]),
+        &["err_nil_flip".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 1, "{mutants:#?}");
+    let mutated = mutants[0].apply(go).unwrap();
+    assert!(mutated.contains("err == nil"));
+    assert!(mutated.contains("count == 2"));
+
+    let compact = "export const allowed = (value) => value>=5\n";
+    let mutants = plan_ts_js_source_mutants(
+        "src/compact.ts",
+        compact,
+        &BTreeSet::from([1]),
+        &["boundary_flip".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 1, "{mutants:#?}");
+    assert!(mutants[0].apply(compact).unwrap().contains("value>5"));
+}
+
+#[test]
+fn every_declared_ts_js_and_go_operator_has_a_concrete_source_edit() {
+    let ts = "if (value >= 5 && canDelete() && true) { items.sort(); callback(); throw error; }\nconst same = left === right\nconst page = items.slice(0, 5)\nconst offset = index +1\n";
+    let ts_mutants =
+        plan_ts_js_source_mutants("src/all.ts", ts, &BTreeSet::from([1, 2, 3, 4]), &[], 64)
+            .unwrap();
+    let ts_operators = ts_mutants
+        .iter()
+        .map(|mutant| mutant.operator.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        ts_operators,
+        BTreeSet::from([
+            "boundary_flip",
+            "equality_flip",
+            "bool_flip",
+            "logical_flip",
+            "off_by_one",
+            "remove_branch",
+            "remove_sort",
+            "wrong_permission",
+            "omit_callback",
+            "omit_error",
+            "collection_boundary",
+        ])
+    );
+    assert!(
+        ts_mutants
+            .iter()
+            .all(|mutant| mutant.apply(ts).unwrap() != ts)
+    );
+
+    let go = "if err != nil { return 1 }\nif value >= 5 { return true }\nif ctx.Err() != nil { return false }\n";
+    let go_mutants =
+        plan_go_source_mutants("worker.go", go, &BTreeSet::from([1, 2, 3]), &[], 64).unwrap();
+    let go_operators = go_mutants
+        .iter()
+        .map(|mutant| mutant.operator.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        go_operators,
+        BTreeSet::from([
+            "err_nil_flip",
+            "boundary_flip",
+            "return_zero",
+            "skip_branch",
+            "ignore_context",
+            "invert_bool",
+        ])
+    );
+    assert!(
+        go_mutants
+            .iter()
+            .all(|mutant| mutant.apply(go).unwrap() != go)
+    );
 }
 
 #[test]
@@ -86,6 +229,8 @@ fn survived_mutant_makes_proven_partial() {
         mutation: Some(MutationSummary {
             killed: 8,
             survived: 1,
+            invalid: 0,
+            unmeasured: false,
         }),
     });
     assert_eq!(assembled.proof.verdict, ProofVerdict::Partial);

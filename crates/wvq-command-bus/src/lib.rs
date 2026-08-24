@@ -7,6 +7,7 @@
 mod commands;
 mod replies;
 mod service;
+mod source_mutation;
 
 pub use commands::{
     AnalyzeCommand, AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
@@ -18,7 +19,7 @@ pub use replies::{
     AnalyzeReply, AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply,
     AuthorPromoteReply, AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply,
     DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary,
-    RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply,
-    SpecValidateReply, StatusReply, VerifyReply, RecordReply, estimate_tokens,
+    RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply,
+    SpecValidateReply, StatusReply, VerifyReply, estimate_tokens,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};

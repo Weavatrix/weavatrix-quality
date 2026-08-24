@@ -18,6 +18,7 @@ fn request(id: &str, extra: BTreeMap<String, String>) -> PrepareRequest {
         executor: ExecutorId::new(id).unwrap(),
         cwd: std::env::temp_dir(),
         filters: Vec::new(),
+        exact_case: None,
         extra,
         limits: default_limits(),
         cancel: Arc::new(AtomicBool::new(false)),
@@ -125,6 +126,29 @@ fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
             "tests/alpha.test.ts",
             "tests/beta.test.ts"
         ]
+    );
+}
+
+#[test]
+fn exact_case_filters_are_frozen_and_regex_escaped() {
+    let registry = ExecutorRegistry::production().unwrap();
+    let mut vitest = request("vitest", BTreeMap::new());
+    vitest.filters = vec!["tests/limit.test.ts".into()];
+    vitest.exact_case = Some("boundary [five]".into());
+    assert_eq!(
+        &registry.prepare(vitest).unwrap().args[8..],
+        [
+            "tests/limit.test.ts",
+            "--testNamePattern",
+            "^boundary \\[five\\]$"
+        ]
+    );
+
+    let mut go = request("go-test", BTreeMap::new());
+    go.exact_case = Some("TestAllowed".into());
+    assert_eq!(
+        &registry.prepare(go).unwrap().args[4..],
+        ["-run", "^TestAllowed$"]
     );
 }
 

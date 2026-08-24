@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: requirement-aware accessibility continuity
+Session: changed-region source mutation
 
 ## Now
 
@@ -40,7 +40,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Manual record → promoted replay | ✅ | ✅ | ✅ CLI/MCP/Studio + explicit promotion | ✅ passive Chromium capture + novelty discard + replay preview |
 | Deterministic network replay | ✅ | ✅ | ✅ config + run/record/CAS | ✅ Chromium record → strict replay, same profile on base/head |
 | Accessibility built-ins and continuity | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright facts + base/head ratchet |
-| Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
+| Mutation | ✅ | ✅ | ✅ default Proof producer | ✅ changed-line Go/Vitest exact-case execution |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
@@ -57,7 +57,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Duplicate mutation requests | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head action spans |
 | Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
-Current implementation: the composite change verdict, deterministic UI-integrity axis, live Delta Triangle, passive recorder, and runner-neutral network replay are on `main`. Every normal browser run replays the exact head-selected `TestProgram`, seed, sealed oracles, and network profile against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict, deterministic UI-integrity axis, live Delta Triangle, passive recorder, runner-neutral network replay, and changed-region source mutation are on `main`. Every normal browser run replays the exact head-selected `TestProgram`, seed, sealed oracles, and network profile against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. Mutation-enabled normal runs apply bounded TS/JS or Go edits only in a detached worktree and attach the exact test decision to the matching obligation's Proof. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
 Accessibility now uses the same ordinary base/head browser replay as UI integrity; no opt-in view is needed to gate a change. Playwright v2 snapshots collect only bounded semantic facts: tag/type, computed role and accessible name, label association, keyboard focusability, native/ARIA disabled state, selected role states, dialog modality/focus, and whether a concrete sealed predicate target named the node. Rust owns six standards-derived checks for control name, form label, required-flow keyboard reachability, role/state consistency, dialog name, and modal focus. New defects on sealed targets block; non-required defects are warning debt, so adoption does not hand QA an unrelated cleanup queue. Old defects remain ratcheted, fixed defects are credited, missing or truncated evidence is not clean, and the full path uses zero runtime model or vision tokens. A real fixture keeps its behavioral seal `PROVEN` while removing the required Export button name; normal `run` stores the delta and composite `quality_verify` blocks it.
 
@@ -69,7 +69,15 @@ Every attempted measured browser step now owns exact start/end observation index
 
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 73 `wvq-ui` tests, the 54-test runtime suite, 23 command-bus library tests, 36 command-bus integration tests, all 10 real Chromium UI/Storybook scenarios, and 24 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
+Current validation: 89 `wvq-proof` tests, 73 `wvq-ui` tests, the 55-test runtime suite, 27 command-bus library tests, 36 general command-bus integration tests, 3 real source-mutation scenarios, all 10 real Chromium UI/Storybook scenarios, and 24 Playwright-runner tests pass. The mutation scenarios prove a surviving Go boundary mutant weakens an otherwise green high-risk proof, a boundary-specific Go case kills it and remains `PROVEN`, and one exact Vitest case judges a changed JavaScript line while an unbound case in the same file cannot claim the kill. The user's source stays byte-identical. One browser scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. Warnings-denied Clippy covers all targets in `wvq-runtime`, `wvq-proof`, and `wvq-command-bus` plus their transitive WVQ crates.
+
+## Changed-region source mutation
+
+Mutation is part of ordinary `quality_run` and `quality_verify` whenever a scenario declares mutation hints. Rust plans concrete, content-derived edits only on Git-changed lines in non-test TS/JS or Go sources. The TS/JS catalogue covers boundary/equality/boolean/logical/off-by-one changes, branch/sort/permission/callback/error omissions, and collection boundaries; the Go catalogue covers error/nil and other boundaries, zero returns, skipped branches, ignored context, and inverted booleans. Strings, comments, TSX markup-shaped comparisons, Go `if` initializers, property calls, and unrelated same-line comparisons are excluded by concrete rules rather than confidence scoring.
+
+Execution creates a detached worktree at the exact head commit, overlays the requested working tree, links only an existing package dependency directory, applies one mutation, and invokes a frozen executor with the exact policy-bound case. The supported measured adapters are Go test and Vitest/Storybook-Vitest. Dependency links are explicitly unlinked before the temporary worktree is removed; the user checkout is never edited. Compile errors and missing/ambiguous normalized cases are `invalid`, not falsely `killed`. One mutant is capped at 120 seconds and 2 MiB of output; the whole phase is capped at 600 seconds, 32 source edits, and 128 obligation-case decisions. Any applicable obligation not reached by a cap remains `unmeasured` even if another obligation was measured.
+
+The `mutation-results` artifact is schema-validated against the current `quality.yaml`: obligation set, applicable subset, operator/ecosystem authorization, source region, unique result identity, counters, global state, and zero-token invariant must agree. Each result names the exact obligation and normalized test identity that judged it. Survived, invalid, and required-but-absent evidence weaken an otherwise green Proof to `PARTIAL`; a killed mutant for one obligation cannot strengthen a different obligation. Custom project-semantic hints remain listed as unmapped limitations instead of being guessed into unsafe source edits.
 
 ## Composite change verdict
 
@@ -204,6 +212,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
 | network replay | Captures bounded redacted same-origin JSON response profiles into CAS, loads versioned repository profiles for strict/hybrid replay, and applies the exact head profile to both head and merge-base browser execution |
 | delta triangle | Replays each exact head-selected `TestProgram` against the merge-base runtime, compares every structured observation before pixel evidence, joins Git/OpenSpec + Weavatrix + behavior, and persists the default verdict axis |
+| source mutation | Plans bounded built-in edits on changed TS/JS or Go lines, executes exact obligation-bound Go/Vitest cases in an isolated Git worktree, and feeds per-obligation killed/survived/invalid evidence into Proof |
 | ui integrity | Collects one bounded, settle-checked layout snapshot per step, runs the detectors in Rust, and persists `ui-layout-snapshot`, `ui-hit-test-map`, and `ui-integrity-findings`; `ui_integrity_view` replays the base and stores the classified `ui-integrity-delta` |
 | proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
 | expectation replacement | Compares base/head `OracleSeal` documents, persists one immutable revision-bound proposal, refuses stale or developer-only approval, and feeds an exact QA/product-owner acceptance into the default protection verdict |
@@ -219,6 +228,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 - large artifacts remain handles;
 - unknown schema versions, command values, stale/malformed evidence, revision drift, and incomplete graph diffs fail closed;
 - missing coverage is unmeasured, never uncovered;
+- a compile error or missing/ambiguous exact case cannot kill a mutant, and mutation strength never crosses obligation boundaries;
 - a successful unbound suite remains `UNPROVEN`;
 - normal verification makes no model call and spends zero runtime tokens;
 - model calls accept loopback HTTP only and are refused before network I/O when budget cannot cover the reservation;
@@ -243,7 +253,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+1. **Advanced producers.** Finish project metamorphic adapters and browser-feedback exploration before exposing more planner primitives.
 2. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

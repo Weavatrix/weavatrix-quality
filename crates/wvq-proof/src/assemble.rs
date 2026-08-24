@@ -124,7 +124,7 @@ pub fn assemble(input: AssemblyInput) -> ProofAssembly {
     if input
         .mutation
         .as_ref()
-        .is_some_and(|summary| summary.survived > 0)
+        .is_some_and(|summary| summary.survived > 0 || summary.invalid > 0 || summary.unmeasured)
         && verdict == ProofVerdict::Proven
     {
         verdict = ProofVerdict::Partial;

@@ -37,6 +37,7 @@ The canonical development checklist is implemented, but its items have different
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 - every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.
 - every normal browser run replays the exact same head-selected `TestProgram` on the merge base, compares structured observations before pixels, and feeds the live Spec x Code x Behavior Delta Triangle into `quality_verify` with zero model tokens.
+- mutation-enabled scenarios run concrete changed-line TS/JS or Go source edits in an isolated Git worktree and attach exact per-obligation killed/survived evidence to the ordinary Proof.
 
 Read [`docs/STATUS.md`](docs/STATUS.md) before changing the repository. The normative design is [`docs/CANONICAL-MASTER-SPEC.md`](docs/CANONICAL-MASTER-SPEC.md).
 
@@ -81,6 +82,10 @@ For a package whose test script is exactly `vitest` or `vitest run`, WVQ selects
 
 Repositories using Storybook's official Vitest addon get a separate bounded browser-project executor. An impacted run unions the base and head Weavatrix surfaces, selects an existing `.stories.*` file only when that story is in the union, and invokes `vitest run --project=storybook` rather than the ordinary Vitest project. When `@vitest/coverage-v8` is declared, the executor also emits LCOV; otherwise WVQ records the real browser case without pretending coverage exists. JUnit failures override a zero process exit code, so a reporter-only failure cannot become a false pass.
 
+Mutation hints now have a real source-execution path. For changed non-test TS/JS and Go lines, WVQ plans only the bounded built-in catalogue, creates a detached worktree at the exact head commit, overlays the requested working-tree content when needed, applies one reversible edit, and runs only exact obligation-bound Go or Vitest/Storybook-Vitest cases. The user's checkout is never edited. A compile failure, missing report, ambiguous case identity, unsupported runner, or spent execution ceiling is `invalid`/`unmeasured`, never a killed mutant. Results are attributed per obligation: a test for one obligation cannot strengthen another. A surviving, invalid, or required-but-missing measurement turns an otherwise `PROVEN` proof into `PARTIAL`; forged counters, policy mismatches, and unknown artifact states fail closed. The producer caps one mutant at 120 seconds, the whole mutation phase at 600 seconds, source edits at 32, obligation-case decisions at 128, and output at 2 MiB per process. This path uses zero model tokens.
+
+The built-in source catalogue is `boundary_flip`, `equality_flip`, `bool_flip`, `logical_flip`, `off_by_one`, `remove_branch`, `remove_sort`, `wrong_permission`, `omit_callback`, `omit_error`, and `collection_boundary` for TS/JS, plus `err_nil_flip`, `boundary_flip`, `return_zero`, `skip_branch`, `ignore_context`, and `invert_bool` for Go. Project-semantic hints such as `omit_group` are not guessed onto source syntax; they remain visible in the mutation artifact as unmapped limitations.
+
 Measured coverage can teach later selections without replacing Weavatrix. WVQ attributes graph nodes to a test only when a successful executor invocation ran exactly one test path; aggregate coverage from multi-test batches is never guessed onto each member. A historical test enters the base/head candidate union only after the same test-node relation was observed in two distinct runs. The bounded `selection-decision` artifact shows every chosen path, its evidence chain, the observation floor, and uncovered obligations.
 
 `wvq-bench` is also a defensive learning run, not just a timer. After the impacted and full scopes finish at the same change/revision, WVQ compares normalized failing test identities. The audit is `corroborated`, `contradicted`, `unmeasured`, or `not_reduced`; a failure found only by the full run is persisted as a `selection-audit` artifact and its safely resolved test path is fed into future selection for that impacted graph surface. Replaying the same run pair is idempotent, and bounded samples never hide the total miss count.
@@ -123,6 +128,26 @@ cargo run -p wvq-bench -- \
 ```
 
 The older labelled ecosystem cases remain available as deterministic selection-quality fixtures; their declared costs are not presented as measured wall-clock time.
+
+Mutation is enabled per scenario in its OpenSpec `quality.yaml`:
+
+```yaml
+requirements:
+  - capability: permissions
+    requirement: viewer-delete
+    scenarios:
+      - scenario: viewer-denied
+        obligations:
+          - id: viewer-cannot-delete
+            kind: invariant
+        evidence:
+          required: []
+          on_failure: []
+        mutation:
+          operators: [wrong_permission, boundary_flip]
+```
+
+An empty `operators` list requests every safe built-in for a compatible changed source file. Explicit names select only those built-ins; incompatible ecosystems are `not_applicable` rather than silently widened.
 
 ## JavaScript and npm
 

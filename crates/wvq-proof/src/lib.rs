@@ -47,7 +47,8 @@ pub use model::{
     LocalModelConfig, LocalModelReply, LocalModelRequest, ModelError, call_local_model,
 };
 pub use mutation::{
-    Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationSummary, go_mutants,
+    Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationError,
+    MutationSummary, SourceMutant, go_mutants, plan_go_source_mutants, plan_ts_js_source_mutants,
     run_selected_mutants, ts_js_mutants,
 };
 pub use protection::{

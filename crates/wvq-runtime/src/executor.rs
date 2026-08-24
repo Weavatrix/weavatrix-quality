@@ -69,6 +69,9 @@ pub struct PrepareRequest {
     pub cwd: PathBuf,
     /// Optional test filters (separate argv values, never a shell string).
     pub filters: Vec<String>,
+    /// Optional exact normalized case name. Only runners with a frozen,
+    /// reviewed case-filter flag accept it.
+    pub exact_case: Option<String>,
     /// Extra MCP/user fields. Only empty is accepted.
     pub extra: BTreeMap<String, String>,
     /// Deadline / output caps.
@@ -244,6 +247,24 @@ impl ExecutorRegistry {
                 args.push(sanitize_filter(filter)?);
             }
         }
+        if let Some(case) = &request.exact_case {
+            let pattern = exact_case_pattern(case)?;
+            match spec.id.as_str() {
+                "vitest" | "storybook-vitest" | "storybook-vitest-v8" => {
+                    args.push("--testNamePattern".into());
+                    args.push(pattern);
+                }
+                "go-test" if request.filters.is_empty() => {
+                    args.push("-run".into());
+                    args.push(pattern);
+                }
+                runner => {
+                    return Err(RuntimeError::InvalidArg(format!(
+                        "executor `{runner}` does not support an exact case filter"
+                    )));
+                }
+            }
+        }
         Ok(PreparedRun {
             executor: spec.id.clone(),
             program: spec.program.clone(),
@@ -379,6 +400,33 @@ fn sanitize_filter(filter: &str) -> Result<String, RuntimeError> {
         ));
     }
     Ok(filter.to_owned())
+}
+
+fn exact_case_pattern(case: &str) -> Result<String, RuntimeError> {
+    if case.is_empty()
+        || case.len() > 1024
+        || case.contains('\0')
+        || case
+            .chars()
+            .any(|character| matches!(character, '\n' | '\r'))
+    {
+        return Err(RuntimeError::InvalidArg(
+            "exact case must be one non-empty line of at most 1024 bytes".into(),
+        ));
+    }
+    let mut escaped = String::with_capacity(case.len().saturating_add(2));
+    escaped.push('^');
+    for character in case.chars() {
+        if matches!(
+            character,
+            '.' | '+' | '*' | '?' | '(' | ')' | '|' | '[' | ']' | '{' | '}' | '^' | '$' | '\\'
+        ) {
+            escaped.push('\\');
+        }
+        escaped.push(character);
+    }
+    escaped.push('$');
+    Ok(escaped)
 }
 
 /// Convenience constructor for tests and callers.

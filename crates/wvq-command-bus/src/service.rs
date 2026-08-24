@@ -75,9 +75,14 @@ use crate::replies::{
     Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply,
     StatusReply, VerifyReply, bound_items, estimate_tokens,
 };
+use crate::source_mutation::{
+    MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest,
+    execute_source_mutation,
+};
 
 /// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
 const UI_INTEGRITY_DELTA_KIND: &str = "ui-integrity-delta";
+const MUTATION_RESULTS_KIND: &str = "mutation-results";
 
 /// CAS artifact kind holding live same-program Spec x Code x Behavior evidence.
 const DELTA_TRIANGLE_KIND: &str = "delta-triangle";
@@ -2577,6 +2582,9 @@ impl QualityService for LiveService {
         validate_scope(&cmd.scope)?;
         validate_evidence_policy(&cmd.evidence_policy)?;
         let compiled = self.compiled(&cmd.change)?;
+        let mutation_policy =
+            MutationPolicy::from_contract(&load_quality_contract(&self.repo, &compiled.change)?)
+                .map_err(BusError::Runtime)?;
         if let Some(err) = &self.executor_init_error {
             return Err(BusError::Runtime(format!(
                 "registered executor initialization failed: {err}"
@@ -2700,6 +2708,7 @@ impl QualityService for LiveService {
                     executor: target.executor.clone(),
                     cwd: target.cwd.clone(),
                     filters: request.filters.clone(),
+                    exact_case: None,
                     extra: BTreeMap::new(),
                     limits: default_limits(),
                     cancel: Arc::clone(&cancel),
@@ -2738,6 +2747,44 @@ impl QualityService for LiveService {
             clear_generated_runner_artifacts(&target.cwd)?;
             records.push(record);
         }
+
+        let mutation_bindings = live_selection
+            .bindings
+            .iter()
+            .filter_map(|binding| {
+                Some(MutationBinding {
+                    path: binding.path.clone(),
+                    runner: binding.runner.clone()?,
+                    case: binding.case.clone()?,
+                    obligations: binding.obligations.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let mutation_document = mutation_policy
+            .as_ref()
+            .map(|policy| {
+                if records.is_empty() || records.iter().any(|record| !record.passed) {
+                    Ok(MutationRunDocument::unmeasured(
+                        policy,
+                        "the selected baseline suite did not pass before mutation".into(),
+                    ))
+                } else {
+                    execute_source_mutation(&MutationRunRequest {
+                        repo: &self.repo,
+                        head_commit: &range.head_commit,
+                        merge_base: &range.merge_base,
+                        head_is_worktree: range.head_ref == "WORKTREE",
+                        added_files: &changed.added,
+                        changed_files: &changed.changed,
+                        bindings: &mutation_bindings,
+                        policy,
+                        executors: &self.executors,
+                        cancel: Arc::clone(&cancel),
+                    })
+                    .map_err(BusError::Runtime)
+                }
+            })
+            .transpose()?;
 
         let ui_policy = load_ui_integrity_policy(&self.repo)?;
         let mut browser_runs = Vec::new();
@@ -2879,6 +2926,27 @@ impl QualityService for LiveService {
             &obligation_execution,
             &mut handles,
         )?;
+        if let Some(mutation) = &mutation_document {
+            put_json_run_artifact(
+                &store,
+                &run_id,
+                &format!("artifact-{}-mutation-results", run_id.as_str()),
+                MUTATION_RESULTS_KIND,
+                mutation,
+                &mut handles,
+            )?;
+            for result in &mutation.results {
+                let stored_result_id = format!("{}--{}", run_id.as_str(), result.id);
+                store
+                    .put_mutation_result(
+                        &stored_result_id,
+                        &result.operator,
+                        &format!("{}:{}:{}", result.path, result.line, result.column),
+                        &result.status,
+                    )
+                    .map_err(|err| BusError::Store(err.to_string()))?;
+            }
+        }
         put_json_run_artifact(
             &store,
             &run_id,
@@ -3181,6 +3249,8 @@ impl QualityService for LiveService {
     fn verify(&self, cmd: &VerifyCommand) -> Result<VerifyReply, BusError> {
         let compiled = self.compiled(&cmd.change)?;
         let contract = load_quality_contract(&self.repo, &compiled.change)?;
+        let mutation_policy =
+            MutationPolicy::from_contract(&contract).map_err(BusError::Runtime)?;
         let oracle = seal(&contract, &compiled.obligations, &compiled.spec)?;
         let revision = self.revision()?;
         let store = self.store()?;
@@ -3196,6 +3266,7 @@ impl QualityService for LiveService {
         let mut present = Vec::new();
         let mut obligation_execution = BTreeMap::<String, Vec<StoredObligationExecution>>::new();
         let mut browser_evidence = BTreeMap::<String, BrowserProofEvidence>::new();
+        let mut mutation_evidence = None::<MutationRunDocument>;
         for artifact in &artifact_ids {
             let (record, bytes) = store
                 .read_artifact(artifact)
@@ -3215,6 +3286,32 @@ impl QualityService for LiveService {
             }
             if record.kind == "browser-program-evidence" {
                 merge_browser_proof_evidence(&mut browser_evidence, &bytes)?;
+            }
+            if record.kind == MUTATION_RESULTS_KIND {
+                if mutation_evidence.is_some() {
+                    return Err(BusError::Store(
+                        "run has more than one mutation-results artifact".into(),
+                    ));
+                }
+                let document: MutationRunDocument =
+                    serde_json::from_slice(&bytes).map_err(|err| {
+                        BusError::Store(format!("run has malformed mutation-results: {err}"))
+                    })?;
+                if document.schema_v != 1 {
+                    return Err(BusError::Store(format!(
+                        "unknown mutation-results schema_v {}",
+                        document.schema_v
+                    )));
+                }
+                let policy = mutation_policy.as_ref().ok_or_else(|| {
+                    BusError::Store(
+                        "run contains mutation evidence not requested by quality.yaml".into(),
+                    )
+                })?;
+                document.validate(policy).map_err(|error| {
+                    BusError::Store(format!("run has invalid mutation-results: {error}"))
+                })?;
+                mutation_evidence = Some(document);
             }
         }
         let mut proofs = Vec::new();
@@ -3288,7 +3385,9 @@ impl QualityService for LiveService {
                 execution,
                 spec_ambiguous: false,
                 quality_debt: Vec::new(),
-                mutation: None,
+                mutation: mutation_policy.as_ref().and_then(|policy| {
+                    policy.summary_for(mutation_evidence.as_ref(), obligation.id.as_str())
+                }),
             });
             if run.is_some()
                 && store
@@ -8316,6 +8415,7 @@ fn execute_full_targets(
                 executor: target.executor.clone(),
                 cwd: target.cwd.clone(),
                 filters: Vec::new(),
+                exact_case: None,
                 extra: BTreeMap::new(),
                 limits: default_limits(),
                 cancel: Arc::clone(cancel),
