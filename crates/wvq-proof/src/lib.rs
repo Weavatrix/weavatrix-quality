@@ -31,7 +31,7 @@ pub use change_verdict::{
 };
 pub use differential::{
     CodeDelta, DeltaTriangle, SpecDelta, TriangleAxes, TriangleReading, classify_triangle,
-    join_triangle, spec_delta,
+    join_triangle, scoped_spec_delta, spec_delta,
 };
 pub use explorer::{Explorer, ExplorerBudget, ExplorerDecision, ExplorerPacket, SemanticControl};
 pub use flake::{

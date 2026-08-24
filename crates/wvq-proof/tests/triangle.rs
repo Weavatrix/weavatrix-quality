@@ -1,8 +1,11 @@
-//! Task 20: Delta Triangle is evidence; unexpected cells become findings.
+﻿//! Task 20: Delta Triangle is evidence; unexpected cells become findings.
 
-use wvq_domain::{FindingState, Severity};
-use wvq_proof::{CodeDelta, SpecDelta, TriangleReading, classify_triangle, join_triangle};
+use wvq_domain::{FindingState, ObligationId, RequirementId, ScenarioId, Severity};
+use wvq_proof::{
+    CodeDelta, SpecDelta, TriangleReading, classify_triangle, join_triangle, scoped_spec_delta,
+};
 use wvq_runtime::{Observation, StructuredView, behavior_delta};
+use wvq_spec::{ObligationKind, RiskLevel, SpecChangeScope, TestObligation};
 
 fn delta_with_route_change() -> wvq_runtime::BehaviorDelta {
     let base = StructuredView::from_replay(
@@ -25,6 +28,48 @@ fn delta_with_route_change() -> wvq_runtime::BehaviorDelta {
 fn stable() -> wvq_runtime::BehaviorDelta {
     let view = StructuredView::from_replay(&Observation::default(), None);
     behavior_delta(&view, &view)
+}
+
+fn obligation(id: &str, requirement: &str, scenario: &str) -> TestObligation {
+    TestObligation {
+        id: ObligationId::new(id).unwrap(),
+        requirement: RequirementId::new(requirement).unwrap(),
+        scenario: ScenarioId::new(scenario).unwrap(),
+        kind: ObligationKind::Behavioral,
+        condition: None,
+        expected: None,
+        required_evidence: Vec::new(),
+        risk: RiskLevel::High,
+    }
+}
+
+#[test]
+fn one_changed_obligation_cannot_authorize_a_mixed_program() {
+    let obligations = vec![
+        obligation("export-csv", "product.export-report", "csv-export"),
+        obligation(
+            "viewer-delete",
+            "product.viewer-permissions",
+            "delete-denied",
+        ),
+    ];
+    let scope = SpecChangeScope::from_parts(
+        Vec::new(),
+        vec![("product.export-report".into(), "csv-export".into())],
+    );
+
+    let delta = scoped_spec_delta(
+        &scope,
+        &obligations,
+        &[
+            ObligationId::new("export-csv").unwrap(),
+            ObligationId::new("viewer-delete").unwrap(),
+        ],
+    );
+
+    assert!(!delta.changed);
+    assert_eq!(delta.authorized_obligations, ["export-csv"]);
+    assert_eq!(delta.unauthorized_obligations, ["viewer-delete"]);
 }
 
 #[test]
@@ -66,7 +111,7 @@ fn matrix_matches_spec_table() {
 #[test]
 fn unexpected_drift_is_an_explicit_finding() {
     let triangle = join_triangle(
-        SpecDelta { changed: false },
+        &SpecDelta::change_wide(false),
         CodeDelta { changed: true },
         &delta_with_route_change(),
         "sankey-others-replay",
@@ -84,14 +129,14 @@ fn unexpected_drift_is_an_explicit_finding() {
 #[test]
 fn expected_change_and_refactor_are_not_findings() {
     let expected = join_triangle(
-        SpecDelta { changed: true },
+        &SpecDelta::change_wide(true),
         CodeDelta { changed: true },
         &delta_with_route_change(),
         "p",
     );
     assert!(expected.findings.is_empty());
     let refactor = join_triangle(
-        SpecDelta { changed: false },
+        &SpecDelta::change_wide(false),
         CodeDelta { changed: true },
         &stable(),
         "p",
@@ -103,7 +148,7 @@ fn expected_change_and_refactor_are_not_findings() {
 #[test]
 fn incomplete_implementation_is_a_warning_finding() {
     let triangle = join_triangle(
-        SpecDelta { changed: true },
+        &SpecDelta::change_wide(true),
         CodeDelta { changed: true },
         &stable(),
         "p",

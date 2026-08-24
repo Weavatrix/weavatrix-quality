@@ -441,7 +441,9 @@ fn checkout_repo_with_program(base_url: &str, program: &str) -> TempRepo {
         root.join("openspec/changes/checkout-ui/specs/ui/spec.md"),
         "# Delta for UI\n\n## ADDED Requirements\n\n### Requirement: Checkout\n\
          The system SHALL let a customer export their order.\n\n#### Scenario: Export\n\
-         - GIVEN the checkout page\n- WHEN it loads\n- THEN the Export control is usable\n",
+         - GIVEN the checkout page\n- WHEN it loads\n- THEN the Export control is usable\n\n\
+         ### Requirement: Theme\nThe system SHALL use the standard theme.\n\n#### Scenario: Default theme\n\
+         - GIVEN the checkout page\n- WHEN it loads\n- THEN the standard theme is visible\n",
     )
     .unwrap();
     std::fs::write(
@@ -827,6 +829,55 @@ fn semantic_drift_blocks_the_default_verdict_without_an_opt_in_view() {
             && reason.subject == "checkout-ui"
             && reason.detail.contains("WVQ-BEHAV-001")
     }));
+}
+
+#[test]
+fn changing_one_requirement_does_not_authorize_another_programs_behavior() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(semantic_page("ready"));
+    let head_server = PageServer::start(semantic_page("delayed"));
+    let repo = checkout_repo(&base_server.url());
+    switch_to_head(&repo.0, &head_server.url());
+    std::fs::write(
+        repo.0.join("src/app.ts"),
+        "export function statusLabel() { return 'delayed'; }\n",
+    )
+    .unwrap();
+    let spec_path = repo
+        .0
+        .join("openspec/changes/checkout-ui/specs/ui/spec.md");
+    let spec = std::fs::read_to_string(&spec_path).unwrap();
+    std::fs::write(
+        &spec_path,
+        spec.replace(
+            "The system SHALL use the standard theme.",
+            "The system SHALL use the high-contrast theme.",
+        ),
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+
+    service
+        .run(&RunCommand {
+            change: "checkout-ui".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })
+        .unwrap();
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert!(!verified.quality.delta_triangle.spec_changed);
+    assert_eq!(
+        verified.quality.delta_triangle.readings,
+        vec!["unintended_behavior_drift"]
+    );
+    assert_eq!(verified.state, "BLOCKED");
 }
 
 #[test]

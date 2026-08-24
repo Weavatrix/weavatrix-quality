@@ -4,10 +4,13 @@
 
 #![forbid(unsafe_code)]
 
+mod delta;
 pub mod obligations;
 pub mod openspec;
 pub mod quality_yaml;
 pub mod seal;
+
+pub use delta::{SpecChangeScope, diff_spec_scope};
 
 pub use obligations::{TestObligation, compile_obligations};
 pub use openspec::{

@@ -1,14 +1,31 @@
 //! Delta Triangle: Spec × Code × Behavior is evidence, not a quality percentage.
 
-use wvq_domain::{CheckId, FindingState, QualityFinding, Severity, SubjectRef};
+use wvq_domain::{CheckId, FindingState, ObligationId, QualityFinding, Severity, SubjectRef};
 use wvq_runtime::BehaviorDelta;
-use wvq_spec::OpenSpecChange;
+use wvq_spec::{OpenSpecChange, SpecChangeScope, TestObligation};
 
 /// Whether `OpenSpec` intent changed on this change folder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpecDelta {
-    /// Any ADDED / MODIFIED / REMOVED / RENAMED requirement.
+    /// Every obligation asserted by this program is authorized by the exact
+    /// requirement/scenario scope that changed.
     pub changed: bool,
+    /// Program obligations whose own requirement/scenario changed.
+    pub authorized_obligations: Vec<String>,
+    /// Program obligations outside the changed intent scope.
+    pub unauthorized_obligations: Vec<String>,
+}
+
+impl SpecDelta {
+    /// Compatibility constructor for a change-wide/non-program test.
+    #[must_use]
+    pub fn change_wide(changed: bool) -> Self {
+        Self {
+            changed,
+            authorized_obligations: Vec::new(),
+            unauthorized_obligations: Vec::new(),
+        }
+    }
 }
 
 /// Whether Weavatrix-reported code changed. WVQ does not own the graph.
@@ -85,11 +102,49 @@ pub struct DeltaTriangle {
 /// Detect a spec delta from an `OpenSpec` change.
 #[must_use]
 pub fn spec_delta(change: &OpenSpecChange) -> SpecDelta {
-    SpecDelta {
-        changed: change
+    SpecDelta::change_wide(
+        change
             .capabilities
             .iter()
             .any(|capability| !capability.operations.is_empty()),
+    )
+}
+
+/// Authorize one program only when every obligation it asserts belongs to the
+/// exact requirement/scenario scope changed between base and head.
+#[must_use]
+pub fn scoped_spec_delta(
+    scope: &SpecChangeScope,
+    obligations: &[TestObligation],
+    program_obligations: &[ObligationId],
+) -> SpecDelta {
+    let by_id = obligations
+        .iter()
+        .map(|obligation| (obligation.id.as_str(), obligation))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut authorized = Vec::new();
+    let mut unauthorized = Vec::new();
+    for id in program_obligations {
+        let is_authorized = by_id.get(id.as_str()).is_some_and(|obligation| {
+            scope.authorizes(
+                obligation.requirement.as_str(),
+                obligation.scenario.as_str(),
+            )
+        });
+        if is_authorized {
+            authorized.push(id.to_string());
+        } else {
+            unauthorized.push(id.to_string());
+        }
+    }
+    authorized.sort();
+    authorized.dedup();
+    unauthorized.sort();
+    unauthorized.dedup();
+    SpecDelta {
+        changed: !program_obligations.is_empty() && unauthorized.is_empty(),
+        authorized_obligations: authorized,
+        unauthorized_obligations: unauthorized,
     }
 }
 
@@ -111,7 +166,7 @@ pub fn classify_triangle(spec: bool, code: bool, behavior: bool) -> TriangleRead
 /// Join spec, code, and behavior deltas and emit unexpected findings.
 #[must_use]
 pub fn join_triangle(
-    spec: SpecDelta,
+    spec: &SpecDelta,
     code: CodeDelta,
     behavior: &BehaviorDelta,
     program_id: &str,

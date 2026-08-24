@@ -27,10 +27,10 @@ use wvq_proof::{
     HealEdit, Limitation, LocalModelConfig, LocalModelRequest, OracleReplacementReview,
     ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionCheckInput, ProtectionDelta,
     ProtectionDeltaState, ProtectionFinding, ProtectionPolicy, ProtectionSnapshot, ProtectionView,
-    SpecDelta, StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef,
-    UiIntegrityAxis, VerdictInputs, apply_heal, assemble, call_local_model, compose,
+    StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef, UiIntegrityAxis,
+    VerdictInputs, apply_heal, assemble, call_local_model, compose,
     debt_rule_blocks, fingerprint_id, gate_protection, join_triangle, protection_delta,
-    snapshot_with_executed_tests, summarise, triage,
+    scoped_spec_delta, snapshot_with_executed_tests, summarise, triage,
 };
 use wvq_runtime::{
     AxisDelta, BehaviorDelta, BehaviorState, BrowserAssertionStatus, BrowserProgramRun,
@@ -44,7 +44,7 @@ use wvq_runtime::{
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
-    TestObligation, compile_obligations, load_quality_contract, read_change, seal,
+    TestObligation, compile_obligations, diff_spec_scope, load_quality_contract, read_change, seal,
 };
 use wvq_spec_recovery::{
     CandidateRequirement, CandidateShape, CodeDeltaSummary, CommitFacts, EvidenceSource,
@@ -1247,6 +1247,7 @@ impl LiveService {
     fn replay_base_browser_programs(
         &self,
         range: &RevisionRange,
+        change: &str,
         head_policy: &BrowserPolicy,
         head_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
         ui_policy: &UiIntegrityPolicy,
@@ -1257,6 +1258,7 @@ impl LiveService {
             .analyze(&worktree.path)
             .map_err(|err| BusError::Intelligence(err.to_string()))?
             .revision;
+        let spec = optional_change(&worktree.path, change)?;
         let base_runtime =
             load_browser_runtime_with(&worktree.path, Some(head_policy.module_root.as_path()))?
                 .ok_or_else(|| {
@@ -1302,7 +1304,11 @@ impl LiveService {
             .map_err(|err| BusError::Runtime(err.to_string()))?;
             runs.push(result);
         }
-        Ok(BaseBrowserReplay { revision, runs })
+        Ok(BaseBrowserReplay {
+            revision,
+            spec,
+            runs,
+        })
     }
 
     /// Replay the configured browser programs at the merge base.
@@ -2215,6 +2221,14 @@ fn compile_repository(repo: &Path, change: &str) -> Result<Compiled, BusError> {
     })
 }
 
+fn optional_change(repo: &Path, change: &str) -> Result<Option<OpenSpecChange>, BusError> {
+    match read_change(repo, change) {
+        Ok(change) => Ok(Some(change)),
+        Err(SpecError::ChangeNotFound(_) | SpecError::NoDeltaSpecs(_)) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn oracle_identity(repo: &Path, compiled: &Compiled) -> Result<OracleIdentity, BusError> {
     let contract = load_quality_contract(repo, &compiled.change)?;
     let oracle = seal(&contract, &compiled.obligations, &compiled.spec)?;
@@ -2392,6 +2406,7 @@ struct ConfiguredBrowserProgram {
 
 struct BaseBrowserReplay {
     revision: RevisionId,
+    spec: Option<OpenSpecChange>,
     runs: Vec<BrowserProgramRun>,
 }
 
@@ -2833,6 +2848,7 @@ impl QualityService for LiveService {
             (!browser_runs.is_empty()).then(|| {
                 self.replay_base_browser_programs(
                     &range,
+                    &compiled.change,
                     policy,
                     &browser_runs,
                     &ui_policy,
@@ -6091,7 +6107,10 @@ fn delta_triangle_axis(
     let Ok(document) = read_single_run_json(store, &run.id, DELTA_TRIANGLE_KIND) else {
         return Ok((DeltaTriangleAxis::default(), Vec::new()));
     };
-    if document.get("schema_v").and_then(Value::as_u64) != Some(1) {
+    if !matches!(
+        document.get("schema_v").and_then(Value::as_u64),
+        Some(1 | 2)
+    ) {
         return Err(BusError::Store(
             "unknown delta-triangle schema version".into(),
         ));
@@ -8689,8 +8708,9 @@ fn persist_delta_triangle(
     run_evidence_policy: &str,
     handles: &mut Vec<String>,
 ) -> Result<(), BusError> {
-    let spec_changed = changed.changes_openspec_change(&compiled.change);
+    let openspec_path_changed = changed.changes_openspec_change(&compiled.change);
     let code_changed = graph_diff_has_code_delta(graph_diff)?;
+    let mut spec_changed = false;
     let mut measured_programs = 0_u64;
     let mut changed_programs = Vec::new();
     let mut readings = Vec::new();
@@ -8711,6 +8731,11 @@ fn persist_delta_triangle(
         }
         Ok(base) => {
             base_revision = Some(base.revision.to_string());
+            let spec_scope = if openspec_path_changed {
+                diff_spec_scope(base.spec.as_ref(), &compiled.spec)?
+            } else {
+                wvq_spec::SpecChangeScope::default()
+            };
             if base.runs.len() != head_runs.len() {
                 unmeasured_programs.extend(
                     head_runs
@@ -8761,10 +8786,14 @@ fn persist_delta_triangle(
                     }
                     let delta =
                         paired_observation_delta(&base_run.observations, &head.observations);
+                    let program_spec = scoped_spec_delta(
+                        &spec_scope,
+                        &compiled.obligations,
+                        &configured.program.obligations,
+                    );
+                    spec_changed |= program_spec.changed;
                     let triangle = join_triangle(
-                        SpecDelta {
-                            changed: spec_changed,
-                        },
+                        &program_spec,
                         CodeDelta {
                             changed: code_changed,
                         },
@@ -8789,6 +8818,9 @@ fn persist_delta_triangle(
                         "measured": true,
                         "reading": triangle.reading.as_str(),
                         "behavior_changed": delta.changed(),
+                        "spec_authorized": program_spec.changed,
+                        "authorized_obligations": program_spec.authorized_obligations,
+                        "unauthorized_obligations": program_spec.unauthorized_obligations,
                         "first_behavior_axis": triangle.first_behavior_axis,
                         "pixel_compared": triangle.pixel_compared,
                         "changed_axes": delta.axes.iter().map(|axis| axis.axis.as_str()).collect::<Vec<_>>(),
@@ -8817,7 +8849,7 @@ fn persist_delta_triangle(
         "warnings"
     };
     let document = json!({
-        "schema_v": 1,
+        "schema_v": 2,
         "state": state,
         "spec_changed": spec_changed,
         "code_changed": code_changed,

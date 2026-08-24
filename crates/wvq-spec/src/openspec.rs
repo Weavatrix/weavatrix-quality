@@ -632,7 +632,10 @@ fn strip_requirement_ref(raw: &str) -> String {
         .to_owned()
 }
 
-fn slug_title(name: &str) -> String {
+/// The one place a human title becomes an identity segment. `delta.rs` compares
+/// revisions with the same identities this builds, so there must be exactly one
+/// implementation.
+pub(crate) fn slug_title(name: &str) -> String {
     let mut out = String::new();
     let mut pending_hyphen = false;
     for ch in name.chars() {
