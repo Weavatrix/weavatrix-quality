@@ -51,7 +51,7 @@ pub use mutation::{
 };
 pub use protection::{
     FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,
-    snapshot,
+    snapshot, snapshot_with_executed_tests,
 };
 pub use protection_checks::{
     ProtectionCheckInput, ProtectionFinding, ProtectionPolicy, ProtectionTrend, TestChange, blocks,

@@ -3,6 +3,7 @@
 use wvq_domain::RevisionId;
 use wvq_proof::{
     FlowProtection, HistoricalProof, ProtectionError, ReusePolicy, may_reuse, snapshot,
+    snapshot_with_executed_tests,
 };
 
 fn base() -> RevisionId {
@@ -58,6 +59,33 @@ fn an_unprotected_flow_is_named_not_hidden() {
     bare.proofs.clear();
     let snapshot = snapshot(&base(), vec![bare]).unwrap();
     assert_eq!(snapshot.unprotected(), vec!["orphan-flow"]);
+}
+
+#[test]
+fn executed_cases_are_recorded_even_without_an_impacted_flow() {
+    let snapshot = snapshot_with_executed_tests(
+        &base(),
+        vec![protection(
+            "viewer-deny",
+            "rev-base",
+            &["permission_test.go#TestViewerCannotDelete"],
+        )],
+        vec![
+            "permission_test.go#TestViewerCannotDelete".into(),
+            "label_test.go#TestViewerLabel".into(),
+            "permission_test.go#TestViewerCannotDelete".into(),
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(
+        snapshot.executed_tests,
+        [
+            "label_test.go#TestViewerLabel",
+            "permission_test.go#TestViewerCannotDelete"
+        ],
+        "the revision inventory is exact, sorted, and independent of flow coverage"
+    );
 }
 
 #[test]

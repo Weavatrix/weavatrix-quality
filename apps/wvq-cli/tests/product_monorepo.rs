@@ -453,7 +453,7 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
             write(
                 &root,
                 "service/permission_test.go",
-                "package service\n\nimport \"testing\"\n\nfunc TestViewerCannotDelete(t *testing.T) {\n\tif ViewerLabel() != \"Viewer\" { t.Fatal(\"label changed\") }\n}\n",
+                "package service\n\nimport \"testing\"\n\nfunc TestViewerCannotDelete(t *testing.T) {\n\tif 2 + 2 != 4 { t.Fatal(\"arithmetic changed\") }\n}\n",
             );
             (
                 "B2: guard disappears while tests stay green",

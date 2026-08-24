@@ -29,7 +29,7 @@ use wvq_proof::{
     ProtectionPolicy, ProtectionSnapshot, ProtectionView, StabilityAxis, TestChange,
     TestLineageView, TimingBucket, UiFindingRef, UiIntegrityAxis, VerdictInputs, apply_heal,
     assemble, call_local_model, compose, debt_rule_blocks, fingerprint_id, gate_protection,
-    protection_delta, snapshot, summarise, triage,
+    protection_delta, snapshot_with_executed_tests, summarise, triage,
 };
 use wvq_runtime::{
     BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, CaptureWhen,
@@ -8440,6 +8440,7 @@ fn live_protection_snapshot(
     if nodes.is_empty() {
         return Ok(None);
     }
+    let executed_tests = executed_test_inventory(repo, records, bindings)?;
     let (flows, coverage_files) =
         measured_protection_flows(repo, revision, graph, nodes, records, bindings)?;
     if flows.is_empty() {
@@ -8448,9 +8449,62 @@ fn live_protection_snapshot(
         }
         return Ok(None);
     }
-    let snapshot = snapshot(revision, flows.into_values().collect())
-        .map_err(|err| BusError::Runtime(err.to_string()))?;
+    let snapshot =
+        snapshot_with_executed_tests(revision, flows.into_values().collect(), executed_tests)
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
     Ok(Some(snapshot))
+}
+
+/// Record every exact passing case independently of the flows it covered.
+///
+/// Coverage attribution remains deliberately stricter: a batch artifact may
+/// only protect at executor scope. The inventory has a different job — proving
+/// that a named case still executed, even when it reached no impacted symbol.
+fn executed_test_inventory(
+    repo: &Path,
+    records: &[ExecutorRecord],
+    bindings: &[TestBinding],
+) -> Result<Vec<String>, BusError> {
+    let mut identities = BTreeSet::new();
+    for record in records.iter().filter(|record| record.passed) {
+        for artifact in record
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.kind == "normalized-test-run")
+        {
+            let normalized: NormalizedTestRun =
+                serde_json::from_slice(&artifact.bytes).map_err(|err| {
+                    BusError::Runtime(format!(
+                        "cannot decode normalized evidence from {}: {err}",
+                        artifact.path
+                    ))
+                })?;
+            for case in normalized
+                .cases
+                .into_iter()
+                .filter(|case| case.status == TestStatus::Pass)
+            {
+                let matched = bindings
+                    .iter()
+                    .filter(|binding| {
+                        binding.case.as_deref() == Some(case.name.as_str())
+                            && binding
+                                .runner
+                                .as_deref()
+                                .is_none_or(|runner| runner == record.executor)
+                            && normalized_suite_matches(repo, record, binding, &case.suite)
+                    })
+                    .map(|binding| format!("{}#{}", binding.path, case.name))
+                    .collect::<Vec<_>>();
+                if matched.is_empty() {
+                    identities.insert(format!("{}:{}#{}", record.executor, case.suite, case.name));
+                } else {
+                    identities.extend(matched);
+                }
+            }
+        }
+    }
+    Ok(identities.into_iter().collect())
 }
 
 fn persist_dynamic_coverage_history(
@@ -9106,9 +9160,11 @@ fn protection_lineage(
                 .insert(flow.flow.clone());
         }
     }
-    let tests = base_flows
-        .keys()
-        .chain(head_flows.keys())
+    let base_executed = base.executed_test_identities();
+    let head_executed = head.executed_test_identities();
+    let tests = base_executed
+        .iter()
+        .chain(&head_executed)
         .cloned()
         .collect::<BTreeSet<_>>();
     tests
@@ -9118,13 +9174,15 @@ fn protection_lineage(
             let after = head_flows.get(&test).cloned().unwrap_or_default();
             let lost_flows = before.difference(&after).cloned().collect::<Vec<_>>();
             let gained_flows = after.difference(&before).cloned().collect::<Vec<_>>();
-            let phantom = !before.is_empty() && !after.is_empty() && !lost_flows.is_empty();
+            let present_before = base_executed.contains(&test);
+            let present_after = head_executed.contains(&test);
+            let phantom = present_before && present_after && !lost_flows.is_empty();
             TestLineageView {
-                state: match (before.is_empty(), after.is_empty()) {
-                    (false, false) => "unchanged",
-                    (false, true) => "removed",
-                    (true, false) => "added",
-                    (true, true) => "unknown",
+                state: match (present_before, present_after) {
+                    (true, true) => "unchanged",
+                    (true, false) => "removed",
+                    (false, true) => "added",
+                    (false, false) => "unknown",
                 }
                 .into(),
                 matched_on: "exact test identity".into(),
@@ -10307,7 +10365,57 @@ mod tests {
             flow.tests,
             ["service/permission_test.go#TestViewerCannotDelete"]
         );
+        assert_eq!(
+            protection.executed_tests,
+            ["service/permission_test.go#TestViewerCannotDelete"]
+        );
         assert_eq!(flow.proven_obligations, ["viewer-deny"]);
+    }
+
+    #[test]
+    fn a_passing_case_with_no_remaining_impacted_flow_is_phantom_not_removed() {
+        let exact = "service/permission_test.go#TestViewerCannotDelete";
+        let base = snapshot_with_executed_tests(
+            &RevisionId::new("base-protector-inventory").unwrap(),
+            vec![FlowProtection {
+                flow: "symbol:service/permission.go#CanDelete".into(),
+                revision: "base-protector-inventory".into(),
+                tests: vec![exact.into()],
+                sessions: Vec::new(),
+                covered_nodes: vec!["symbol:service/permission.go#CanDelete".into()],
+                covered_branches: Vec::new(),
+                proven_obligations: vec!["viewer-deny".into()],
+                proofs: Vec::new(),
+            }],
+            vec![exact.into()],
+        )
+        .unwrap();
+        let head = snapshot_with_executed_tests(
+            &RevisionId::new("head-protector-inventory").unwrap(),
+            vec![FlowProtection {
+                flow: "symbol:service/permission.go#CanDelete".into(),
+                revision: "head-protector-inventory".into(),
+                tests: Vec::new(),
+                sessions: Vec::new(),
+                covered_nodes: Vec::new(),
+                covered_branches: Vec::new(),
+                proven_obligations: Vec::new(),
+                proofs: Vec::new(),
+            }],
+            vec![exact.into()],
+        )
+        .unwrap();
+
+        let lineage = protection_lineage(&base, &head);
+
+        assert_eq!(lineage.len(), 1);
+        assert_eq!(lineage[0].test, exact);
+        assert_eq!(lineage[0].state, "unchanged");
+        assert!(lineage[0].phantom);
+        assert_eq!(
+            lineage[0].lost_flows,
+            ["symbol:service/permission.go#CanDelete"]
+        );
     }
 
     #[test]
@@ -10333,6 +10441,17 @@ mod tests {
             })
             .unwrap(),
         });
+
+        let inventory =
+            executed_test_inventory(Path::new("."), std::slice::from_ref(&record), &[]).unwrap();
+        assert_eq!(
+            inventory,
+            [
+                "go-test:fixture.local/product/service#TestAdminCanDelete",
+                "go-test:fixture.local/product/service#TestViewerCannotDelete"
+            ],
+            "exact case execution is retained even though batch coverage stays executor-level"
+        );
 
         let protectors = coverage_protectors(Path::new("."), &record, &[]).unwrap();
         assert_eq!(

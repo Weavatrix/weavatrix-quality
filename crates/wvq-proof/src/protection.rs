@@ -5,6 +5,8 @@
 //! proved, and when the last passing proof was. Every entry is revision-bound —
 //! evidence that cannot name its revision is refused rather than assumed good.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use wvq_domain::RevisionId;
@@ -84,6 +86,13 @@ impl FlowProtection {
 pub struct ProtectionSnapshot {
     /// Revision this snapshot describes.
     pub revision: String,
+    /// Exact normalized test cases that passed at this revision.
+    ///
+    /// This inventory is intentionally independent of `flows`: a surviving
+    /// case that no longer reaches any impacted flow must remain visible as a
+    /// phantom protector instead of looking deleted.
+    #[serde(default)]
+    pub executed_tests: Vec<String>,
     /// Per-flow protection, sorted by flow.
     pub flows: Vec<FlowProtection>,
 }
@@ -104,6 +113,21 @@ impl ProtectionSnapshot {
             .map(|item| item.flow.as_str())
             .collect()
     }
+
+    /// All executed test identities, including snapshots written before the
+    /// standalone inventory was introduced.
+    #[must_use]
+    pub fn executed_test_identities(&self) -> BTreeSet<String> {
+        self.executed_tests
+            .iter()
+            .cloned()
+            .chain(
+                self.flows
+                    .iter()
+                    .flat_map(|flow| flow.tests.iter().cloned()),
+            )
+            .collect()
+    }
 }
 
 /// Build a snapshot, refusing evidence that is not bound to `revision`.
@@ -116,6 +140,26 @@ impl ProtectionSnapshot {
 pub fn snapshot(
     revision: &RevisionId,
     flows: Vec<FlowProtection>,
+) -> Result<ProtectionSnapshot, ProtectionError> {
+    let executed_tests = flows
+        .iter()
+        .flat_map(|flow| flow.tests.iter().cloned())
+        .collect();
+    snapshot_with_executed_tests(revision, flows, executed_tests)
+}
+
+/// Build a snapshot with an exact inventory of passing normalized test cases.
+///
+/// The inventory is revision-bound by the enclosing snapshot and is kept even
+/// when a case produced no coverage for the impacted graph.
+///
+/// # Errors
+///
+/// The same revision validation as [`snapshot`] applies to every flow.
+pub fn snapshot_with_executed_tests(
+    revision: &RevisionId,
+    flows: Vec<FlowProtection>,
+    executed_tests: Vec<String>,
 ) -> Result<ProtectionSnapshot, ProtectionError> {
     let mut checked = Vec::with_capacity(flows.len());
     for flow in flows {
@@ -131,8 +175,15 @@ pub fn snapshot(
         checked.push(flow);
     }
     checked.sort_by(|left, right| left.flow.cmp(&right.flow));
+    let executed_tests = executed_tests
+        .into_iter()
+        .filter(|identity| !identity.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     Ok(ProtectionSnapshot {
         revision: revision.as_str().to_owned(),
+        executed_tests,
         flows: checked,
     })
 }
