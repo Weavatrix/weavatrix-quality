@@ -5,7 +5,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -15,9 +15,10 @@ use browser_lock::BrowserLock;
 use serde_json::json;
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
-    BrowserAssertionStatus, BrowserRecordingRequest, BrowserRunConfig, EvidencePolicy,
-    ProgramOracle, ProgramSource, Target, TestAction, TestProgram, duplicate_mutation_requests,
-    record_browser_session, run_browser_program,
+    BrowserAssertionStatus, BrowserRecordingRequest, BrowserRunConfig, EvidencePolicy, NetworkMode,
+    NetworkReplayProfile, NetworkRunPolicy, ProgramOracle, ProgramSource, Target, TestAction,
+    TestProgram, WaitCondition, duplicate_mutation_requests, record_browser_session,
+    run_browser_program,
 };
 
 struct TempDir(PathBuf);
@@ -106,6 +107,7 @@ fn rust_host_executes_a_real_playwright_program() {
             evidence_dir: temp.0.join("evidence"),
             viewport: None,
             ui_integrity: None,
+            network: NetworkRunPolicy::default(),
             cancel: Arc::new(AtomicBool::new(false)),
         },
         &program,
@@ -153,6 +155,7 @@ fn rust_host_executes_a_real_playwright_program() {
             evidence_dir: temp.0.join("evidence-condition"),
             viewport: None,
             ui_integrity: None,
+            network: NetworkRunPolicy::default(),
             cancel: Arc::new(AtomicBool::new(false)),
         },
         &program,
@@ -218,6 +221,7 @@ fn rust_host_records_a_real_semantic_session_without_raw_form_values() {
             evidence_dir: temp.0.join("evidence-record"),
             viewport: None,
             ui_integrity: None,
+            network: NetworkRunPolicy::default(),
             cancel: Arc::new(AtomicBool::new(false)),
         },
         &BrowserRecordingRequest {
@@ -265,6 +269,194 @@ fn rust_host_records_a_real_semantic_session_without_raw_form_values() {
     );
     assert_eq!(result.obligations.len(), 1);
     assert_eq!(result.obligations[0].status, "passed");
+
+    stop.store(true, Ordering::Release);
+    server.join().unwrap();
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn rust_host_records_redacted_json_and_strictly_replays_it() {
+    let _guard = BrowserLock::acquire();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let api_calls = Arc::new(AtomicU64::new(0));
+    let server_stop = Arc::clone(&stop);
+    let server_calls = Arc::clone(&api_calls);
+    let server = thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    let calls = Arc::clone(&server_calls);
+                    thread::spawn(move || respond_network_replay(stream, &calls));
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(err) => panic!("network replay server: {err}"),
+            }
+        }
+    });
+    let obligation = ObligationId::new("profile-loaded").unwrap();
+    let program = TestProgram {
+        schema_v: 1,
+        id: ProgramId::new("network-replay-profile").unwrap(),
+        source: ProgramSource::Authored,
+        obligations: vec![obligation.clone()],
+        preconditions: Vec::new(),
+        steps: vec![
+            TestAction::Navigate { route: "/".into() },
+            TestAction::Wait {
+                condition: WaitCondition::Visible {
+                    target: Target {
+                        role: Some("status".into()),
+                        ..Target::default()
+                    },
+                },
+            },
+            TestAction::Assert {
+                obligation: obligation.clone(),
+            },
+        ],
+        data: BTreeMap::new(),
+        faults: BTreeMap::new(),
+        api_operations: BTreeMap::new(),
+        evidence_policy: EvidencePolicy::default(),
+        deterministic_seed: Some(11),
+    };
+    let oracle = ProgramOracle {
+        obligation,
+        condition: None,
+        expected: json!({
+            "kind": "text_equals",
+            "target": {"role": "status"},
+            "value": "true:7"
+        }),
+    };
+    let temp = TempDir::new();
+    let recorded = run_browser_program(
+        &BrowserRunConfig {
+            base_url: format!("http://{address}"),
+            browser: "chromium".into(),
+            headless: true,
+            timeout: Duration::from_secs(30),
+            module_root: package_root(),
+            runtime_dir: temp.0.join("runtime-network-record"),
+            evidence_dir: temp.0.join("evidence-network-record"),
+            viewport: None,
+            ui_integrity: None,
+            network: NetworkRunPolicy {
+                mode: NetworkMode::Record,
+                ..NetworkRunPolicy::default()
+            },
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &program,
+        std::slice::from_ref(&oracle),
+    )
+    .unwrap();
+    assert!(recorded.passed, "{recorded:#?}");
+    assert_eq!(api_calls.load(Ordering::Acquire), 1);
+    let profile = recorded.network_profile.expect("redacted replay profile");
+    assert_eq!(profile.entries.len(), 1);
+    let serialized = serde_json::to_string(&profile).unwrap();
+    assert!(!serialized.contains("private@example.invalid"));
+    assert!(!serialized.contains("secret-token-value"));
+    assert!(serialized.contains("[REDACTED]"));
+
+    let replayed = run_browser_program(
+        &BrowserRunConfig {
+            base_url: format!("http://{address}"),
+            browser: "chromium".into(),
+            headless: true,
+            timeout: Duration::from_secs(30),
+            module_root: package_root(),
+            runtime_dir: temp.0.join("runtime-network-replay"),
+            evidence_dir: temp.0.join("evidence-network-replay"),
+            viewport: None,
+            ui_integrity: None,
+            network: NetworkRunPolicy {
+                mode: NetworkMode::Replay,
+                profile: Some(profile),
+                ..NetworkRunPolicy::default()
+            },
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &program,
+        &[oracle],
+    )
+    .unwrap();
+    assert!(replayed.passed, "{replayed:#?}");
+    assert_eq!(
+        api_calls.load(Ordering::Acquire),
+        1,
+        "strict replay must not reach the API upstream"
+    );
+
+    let page_obligation = ObligationId::new("page-visible").unwrap();
+    let page_program = TestProgram {
+        schema_v: 1,
+        id: ProgramId::new("strict-replay-missing-api").unwrap(),
+        source: ProgramSource::Authored,
+        obligations: vec![page_obligation.clone()],
+        preconditions: Vec::new(),
+        steps: vec![
+            TestAction::Navigate { route: "/".into() },
+            TestAction::Assert {
+                obligation: page_obligation.clone(),
+            },
+        ],
+        data: BTreeMap::new(),
+        faults: BTreeMap::new(),
+        api_operations: BTreeMap::new(),
+        evidence_policy: EvidencePolicy::default(),
+        deterministic_seed: Some(11),
+    };
+    let missing = run_browser_program(
+        &BrowserRunConfig {
+            base_url: format!("http://{address}"),
+            browser: "chromium".into(),
+            headless: true,
+            timeout: Duration::from_secs(30),
+            module_root: package_root(),
+            runtime_dir: temp.0.join("runtime-network-missing"),
+            evidence_dir: temp.0.join("evidence-network-missing"),
+            viewport: None,
+            ui_integrity: None,
+            network: NetworkRunPolicy {
+                mode: NetworkMode::Replay,
+                profile: Some(NetworkReplayProfile {
+                    schema_v: 1,
+                    entries: Vec::new(),
+                }),
+                ..NetworkRunPolicy::default()
+            },
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &page_program,
+        &[ProgramOracle {
+            obligation: page_obligation,
+            condition: None,
+            expected: json!({
+                "kind": "visible",
+                "target": {"role": "heading", "accessible_name": "Network replay"}
+            }),
+        }],
+    )
+    .unwrap();
+    assert!(
+        !missing.passed,
+        "an unrecorded strict API request must fail even when the page oracle passes"
+    );
+    assert!(
+        missing
+            .failure
+            .as_deref()
+            .is_some_and(|failure| failure.contains("strict network replay has no response")),
+        "{missing:#?}"
+    );
 
     stop.store(true, Ordering::Release);
     server.join().unwrap();
@@ -322,5 +514,40 @@ fn respond_recording(mut stream: TcpStream) {
     )
     .unwrap();
     stream.write_all(body).unwrap();
+    stream.flush().unwrap();
+}
+
+fn respond_network_replay(mut stream: TcpStream, api_calls: &AtomicU64) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut request = [0_u8; 4096];
+    let count = stream.read(&mut request).unwrap_or_default();
+    let request = String::from_utf8_lossy(&request[..count]);
+    let is_api = request.starts_with("GET /api/profile ");
+    let (content_type, body) = if is_api {
+        api_calls.fetch_add(1, Ordering::AcqRel);
+        (
+            "application/json; charset=utf-8",
+            r#"{"ok":true,"version":7,"email":"private@example.invalid","token":"secret-token-value"}"#,
+        )
+    } else {
+        (
+            "text/html; charset=utf-8",
+            r"<!doctype html><h1>Network replay</h1><script>
+              fetch('/api/profile').then(response => response.json()).then(value => {
+                const status = document.createElement('p');
+                status.setAttribute('role', 'status');
+                status.textContent = value.ok + ':' + value.version;
+                document.body.appendChild(status);
+              });
+            </script>",
+        )
+    };
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .unwrap();
+    stream.write_all(body.as_bytes()).unwrap();
     stream.flush().unwrap();
 }

@@ -70,8 +70,166 @@ pub struct BrowserRunConfig {
     pub viewport: Option<BrowserViewport>,
     /// Deterministic UI-integrity collection. `None` collects nothing.
     pub ui_integrity: Option<UiCollectionConfig>,
+    /// Runner-neutral same-origin API record/replay policy.
+    pub network: NetworkRunPolicy,
     /// Cooperative cancellation.
     pub cancel: Arc<AtomicBool>,
+}
+
+/// Browser API virtualization mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkMode {
+    /// Do not intercept API traffic.
+    Live,
+    /// Use live traffic and capture a bounded redacted JSON profile.
+    Record,
+    /// Fulfil known API traffic from the profile and abort unknown API calls.
+    Replay,
+    /// Replay known API traffic and let unknown API calls continue live.
+    Hybrid,
+}
+
+/// One deterministic same-origin API response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkReplayEntry {
+    /// Uppercase request method.
+    pub method: String,
+    /// Authority-free path and query.
+    pub path: String,
+    /// HTTP response status.
+    pub status: u16,
+    /// JSON media type. Headers and cookies are never retained.
+    pub content_type: String,
+    /// Bounded redacted JSON response.
+    pub body: String,
+}
+
+/// Versioned network replay artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkReplayProfile {
+    /// Schema version. Only `1`.
+    pub schema_v: u32,
+    /// Responses consumed in request order for each method/path identity.
+    pub entries: Vec<NetworkReplayEntry>,
+}
+
+/// Bounded network policy sent to the thin browser adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NetworkRunPolicy {
+    /// Live, record, strict replay, or hybrid replay.
+    pub mode: NetworkMode,
+    /// Required by replay/hybrid; absent for live/record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<NetworkReplayProfile>,
+    /// Additional case-insensitive JSON object keys to redact while recording.
+    pub redact_json_keys: Vec<String>,
+    /// Maximum response entries.
+    pub max_entries: u32,
+    /// Maximum bytes in one redacted response body.
+    pub max_body_bytes: u32,
+    /// Maximum bytes across all redacted response bodies.
+    pub max_total_bytes: u32,
+}
+
+impl Default for NetworkRunPolicy {
+    fn default() -> Self {
+        Self {
+            mode: NetworkMode::Live,
+            profile: None,
+            redact_json_keys: Vec::new(),
+            max_entries: 256,
+            max_body_bytes: 64 * 1024,
+            max_total_bytes: 4 * 1024 * 1024,
+        }
+    }
+}
+
+impl NetworkRunPolicy {
+    fn validate(&self) -> Result<(), BrowserBridgeError> {
+        if matches!(self.mode, NetworkMode::Replay | NetworkMode::Hybrid) && self.profile.is_none()
+        {
+            return Err(BrowserBridgeError::Config(format!(
+                "{} network mode requires a replay profile",
+                match self.mode {
+                    NetworkMode::Replay => "replay",
+                    NetworkMode::Hybrid => "hybrid",
+                    NetworkMode::Live | NetworkMode::Record => unreachable!(),
+                }
+            )));
+        }
+        if !(1..=2_048).contains(&self.max_entries)
+            || !(1..=1024 * 1024).contains(&self.max_body_bytes)
+            || !(1..=8 * 1024 * 1024).contains(&self.max_total_bytes)
+        {
+            return Err(BrowserBridgeError::Config(
+                "network record/replay bounds are outside the supported ceilings".into(),
+            ));
+        }
+        if self.redact_json_keys.len() > 256
+            || self
+                .redact_json_keys
+                .iter()
+                .any(|key| key.trim().is_empty() || key.len() > 128)
+        {
+            return Err(BrowserBridgeError::Config(
+                "network redact_json_keys exceeds its count or name bound".into(),
+            ));
+        }
+        if let Some(profile) = &self.profile {
+            profile.validate(self)?;
+        }
+        Ok(())
+    }
+}
+
+impl NetworkReplayProfile {
+    fn validate(&self, policy: &NetworkRunPolicy) -> Result<(), BrowserBridgeError> {
+        if self.schema_v != 1 {
+            return Err(BrowserBridgeError::Config(format!(
+                "unknown network replay schema_v {}",
+                self.schema_v
+            )));
+        }
+        if self.entries.len() > policy.max_entries as usize {
+            return Err(BrowserBridgeError::Config(format!(
+                "network replay profile exceeds the {}-entry ceiling",
+                policy.max_entries
+            )));
+        }
+        let mut total = 0_usize;
+        for entry in &self.entries {
+            if entry.method.is_empty()
+                || !entry.method.bytes().all(|byte| byte.is_ascii_uppercase())
+                || !entry.path.starts_with('/')
+                || entry.path.starts_with("//")
+                || entry.path.contains('#')
+                || !(100..=599).contains(&entry.status)
+                || (entry.content_type != "application/json"
+                    && !entry.content_type.ends_with("+json"))
+                || serde_json::from_str::<Value>(&entry.body).is_err()
+            {
+                return Err(BrowserBridgeError::Config(
+                    "network replay profile contains an invalid response entry".into(),
+                ));
+            }
+            let bytes = entry.body.len();
+            if bytes > policy.max_body_bytes as usize {
+                return Err(BrowserBridgeError::Config(
+                    "network replay response exceeds its body ceiling".into(),
+                ));
+            }
+            total = total.saturating_add(bytes);
+        }
+        if total > policy.max_total_bytes as usize {
+            return Err(BrowserBridgeError::Config(
+                "network replay profile exceeds its total byte ceiling".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// Exact browser viewport used for a run.
@@ -223,6 +381,12 @@ pub struct BrowserProgramRun {
     /// Deterministic UI-integrity snapshots, one per measured step.
     #[serde(default)]
     pub ui_snapshots: Vec<UiSnapshotEvidence>,
+    /// Redacted response profile produced only in record mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_profile: Option<NetworkReplayProfile>,
+    /// Bounds or response classes that prevented complete recording/replay.
+    #[serde(default)]
+    pub network_limitations: Vec<String>,
     /// Stable failure text.
     pub failure: Option<String>,
 }
@@ -246,7 +410,7 @@ pub struct BrowserRecordingRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserRecordedEvent {
-    /// Typed action; XPath and arbitrary JavaScript are not representable.
+    /// Typed action; `XPath` and arbitrary JavaScript are not representable.
     pub action: TestAction,
     /// Structured state after this action.
     pub observation: Observation,
@@ -271,6 +435,8 @@ pub struct BrowserRecording {
     pub events: Vec<BrowserRecordedEvent>,
     /// Existing sealed predicates measured at the final state.
     pub obligations: Vec<RecordedOracleOutcome>,
+    /// Redacted response profile produced only in record mode.
+    pub network_profile: Option<NetworkReplayProfile>,
     /// Redaction, budget, or replay limitations. Never raw form values.
     pub limitations: Vec<String>,
 }
@@ -409,6 +575,7 @@ pub fn record_browser_session(
                 "timeout_ms": u64::try_from(config.timeout.as_millis()).unwrap_or(u64::MAX),
                 "evidence_dir": config.evidence_dir,
                 "viewport": config.viewport,
+                "network": config.network,
             }
         }),
     )?;
@@ -451,6 +618,24 @@ pub fn record_browser_session(
             .unwrap_or_else(|| json!([])),
     )
     .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    let network_profile: Option<NetworkReplayProfile> = finished
+        .get("network_profile")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    if let Some(profile) = &network_profile {
+        profile.validate(&config.network)?;
+    }
+    limitations.extend(
+        finished
+            .get("network_limitations")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(ToOwned::to_owned),
+    );
     bridge.close()?;
     limitations.sort();
     limitations.dedup();
@@ -458,6 +643,7 @@ pub fn record_browser_session(
         initial,
         events,
         obligations,
+        network_profile,
         limitations,
     })
 }
@@ -556,6 +742,7 @@ pub fn run_browser_program_at(
                 "timeout_ms": u64::try_from(config.timeout.as_millis()).unwrap_or(u64::MAX),
                 "evidence_dir": config.evidence_dir,
                 "viewport": config.viewport,
+                "network": config.network,
             }
         }),
     )?;
@@ -633,6 +820,27 @@ pub fn run_browser_program_at(
         .and_then(Value::as_str)
         .map(|path| validated_evidence_path(&config.evidence_dir, path))
         .transpose()?;
+    let network_profile: Option<NetworkReplayProfile> = finished
+        .get("network_profile")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    if let Some(profile) = &network_profile {
+        profile.validate(&config.network)?;
+    }
+    let network_limitations: Vec<String> = finished
+        .get("network_limitations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(ToOwned::to_owned)
+        .collect();
+    if matches!(config.network.mode, NetworkMode::Replay) && !network_limitations.is_empty() {
+        passed = false;
+        failure.get_or_insert_with(|| network_limitations[0].clone());
+    }
     bridge.close()?;
     screenshot_paths.sort();
     screenshot_paths.dedup();
@@ -647,6 +855,8 @@ pub fn run_browser_program_at(
         screenshot_paths,
         trace_path,
         ui_snapshots,
+        network_profile,
+        network_limitations,
         failure,
     })
 }
@@ -777,6 +987,7 @@ fn validate_config(config: &BrowserRunConfig) -> Result<(), BrowserBridgeError> 
             "viewport dimensions must be between 1 and 16384 pixels".into(),
         ));
     }
+    config.network.validate()?;
     if !config.module_root.is_dir() {
         return Err(BrowserBridgeError::Config(format!(
             "Playwright module root does not exist: {}",

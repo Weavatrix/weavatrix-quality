@@ -25,9 +25,10 @@ pub use behavior::{
 pub use browser_bridge::{
     ActionSpan, BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError,
     BrowserProgramRun, BrowserRecordedEvent, BrowserRecording, BrowserRecordingRequest,
-    BrowserRunConfig, BrowserViewport, DuplicateMutationRequest, ProgramOracle,
-    RecordedOracleOutcome, UiCollectionConfig, UiSnapshotEvidence, duplicate_mutation_requests,
-    record_browser_session, run_browser_program, run_browser_program_at,
+    BrowserRunConfig, BrowserViewport, DuplicateMutationRequest, NetworkMode, NetworkReplayEntry,
+    NetworkReplayProfile, NetworkRunPolicy, ProgramOracle, RecordedOracleOutcome,
+    UiCollectionConfig, UiSnapshotEvidence, duplicate_mutation_requests, record_browser_session,
+    run_browser_program, run_browser_program_at,
 };
 pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,

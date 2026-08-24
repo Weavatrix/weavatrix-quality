@@ -201,6 +201,13 @@ browser:
   headless: true
   timeout_ms: 30000
   module_root: .
+  network:
+    mode: live # live, record, replay, or hybrid
+    # profile: .weavatrix-quality/network/checkout.json # replay/hybrid only
+    redact_json_keys: [customer_reference]
+    max_entries: 256
+    max_body_bytes: 65536
+    max_total_bytes: 4194304
   programs: # optional while an agent is drafting its first TestProgram
     - .weavatrix-quality/programs/permissions.json
 
@@ -249,6 +256,20 @@ A path-only binding satisfies neither obligation coverage nor proof, so impacted
 execution widens safely and verification remains `UNPROVEN`.
 Generic `npm test` scripts are always run unfiltered because WVQ cannot assume
 that an arbitrary script honors positional file arguments.
+
+`browser.network` virtualizes only same-origin `fetch`/XHR traffic; document,
+asset, and cross-origin loading remain Playwright/browser behavior. `record`
+captures a versioned JSON response profile as a CAS evidence handle, and the
+passive `wvq record` path enables that capture automatically. Profiles never
+contain request headers, cookies, or non-JSON bodies. JSON keys with built-in
+sensitive/PII names, configured `redact_json_keys`, email-like values, bearer
+tokens, and JWT-like strings are replaced before leaving the page boundary;
+response count and byte ceilings are mandatory. `replay` fulfils recorded
+method/path/query identities in order and aborts an unknown API request, which
+fails the browser run even if an unrelated UI assertion still passes. `hybrid`
+falls through to live traffic for unknown requests. Base/head comparison uses
+the exact head-selected profile on both revisions, so a preview origin or
+changing upstream cannot create a false behavioral delta.
 
 `ui_integrity` is off unless the section is present, in which case the axis
 reports `not_applicable` rather than a silent pass. When it is on, the bundled

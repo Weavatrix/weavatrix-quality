@@ -93,6 +93,14 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
     let repo = flags
         .get("repo")
         .map_or_else(|| PathBuf::from("."), PathBuf::from);
+    let command = parse_command(&flags, &positionals)?;
+    Ok(CliRequest { repo, command })
+}
+
+fn parse_command(
+    flags: &BTreeMap<String, String>,
+    positionals: &[String],
+) -> Result<Command, String> {
     let change = flags
         .get("change")
         .cloned()
@@ -105,7 +113,7 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         .get("head")
         .cloned()
         .unwrap_or_else(|| "WORKTREE".to_owned());
-    let command = match positionals.as_slice() {
+    let command = match positionals {
         [spec, action] if spec == "spec" && action == "validate" => {
             Command::SpecValidate(SpecCommand { change })
         }
@@ -133,12 +141,8 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
                 .unwrap_or_else(|| "/".to_owned()),
             fixture_values: parse_fixtures(flags.get("fixtures-json"))?,
             idle_timeout_ms: parse_u64_flag(flags.get("idle-ms"), 3_000, "idle-ms")?,
-            max_events: u32::try_from(parse_u64_flag(
-                flags.get("max-events"),
-                200,
-                "max-events",
-            )?)
-            .map_err(|_| "invalid --max-events value".to_owned())?,
+            max_events: u32::try_from(parse_u64_flag(flags.get("max-events"), 200, "max-events")?)
+                .map_err(|_| "invalid --max-events value".to_owned())?,
             headless: flags
                 .get("headless")
                 .map(|value| parse_bool_flag(value, "headless"))
@@ -146,8 +150,8 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
-            kind: required_flag(&flags, "kind")?,
-            prompt: required_flag(&flags, "prompt")?,
+            kind: required_flag(flags, "kind")?,
+            prompt: required_flag(flags, "prompt")?,
         }),
         [cmd] if cmd == "run" => Command::Run(RunCommand {
             change,
@@ -177,7 +181,7 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
             ));
         }
     };
-    Ok(CliRequest { repo, command })
+    Ok(command)
 }
 
 fn required_flag(flags: &BTreeMap<String, String>, name: &str) -> Result<String, String> {

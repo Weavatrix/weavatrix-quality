@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: default live Delta Triangle
+Session: deterministic network replay
 
 ## Now
 
@@ -38,6 +38,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Protection MCP/Studio | ✅ | ✅ | ✅ verdict axis + Studio summary; 🟡 opt-in profile/view | ✅ when measured coverage exists |
 | Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + exact spans + sealed assertions + observations |
 | Manual record → promoted replay | ✅ | ✅ | ✅ CLI/MCP/Studio + explicit promotion | ✅ passive Chromium capture + novelty discard + replay preview |
+| Deterministic network replay | ✅ | ✅ | ✅ config + run/record/CAS | ✅ Chromium record → strict replay, same profile on base/head |
 | Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
@@ -55,7 +56,9 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Duplicate mutation requests | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head action spans |
 | Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
-Current implementation: the composite change verdict, deterministic UI-integrity axis, and live Delta Triangle are on `main`. Every normal browser run now replays the exact head-selected `TestProgram`, seed, and sealed oracles against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict, deterministic UI-integrity axis, live Delta Triangle, passive recorder, and runner-neutral network replay are on `main`. Every normal browser run replays the exact head-selected `TestProgram`, seed, sealed oracles, and network profile against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+
+Network replay is a separate bounded artifact, not a relaxation of ordinary observation redaction. The browser captures only same-origin fetch/XHR JSON responses; request headers, cookies, non-JSON bodies, sensitive JSON keys, email-like values, bearer tokens, and JWT-like strings never enter the profile. Normal observations still contain only method, URL, resource class, and optional status. `live`, `record`, strict `replay`, and `hybrid` are parsed from repository policy with unknown fields and invalid bounds refused. Strict replay aborts an unrecorded API call and fails the run even if a sealed UI assertion passes. A real command-bus fixture captures a profile through passive recording, retrieves it from CAS, loads it through versioned `config.yaml`, and proves that both head and merge-base replay make zero additional upstream API calls.
 
 Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
 
@@ -63,7 +66,7 @@ Every attempted measured browser step now owns exact start/end observation index
 
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 71 `wvq-ui` tests, the 51-test runtime suite, 23 command-bus library tests, 35 command-bus integration tests, all 9 real Chromium UI/Storybook scenarios, and 21 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
+Current validation: 71 `wvq-ui` tests, the 54-test runtime suite, 23 command-bus library tests, 36 command-bus integration tests, all 9 real Chromium UI/Storybook scenarios, and 23 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
 
 ## Composite change verdict
 
@@ -162,7 +165,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 | optional model | `use_model: true` performs one planning call through the existing loopback-only persistent AI Cost Firewall; normal draft and verification use zero model tokens |
 | validate | Strictly decodes canonical `TestProgram` JSON, rejects candidate-owned oracle fields, unknown/duplicate obligations, XPath, unknown actions, and obligations without an executable sealed expected predicate |
 | preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and records a passed/failed admission identity without registering the candidate |
-| record | Opens a visible Playwright browser by default, captures bounded semantic natural use, never exports unmatched form values, evaluates existing sealed predicates at the exact final state, computes new states/non-loop edges/API/obligation links, discards zero-contribution sessions, and replays useful `source: recorded` candidates through preview with zero model tokens |
+| record | Opens a visible Playwright browser by default, captures bounded semantic natural use plus a separately redacted same-origin JSON network profile, never exports unmatched form values, evaluates existing sealed predicates at the exact final state, computes new states/non-loop edges/API/obligation links, discards zero-contribution sessions, and replays useful `source: recorded` candidates through preview with zero model tokens |
 | promote | Revalidates the exact previewed program, current repository revision, change, and existing `OracleSeal`; only a passing preview atomically becomes CAS-backed program revision 1, and repeated promotion is idempotent |
 | reuse | `select` and `run` automatically load the latest promoted revision whose seal still matches; stale-seal programs are not executed, and a repository-configured program cannot silently shadow the same id |
 | heal | Accepts only semantic retargeting or typed deterministic waits, requires the caller's latest program revision and the same `OracleSeal`, runs real Playwright with the original assertions, and atomically appends a CAS-backed revision only on pass; failed repairs retain evidence but do not replace the active program |
@@ -196,6 +199,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
+| network replay | Captures bounded redacted same-origin JSON response profiles into CAS, loads versioned repository profiles for strict/hybrid replay, and applies the exact head profile to both head and merge-base browser execution |
 | delta triangle | Replays each exact head-selected `TestProgram` against the merge-base runtime, compares every structured observation before pixel evidence, joins Git/OpenSpec + Weavatrix + behavior, and persists the default verdict axis |
 | ui integrity | Collects one bounded, settle-checked layout snapshot per step, runs the detectors in Rust, and persists `ui-layout-snapshot`, `ui-hit-test-map`, and `ui-integrity-findings`; `ui_integrity_view` replays the base and stores the classified `ui-integrity-delta` |
 | proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
@@ -221,6 +225,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 - the UI policy refuses unknown fields, empty matchers, path-shaped values, out-of-range ratios, malformed dates, exceptions without a reason, and any `accept_all`;
 - every sealed predicate must be executable in the browser, enforced by a parity test over all 24 variants;
 - UI collection persists no raw markup, form values, cookies, storage contents, or unbounded text.
+- network profiles persist no request headers, cookies, non-JSON bodies, configured sensitive keys, email-like values, bearer tokens, or JWT-like strings; strict replay fails on an unknown API request.
 
 ## Measured detector calibration
 
@@ -235,7 +240,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Deterministic network replay and accessibility.** Reuse recorded network behavior for fast stable frontend regression and add cheap model-less accessibility evidence before autonomous fallback.
+1. **Accessibility.** Add cheap model-less accessibility evidence and base/head continuity before autonomous fallback.
 2. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
 3. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
 

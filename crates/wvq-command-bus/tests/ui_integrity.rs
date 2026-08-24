@@ -899,8 +899,8 @@ fn impacted_story_runs_in_real_storybook_vitest_browser_mode() {
 fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelta {
     use std::collections::BTreeSet;
     use wvq_runtime::{
-        BrowserRunConfig, BrowserViewport, ProgramOracle, TestProgram, UiCollectionConfig,
-        run_browser_program_at,
+        BrowserRunConfig, BrowserViewport, NetworkRunPolicy, ProgramOracle, TestProgram,
+        UiCollectionConfig, run_browser_program_at,
     };
 
     let policy_yaml = "enabled: true\nmax_nodes: 2000\nallowed_overlaps:\n  - top:\n      \
@@ -939,6 +939,7 @@ fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelt
                     max_nodes: 2_000,
                     ..UiCollectionConfig::default()
                 }),
+                network: NetworkRunPolicy::default(),
                 cancel: Arc::new(AtomicBool::new(false)),
             },
             &program,

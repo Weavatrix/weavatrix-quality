@@ -20,6 +20,11 @@ export class PlaywrightDriver {
     #console = [];
     #api = new Map();
     #featureFlags = new Map();
+    #networkCaptures = [];
+    #recordedResponses = [];
+    #networkLimitations = [];
+    #replayEntries = new Map();
+    #recordedResponseBytes = 0;
     #failed = false;
     #closed = false;
     #traceStarted = false;
@@ -59,6 +64,10 @@ export class PlaywrightDriver {
             const event = this.#requestEvents.get(response.request());
             if (event)
                 event.status = response.status();
+            if (this.#config.network.mode === "record") {
+                const capture = this.#captureNetworkResponse(response, event?.sequence ?? 0);
+                this.#networkCaptures.push(capture);
+            }
         });
         const mutationFinished = (request) => {
             if (this.#inflightMutations.delete(request))
@@ -89,6 +98,7 @@ export class PlaywrightDriver {
         context.setDefaultNavigationTimeout(config.timeout_ms);
         const page = await context.newPage();
         const driver = new PlaywrightDriver(browser, context, page, program, oracles, config);
+        await driver.#installNetworkPolicy();
         const tracePolicy = program.evidence_policy?.trace ?? "never";
         if (tracePolicy !== "never") {
             await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
@@ -330,6 +340,7 @@ export class PlaywrightDriver {
     async finish() {
         if (this.#closed)
             return {};
+        await Promise.allSettled(this.#networkCaptures);
         let tracePath;
         if (this.#traceStarted) {
             const policy = this.#program.evidence_policy ?? defaultPolicy();
@@ -346,7 +357,14 @@ export class PlaywrightDriver {
         await this.#context.close();
         await this.#browser.close();
         this.#closed = true;
-        return tracePath ? { trace_path: tracePath } : {};
+        const networkProfile = this.#networkProfile();
+        return {
+            ...(tracePath ? { trace_path: tracePath } : {}),
+            ...(networkProfile ? { network_profile: networkProfile } : {}),
+            ...(this.#networkLimitations.length > 0
+                ? { network_limitations: Array.from(new Set(this.#networkLimitations)).sort() }
+                : {}),
+        };
     }
     async cancel() {
         if (this.#closed)
@@ -368,6 +386,103 @@ export class PlaywrightDriver {
             });
         });
         await this.#recordChain;
+    }
+    async #installNetworkPolicy() {
+        const policy = this.#config.network;
+        if (policy.mode !== "replay" && policy.mode !== "hybrid")
+            return;
+        for (const entry of policy.profile?.entries ?? []) {
+            const key = networkIdentity(entry.method, entry.path);
+            const queue = this.#replayEntries.get(key) ?? [];
+            queue.push(entry);
+            this.#replayEntries.set(key, queue);
+        }
+        await this.#context.route("**/*", async (route) => {
+            const request = route.request();
+            if (!isReplayableRequest(request, this.#config.base_url)) {
+                await route.fallback();
+                return;
+            }
+            const path = requestPath(request.url(), new Set(policy.redact_json_keys));
+            const key = networkIdentity(request.method(), path);
+            const entry = this.#replayEntries.get(key)?.shift();
+            if (entry) {
+                await route.fulfill({
+                    status: entry.status,
+                    contentType: entry.content_type,
+                    body: entry.body,
+                });
+                return;
+            }
+            if (policy.mode === "replay") {
+                this.#networkLimitations.push(`strict network replay has no response for ${request.method().toUpperCase()} ${path}`);
+                await route.abort("failed");
+                return;
+            }
+            await route.fallback();
+        });
+    }
+    async #captureNetworkResponse(response, sequence) {
+        const request = response.request();
+        if (!isReplayableRequest(request, this.#config.base_url))
+            return;
+        const policy = this.#config.network;
+        const path = requestPath(request.url(), new Set(policy.redact_json_keys));
+        if (this.#recordedResponses.length >= policy.max_entries) {
+            this.#networkLimitations.push(`network recording hit the ${policy.max_entries}-entry ceiling`);
+            return;
+        }
+        const contentType = (await response.headerValue("content-type") ?? "")
+            .split(";", 1)[0]
+            ?.trim()
+            .toLowerCase() ?? "";
+        if (contentType !== "application/json" && !contentType.endsWith("+json")) {
+            this.#networkLimitations.push(`network recording omitted non-JSON response ${request.method().toUpperCase()} ${path}`);
+            return;
+        }
+        let bytes;
+        try {
+            bytes = await response.body();
+        }
+        catch {
+            this.#networkLimitations.push(`network recording could not read ${request.method().toUpperCase()} ${path}`);
+            return;
+        }
+        if (bytes.byteLength > policy.max_body_bytes) {
+            this.#networkLimitations.push(`network response exceeded the ${policy.max_body_bytes}-byte body ceiling`);
+            return;
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(bytes.toString("utf8"));
+        }
+        catch {
+            this.#networkLimitations.push("network recording omitted malformed JSON response");
+            return;
+        }
+        const body = JSON.stringify(redactJson(parsed, new Set(policy.redact_json_keys)));
+        const bodyBytes = Buffer.byteLength(body);
+        if (this.#recordedResponseBytes + bodyBytes > policy.max_total_bytes) {
+            this.#networkLimitations.push(`network recording hit the ${policy.max_total_bytes}-byte total ceiling`);
+            return;
+        }
+        this.#recordedResponseBytes += bodyBytes;
+        this.#recordedResponses.push({
+            sequence,
+            method: request.method().toUpperCase(),
+            path,
+            status: response.status(),
+            content_type: contentType,
+            body,
+        });
+    }
+    #networkProfile() {
+        if (this.#config.network.mode !== "record")
+            return undefined;
+        const entries = this.#recordedResponses
+            .sort((left, right) => left.sequence - right.sequence)
+            .map(({ sequence: _sequence, ...entry }) => entry);
+        return { schema_v: 1, entries };
     }
     #locator(target) {
         validateTarget(target);
@@ -616,7 +731,127 @@ function validateConfig(config) {
         timeout_ms: timeout,
         viewport: config.viewport ?? { width: 1280, height: 720 },
         evidence_dir: config.evidence_dir,
+        network: validateNetworkPolicy(config.network),
     };
+}
+const DEFAULT_REDACTED_JSON_KEYS = [
+    "address",
+    "authorization",
+    "cookie",
+    "email",
+    "name",
+    "password",
+    "phone",
+    "secret",
+    "session",
+    "token",
+];
+function validateNetworkPolicy(policy) {
+    const mode = policy?.mode ?? "live";
+    if (!["live", "record", "replay", "hybrid"].includes(mode)) {
+        throw new Error(`unknown network mode \`${String(mode)}\``);
+    }
+    const maxEntries = boundedInteger(policy?.max_entries ?? 256, 1, 2_048, "network max_entries");
+    const maxBodyBytes = boundedInteger(policy?.max_body_bytes ?? 64 * 1024, 1, 1024 * 1024, "network max_body_bytes");
+    const maxTotalBytes = boundedInteger(policy?.max_total_bytes ?? 4 * 1024 * 1024, 1, 8 * 1024 * 1024, "network max_total_bytes");
+    const redactJsonKeys = Array.from(new Set([
+        ...DEFAULT_REDACTED_JSON_KEYS,
+        ...(policy?.redact_json_keys ?? []),
+    ].map((key) => key.trim().toLowerCase()).filter(Boolean))).sort();
+    if (redactJsonKeys.length > 256 || redactJsonKeys.some((key) => key.length > 128)) {
+        throw new Error("network redact_json_keys exceeds its count or name bound");
+    }
+    const profile = policy?.profile;
+    if ((mode === "replay" || mode === "hybrid") && !profile) {
+        throw new Error(`${mode} network mode requires a replay profile`);
+    }
+    if (profile)
+        validateNetworkProfile(profile, maxEntries, maxBodyBytes, maxTotalBytes);
+    return {
+        mode,
+        ...(profile ? { profile } : {}),
+        redact_json_keys: redactJsonKeys,
+        max_entries: maxEntries,
+        max_body_bytes: maxBodyBytes,
+        max_total_bytes: maxTotalBytes,
+    };
+}
+function validateNetworkProfile(profile, maxEntries, maxBodyBytes, maxTotalBytes) {
+    if (profile.schema_v !== 1 || !Array.isArray(profile.entries)) {
+        throw new Error("unknown or malformed network replay profile");
+    }
+    if (profile.entries.length > maxEntries) {
+        throw new Error(`network replay profile exceeds the ${maxEntries}-entry ceiling`);
+    }
+    let total = 0;
+    for (const entry of profile.entries) {
+        if (!entry.path.startsWith("/") || entry.path.startsWith("//") || entry.path.includes("#")) {
+            throw new Error("network replay paths must be root-relative and fragment-free");
+        }
+        if (!/^[A-Z]+$/.test(entry.method))
+            throw new Error("network replay methods must be uppercase");
+        if (!Number.isInteger(entry.status) || entry.status < 100 || entry.status > 599) {
+            throw new Error("network replay status must be between 100 and 599");
+        }
+        if (entry.content_type !== "application/json" && !entry.content_type.endsWith("+json")) {
+            throw new Error("network replay supports JSON response profiles only");
+        }
+        const bytes = Buffer.byteLength(entry.body);
+        if (bytes > maxBodyBytes)
+            throw new Error("network replay response exceeds body ceiling");
+        total += bytes;
+    }
+    if (total > maxTotalBytes)
+        throw new Error("network replay profile exceeds total byte ceiling");
+}
+function boundedInteger(value, min, max, label) {
+    if (!Number.isInteger(value) || value < min || value > max) {
+        throw new Error(`${label} must be between ${min} and ${max}`);
+    }
+    return value;
+}
+function isReplayableRequest(request, baseUrl) {
+    const type = request.resourceType();
+    if (type !== "fetch" && type !== "xhr")
+        return false;
+    try {
+        return new URL(request.url()).origin === new URL(baseUrl).origin;
+    }
+    catch {
+        return false;
+    }
+}
+function requestPath(url, redactedKeys) {
+    const parsed = new URL(url);
+    for (const [key, value] of parsed.searchParams) {
+        if (redactedKeys.has(key.toLowerCase()) || looksSensitive(value)) {
+            parsed.searchParams.set(key, "[REDACTED]");
+        }
+    }
+    return `${parsed.pathname}${parsed.search}`;
+}
+function networkIdentity(method, path) {
+    return `${method.toUpperCase()} ${path}`;
+}
+function redactJson(value, keys, parentKey = "") {
+    if (keys.has(parentKey.toLowerCase()))
+        return "[REDACTED]";
+    if (Array.isArray(value))
+        return value.map((item) => redactJson(item, keys));
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+            key,
+            redactJson(item, keys, key),
+        ]));
+    }
+    if (typeof value === "string" && looksSensitive(value))
+        return "[REDACTED]";
+    return value;
+}
+function looksSensitive(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+        || /^bearer\s+/i.test(value)
+        || /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/.test(value);
 }
 function validateProgram(program, oracles) {
     if (!program.id || !Array.isArray(program.steps) || !Array.isArray(program.obligations)) {

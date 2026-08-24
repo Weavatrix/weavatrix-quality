@@ -113,6 +113,26 @@ export type BrowserConfig = {
         height: number;
     };
     evidence_dir: string;
+    network?: NetworkPolicy;
+};
+export type NetworkReplayEntry = {
+    method: string;
+    path: string;
+    status: number;
+    content_type: string;
+    body: string;
+};
+export type NetworkReplayProfile = {
+    schema_v: 1;
+    entries: NetworkReplayEntry[];
+};
+export type NetworkPolicy = {
+    mode: "live" | "record" | "replay" | "hybrid";
+    profile?: NetworkReplayProfile;
+    redact_json_keys?: string[];
+    max_entries?: number;
+    max_body_bytes?: number;
+    max_total_bytes?: number;
 };
 export type RecordedBrowserEvent = {
     action: Record<string, unknown>;
@@ -170,6 +190,8 @@ export declare class PlaywrightDriver implements Driver {
     }, config: UiIntegrityConfig | undefined): Promise<CollectionResult>;
     finish(): Promise<{
         trace_path?: string;
+        network_profile?: NetworkReplayProfile;
+        network_limitations?: string[];
     }>;
     cancel(): Promise<void>;
 }

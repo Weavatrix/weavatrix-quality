@@ -35,6 +35,8 @@ fn run(observations: Vec<Observation>, action_spans: Vec<ActionSpan>) -> Browser
         screenshot_paths: Vec::new(),
         trace_path: None,
         ui_snapshots: Vec::new(),
+        network_profile: None,
+        network_limitations: Vec::new(),
         failure: None,
     }
 }

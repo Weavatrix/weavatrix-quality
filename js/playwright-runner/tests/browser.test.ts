@@ -124,3 +124,95 @@ test("real Playwright executes actions and sealed predicates", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("records a redacted API profile and replays it without calling upstream", async () => {
+  let apiCalls = 0;
+  const server = createServer((request, response) => {
+    if (request.url?.startsWith("/api/profile?")) {
+      apiCalls += 1;
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({
+        ok: true,
+        version: 7,
+        email: "private@example.invalid",
+        token: "secret-token-value",
+      }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<!doctype html><p role="status">loading</p><script>
+      fetch('/api/profile?email=private%40example.invalid&page=1').then((response) => response.json()).then((value) => {
+        document.querySelector('[role=status]').textContent = value.ok + ':' + value.version;
+      });
+    </script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const evidence = await mkdtemp(join(tmpdir(), "wvq-network-replay-"));
+  const program = {
+    id: "network-replay",
+    obligations: ["profile-loaded"],
+    steps: [
+      { action: "navigate", route: "/" },
+      { action: "wait", condition: { kind: "visible", target: { role: "status" } } },
+      { action: "assert", obligation: "profile-loaded" },
+    ],
+    evidence_policy: {
+      screenshot: "never",
+      trace: "never",
+      network: "always",
+      console: "always",
+      storage: "never",
+    },
+  };
+  const oracles = [{
+    obligation: "profile-loaded",
+    expected: {
+      kind: "text_equals",
+      target: { role: "status" },
+      value: "true:7",
+    },
+  }];
+  let recorder;
+  let replayer;
+  try {
+    recorder = await PlaywrightDriver.create(program, oracles, {
+      base_url: `http://127.0.0.1:${address.port}`,
+      browser: "chromium",
+      headless: true,
+      timeout_ms: 10_000,
+      evidence_dir: evidence,
+      network: { mode: "record" },
+    });
+    for (const action of program.steps) await executeStep(recorder, action);
+    const recorded = await recorder.finish();
+    recorder = undefined;
+    assert.equal(apiCalls, 1);
+    assert.equal(recorded.network_profile?.entries.length, 1);
+    const serialized = JSON.stringify(recorded.network_profile);
+    assert(!serialized.includes("private@example.invalid"));
+    assert(!serialized.includes("secret-token-value"));
+    assert(serialized.includes("[REDACTED]"));
+
+    replayer = await PlaywrightDriver.create(program, oracles, {
+      base_url: `http://127.0.0.1:${address.port}`,
+      browser: "chromium",
+      headless: true,
+      timeout_ms: 10_000,
+      evidence_dir: evidence,
+      network: { mode: "replay", profile: recorded.network_profile },
+    });
+    for (const action of program.steps) await executeStep(replayer, action);
+    assert.equal(apiCalls, 1, "strict replay must not call the recorded API upstream");
+    assert.deepEqual(await replayer.evaluateRecordedOracles(), [{
+      obligation: "profile-loaded",
+      status: "passed",
+    }]);
+  } finally {
+    await recorder?.finish();
+    await replayer?.finish();
+    await rm(evidence, { recursive: true, force: true });
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

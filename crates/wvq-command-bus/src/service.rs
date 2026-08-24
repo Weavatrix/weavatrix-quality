@@ -35,11 +35,11 @@ use wvq_proof::{
 use wvq_runtime::{
     AxisDelta, BehaviorDelta, BehaviorState, BrowserAssertionStatus, BrowserProgramRun,
     BrowserRecordingRequest, BrowserRunConfig, BrowserViewport, CaptureWhen, CoverageArtifact,
-    DiffAxis, ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest,
-    ProgramOracle, Recorder, StructuredView, TestAction, TestProgram, TestStatus,
-    UiCollectionConfig, behavior_delta, default_limits, discover_executor_targets,
-    parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, promote,
-    record_browser_session, run_browser_program, run_browser_program_at,
+    DiffAxis, ExecutionResult, ExecutorRegistry, ExecutorTarget, NetworkMode, NetworkReplayProfile,
+    NetworkRunPolicy, NormalizedTestRun, PrepareRequest, ProgramOracle, Recorder, StructuredView,
+    TestAction, TestProgram, TestStatus, UiCollectionConfig, behavior_delta, default_limits,
+    discover_executor_targets, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit,
+    parse_lcov, promote, record_browser_session, run_browser_program, run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -772,6 +772,7 @@ impl QualityService for FakeService {
                 program_persisted: false,
             }),
             trace_handle: Some("artifact-session-recording-fake-trace".into()),
+            network_profile_handle: Some("artifact-session-recording-fake-network".into()),
             runtime_llm_tokens: 0,
         })
     }
@@ -1285,6 +1286,7 @@ impl LiveService {
                         )),
                     viewport: None,
                     ui_integrity: ui_collection_config(ui_policy, &configured.oracles),
+                    network: head_policy.network.clone(),
                     cancel: Arc::clone(&cancel),
                 },
                 &executable,
@@ -1307,11 +1309,12 @@ impl LiveService {
         // The browser engine is toolchain, not source: a fresh worktree has no
         // node_modules, and replaying base with a different engine would
         // confound the geometry being compared.
-        let engine = load_browser_policy(&self.repo, &compiled.obligations)?
-            .map(|policy| policy.module_root)
-            .ok_or_else(|| {
+        let head_runtime =
+            load_browser_policy(&self.repo, &compiled.obligations)?.ok_or_else(|| {
                 BusError::Runtime("no browser runtime is configured for this repository".into())
             })?;
+        let engine = head_runtime.module_root;
+        let comparison_network = head_runtime.network;
         let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
         let evidence = WeavatrixProvider
             .analyze(&worktree.path)
@@ -1348,6 +1351,7 @@ impl LiveService {
                         .join(safe_file_token(configured.program.id.as_str())),
                     viewport: None,
                     ui_integrity: ui_collection_config(policy, &configured.oracles),
+                    network: comparison_network.clone(),
                     cancel: Arc::clone(&cancel),
                 },
                 &configured.program,
@@ -1386,7 +1390,7 @@ impl LiveService {
             .analyze(&base_worktree.path)
             .map_err(|err| BusError::Intelligence(err.to_string()))?
             .revision;
-        let base_browser =
+        let mut base_browser =
             load_browser_policy_with(&base_worktree.path, &compiled.obligations, Some(&engine))?
                 .ok_or_else(|| {
                     BusError::Runtime("base has no browser runtime configuration".into())
@@ -1396,6 +1400,10 @@ impl LiveService {
                 .ok_or_else(|| {
                     BusError::Runtime("head has no browser runtime configuration".into())
                 })?;
+        // Base/head geometry must use the exact same network fixture. Runtime
+        // coordinates come from each revision, but the head-selected replay
+        // policy is the comparison authority just like the head TestProgram.
+        base_browser.network = head_browser.network.clone();
         let head_revision = RevisionId::new(&head_default.revision)
             .map_err(|err| BusError::Identity(err.to_string()))?;
 
@@ -1560,6 +1568,7 @@ impl LiveService {
                         )),
                     viewport: Some(viewport),
                     ui_integrity: ui_collection_config(policy, &configured.oracles),
+                    network: browser.network.clone(),
                     cancel: Arc::clone(&cancel),
                 },
                 &configured.program,
@@ -2355,6 +2364,7 @@ struct BrowserPolicy {
     headless: bool,
     timeout: Duration,
     module_root: PathBuf,
+    network: NetworkRunPolicy,
     programs: Vec<ConfiguredBrowserProgram>,
 }
 
@@ -2746,6 +2756,7 @@ impl QualityService for LiveService {
                         evidence_dir,
                         viewport: None,
                         ui_integrity: ui_collection_config(&ui_policy, &configured.oracles),
+                        network: policy.network.clone(),
                         cancel: Arc::clone(&cancel),
                     },
                     &executable,
@@ -3792,6 +3803,7 @@ impl QualityService for LiveService {
                 // Authoring exercises one candidate program in isolation; UI
                 // integrity is a base/head comparison with nothing to compare.
                 ui_integrity: None,
+                network: policy.network,
                 cancel,
             },
             &program,
@@ -3890,6 +3902,14 @@ impl QualityService for LiveService {
                 evidence_dir: evidence_dir.clone(),
                 viewport: None,
                 ui_integrity: None,
+                network: NetworkRunPolicy {
+                    mode: NetworkMode::Record,
+                    profile: None,
+                    redact_json_keys: policy.network.redact_json_keys,
+                    max_entries: policy.network.max_entries,
+                    max_body_bytes: policy.network.max_body_bytes,
+                    max_total_bytes: policy.network.max_total_bytes,
+                },
                 cancel: Arc::clone(&cancel),
             },
             &BrowserRecordingRequest {
@@ -4028,6 +4048,7 @@ impl QualityService for LiveService {
                 candidate: None,
                 preview: None,
                 trace_handle: None,
+                network_profile_handle: None,
                 runtime_llm_tokens: 0,
             });
         }
@@ -4113,6 +4134,22 @@ impl QualityService for LiveService {
         store
             .put_artifact(&trace_artifact, "behavior-trace", &trace_body)
             .map_err(|err| BusError::Store(err.to_string()))?;
+        let network_profile_handle = recording
+            .network_profile
+            .as_ref()
+            .filter(|profile| !profile.entries.is_empty())
+            .map(|profile| {
+                let handle = format!("artifact-session-{session_id}-network");
+                let artifact =
+                    ArtifactId::new(&handle).map_err(|err| BusError::Identity(err.to_string()))?;
+                let body = serde_json::to_vec(profile)
+                    .map_err(|err| BusError::Runtime(err.to_string()))?;
+                store
+                    .put_artifact(&artifact, "network-replay-profile", &body)
+                    .map_err(|err| BusError::Store(err.to_string()))?;
+                Ok::<_, BusError>(handle)
+            })
+            .transpose()?;
         Ok(RecordReply {
             session_id,
             change: compiled.change,
@@ -4131,6 +4168,7 @@ impl QualityService for LiveService {
             candidate,
             preview,
             trace_handle: Some(trace_handle),
+            network_profile_handle,
             runtime_llm_tokens: 0,
         })
     }
@@ -4287,6 +4325,7 @@ impl QualityService for LiveService {
                 // Authoring exercises one candidate program in isolation; UI
                 // integrity is a base/head comparison with nothing to compare.
                 ui_integrity: None,
+                network: policy.network,
                 cancel,
             },
             &executable,
@@ -6658,6 +6697,7 @@ fn parse_browser_runtime(
         "headless",
         "timeout_ms",
         "module_root",
+        "network",
         "programs",
     ]
     .into_iter()
@@ -6723,14 +6763,177 @@ fn parse_browser_runtime(
             module_root.display()
         )));
     }
+    let network = parse_network_run_policy(repo, path, browser)?;
     Ok(BrowserPolicy {
         base_url,
         browser: engine,
         headless,
         timeout: Duration::from_millis(timeout_ms),
         module_root,
+        network,
         programs: Vec::new(),
     })
+}
+
+fn parse_network_run_policy(
+    repo: &Path,
+    path: &Path,
+    browser: &serde_yaml::Mapping,
+) -> Result<NetworkRunPolicy, BusError> {
+    let Some(value) = yaml_get(browser, "network") else {
+        return Ok(NetworkRunPolicy::default());
+    };
+    let network = value.as_mapping().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} browser.network must be a mapping",
+            path.display()
+        ))
+    })?;
+    let allowed = [
+        "mode",
+        "profile",
+        "redact_json_keys",
+        "max_entries",
+        "max_body_bytes",
+        "max_total_bytes",
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    if let Some(unknown) = network
+        .keys()
+        .filter_map(serde_yaml::Value::as_str)
+        .find(|key| !allowed.contains(key))
+    {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.network has unknown field {unknown}",
+            path.display()
+        )));
+    }
+    let mode = match yaml_get(network, "mode")
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or("live")
+    {
+        "live" => NetworkMode::Live,
+        "record" => NetworkMode::Record,
+        "replay" => NetworkMode::Replay,
+        "hybrid" => NetworkMode::Hybrid,
+        other => {
+            return Err(BusError::Runtime(format!(
+                "quality policy {} has unknown browser.network.mode {other}",
+                path.display()
+            )));
+        }
+    };
+    let profile_path = yaml_get(network, "profile")
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+    if matches!(mode, NetworkMode::Replay | NetworkMode::Hybrid) && profile_path.is_none() {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.network.mode requires a profile",
+            path.display()
+        )));
+    }
+    if matches!(mode, NetworkMode::Live | NetworkMode::Record) && profile_path.is_some() {
+        return Err(BusError::Runtime(format!(
+            "quality policy {} browser.network.profile is only valid for replay or hybrid mode",
+            path.display()
+        )));
+    }
+    let profile = parse_network_profile(repo, profile_path)?;
+    let redact_json_keys = parse_network_redact_keys(path, network)?;
+    Ok(NetworkRunPolicy {
+        mode,
+        profile,
+        redact_json_keys,
+        max_entries: parse_network_bound(path, network, "max_entries", 256, 2_048)?,
+        max_body_bytes: parse_network_bound(
+            path,
+            network,
+            "max_body_bytes",
+            64 * 1024,
+            1024 * 1024,
+        )?,
+        max_total_bytes: parse_network_bound(
+            path,
+            network,
+            "max_total_bytes",
+            4 * 1024 * 1024,
+            8 * 1024 * 1024,
+        )?,
+    })
+}
+
+fn parse_network_profile(
+    repo: &Path,
+    profile_path: Option<&str>,
+) -> Result<Option<NetworkReplayProfile>, BusError> {
+    profile_path
+        .map(|raw| {
+            let (_, absolute) = checked_repo_path(repo, raw, "browser.network.profile")?;
+            let body = std::fs::read(&absolute).map_err(|err| {
+                BusError::Runtime(format!(
+                    "cannot read network replay profile {}: {err}",
+                    absolute.display()
+                ))
+            })?;
+            serde_json::from_slice::<NetworkReplayProfile>(&body).map_err(|err| {
+                BusError::Runtime(format!(
+                    "invalid network replay profile {}: {err}",
+                    absolute.display()
+                ))
+            })
+        })
+        .transpose()
+}
+
+fn parse_network_redact_keys(
+    path: &Path,
+    network: &serde_yaml::Mapping,
+) -> Result<Vec<String>, BusError> {
+    let Some(keys) = yaml_get(network, "redact_json_keys") else {
+        return Ok(Vec::new());
+    };
+    keys.as_sequence()
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser.network.redact_json_keys must be a list",
+                path.display()
+            ))
+        })?
+        .iter()
+        .map(|key| {
+            key.as_str()
+                .filter(|key| !key.trim().is_empty())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| {
+                    BusError::Runtime(format!(
+                        "quality policy {} browser.network.redact_json_keys must contain strings",
+                        path.display()
+                    ))
+                })
+        })
+        .collect()
+}
+
+fn parse_network_bound(
+    path: &Path,
+    network: &serde_yaml::Mapping,
+    field: &str,
+    default: u32,
+    max: u32,
+) -> Result<u32, BusError> {
+    let value = yaml_get(network, field).map_or(u64::from(default), |value| {
+        value.as_u64().unwrap_or(u64::MAX)
+    });
+    u32::try_from(value)
+        .ok()
+        .filter(|value| (1..=max).contains(value))
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser.network.{field} must be between 1 and {max}",
+                path.display()
+            ))
+        })
 }
 
 fn parse_browser_programs(
@@ -8624,6 +8827,38 @@ fn persist_browser_run(
         keep_normalized,
         handles,
     )?;
+    if keep_normalized {
+        if let Some(profile) = &result.network_profile {
+            put_json_run_artifact(
+                store,
+                run_id,
+                &format!(
+                    "artifact-{}-browser-{program_index}-{token}-network-profile",
+                    run_id.as_str()
+                ),
+                "network-replay-profile",
+                profile,
+                handles,
+            )?;
+        }
+        if !result.network_limitations.is_empty() {
+            put_json_run_artifact(
+                store,
+                run_id,
+                &format!(
+                    "artifact-{}-browser-{program_index}-{token}-network-limitations",
+                    run_id.as_str()
+                ),
+                "network-replay-limitations",
+                &json!({
+                    "schema_v": 1,
+                    "program": configured.program.id,
+                    "limitations": result.network_limitations,
+                }),
+                handles,
+            )?;
+        }
+    }
     let assertions = stored_browser_assertions(result, keep_normalized, &observation_handles)?;
     let evidence = StoredBrowserProgramEvidence {
         schema_v: 2,

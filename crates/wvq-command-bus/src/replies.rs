@@ -499,7 +499,7 @@ pub struct AuthorPreviewReply {
 pub struct RecordReply {
     /// Ephemeral or persisted session identity.
     pub session_id: String,
-    /// Resolved OpenSpec change.
+    /// Resolved `OpenSpec` change.
     pub change: String,
     /// Exact repository/Weavatrix revision observed before and after recording.
     pub revision: String,
@@ -531,6 +531,8 @@ pub struct RecordReply {
     pub preview: Option<AuthorPreviewReply>,
     /// CAS-backed canonical `BehaviorTrace` for admitted sessions.
     pub trace_handle: Option<String>,
+    /// CAS-backed redacted API response profile, when the session captured one.
+    pub network_profile_handle: Option<String>,
     /// Normal recording and replay never spend model tokens.
     pub runtime_llm_tokens: u64,
 }

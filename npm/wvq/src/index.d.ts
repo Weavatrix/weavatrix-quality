@@ -345,6 +345,7 @@ export interface RecordReply {
     candidate: JsonValue | null
     preview: AuthorPreviewReply | null
     trace_handle: string | null
+    network_profile_handle: string | null
     runtime_llm_tokens: 0
 }
 

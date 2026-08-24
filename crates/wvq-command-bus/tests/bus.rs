@@ -336,6 +336,7 @@ fn read_http_request(stream: &mut impl Read) -> Vec<u8> {
 
 struct BrowserFixtureServer {
     address: std::net::SocketAddr,
+    api_calls: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -345,13 +346,16 @@ impl BrowserFixtureServer {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
+        let api_calls = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let server_stop = Arc::clone(&stop);
+        let server_calls = Arc::clone(&api_calls);
         let thread = thread::spawn(move || {
             while !server_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        thread::spawn(move || respond_browser_fixture(stream));
+                        let calls = Arc::clone(&server_calls);
+                        thread::spawn(move || respond_browser_fixture(stream, &calls));
                     }
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
@@ -362,6 +366,7 @@ impl BrowserFixtureServer {
         });
         Self {
             address,
+            api_calls,
             stop,
             thread: Some(thread),
         }
@@ -370,24 +375,44 @@ impl BrowserFixtureServer {
     fn url(&self) -> String {
         format!("http://{}", self.address)
     }
+
+    fn api_calls(&self) -> u64 {
+        self.api_calls.load(Ordering::Acquire)
+    }
 }
 
-fn respond_browser_fixture(mut stream: std::net::TcpStream) {
+fn respond_browser_fixture(mut stream: std::net::TcpStream, api_calls: &AtomicU64) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut request = [0_u8; 4096];
-    let _ = stream.read(&mut request);
+    let count = stream.read(&mut request).unwrap_or_default();
+    let request = String::from_utf8_lossy(&request[..count]);
+    if request.starts_with("GET /api/details ") {
+        api_calls.fetch_add(1, Ordering::AcqRel);
+        let body = br#"{"ok":true,"email":"private@example.invalid","token":"secret-token-value"}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        stream.write_all(body).unwrap();
+        stream.flush().unwrap();
+        return;
+    }
     let body = br"<!doctype html><html><body><h1>WVQ live browser</h1>
         <button data-testid='open-details'>Open details</button><section role='status' hidden></section>
-        <script>setTimeout(() => {
-          document.querySelector('button').addEventListener('click', () => {
+        <script>fetch('/api/details');
+          const button = document.querySelector('button');
+          button.addEventListener('click', () => {
             const status = document.querySelector('[role=status]');
             status.hidden = false; status.textContent = 'Details open';
           });
-          document.querySelector('button').click();
-          setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', {
-            key:'E', ctrlKey:true, shiftKey:true, bubbles:true
-          })), 100);
-        }, 100);</script></body></html>";
+          if (location.search.includes('record=1')) setTimeout(() => {
+            button.click();
+            setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', {
+              key:'E', ctrlKey:true, shiftKey:true, bubbles:true
+            })), 100);
+          }, 100);</script></body></html>";
     write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -1626,7 +1651,7 @@ fn passive_recording_keeps_only_novel_sessions_as_passing_reviewable_programs() 
         change: "live-browser".into(),
         base: "HEAD".into(),
         head: "WORKTREE".into(),
-        route: "/".into(),
+        route: "/?record=1".into(),
         fixture_values: BTreeMap::new(),
         idle_timeout_ms: 2_000,
         max_events: 20,
@@ -1636,7 +1661,7 @@ fn passive_recording_keeps_only_novel_sessions_as_passing_reviewable_programs() 
     assert!(first.useful, "{first:#?}");
     assert!(!first.discarded);
     assert!(first.new_behavior_states >= 2);
-    assert!(first.new_behavior_edges >= 2);
+    assert!(first.new_behavior_edges >= 2, "{first:#?}");
     assert_eq!(first.linked_obligations, ["heading-visible"]);
     assert_eq!(first.runtime_llm_tokens, 0);
     let candidate = first.candidate.as_ref().expect("recorded TestProgram");
@@ -1658,6 +1683,53 @@ fn passive_recording_keeps_only_novel_sessions_as_passing_reviewable_programs() 
         })
         .unwrap();
     assert_eq!(evidence.kind, "behavior-trace");
+    let profile_handle = first
+        .network_profile_handle
+        .as_ref()
+        .expect("network profile handle");
+    let profile_evidence = service
+        .evidence(&EvidenceCommand {
+            handle: profile_handle.clone(),
+        })
+        .unwrap();
+    assert_eq!(profile_evidence.kind, "network-replay-profile");
+    let profile = profile_evidence
+        .inline_text
+        .expect("bounded inline profile");
+    assert!(!profile.contains("private@example.invalid"));
+    assert!(!profile.contains("secret-token-value"));
+    assert!(profile.contains("[REDACTED]"));
+
+    std::fs::create_dir_all(repo.0.join(".weavatrix-quality/network")).unwrap();
+    std::fs::write(
+        repo.0.join(".weavatrix-quality/network/details.json"),
+        &profile,
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join(".weavatrix-quality/config.yaml"),
+        format!(
+            "quality_policy_v: 1\n\nbrowser:\n  base_url: {}\n  engine: chromium\n  headless: true\n  timeout_ms: 120000\n  module_root: node_modules/playwright\n  network:\n    mode: replay\n    profile: .weavatrix-quality/network/details.json\n  programs:\n    - .weavatrix-quality/programs/home.json\n",
+            server.url()
+        ),
+    )
+    .unwrap();
+    let calls_before_replay = server.api_calls();
+    let replay = service
+        .run(&RunCommand {
+            change: "live-browser".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+        })
+        .unwrap();
+    assert_eq!(replay.outcome, "passed", "{replay:#?}");
+    assert_eq!(
+        server.api_calls(),
+        calls_before_replay,
+        "head and merge-base replay must use the exact recorded fixture"
+    );
 
     let store = wvq_store::Store::open(&repo.0).unwrap();
     let stored = store
@@ -1680,6 +1752,7 @@ fn passive_recording_keeps_only_novel_sessions_as_passing_reviewable_programs() 
     assert!(repeated.candidate.is_none());
     assert!(repeated.preview.is_none());
     assert!(repeated.trace_handle.is_none());
+    assert!(repeated.network_profile_handle.is_none());
     assert!(
         wvq_store::Store::open(&repo.0)
             .unwrap()
