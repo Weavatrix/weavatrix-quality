@@ -350,10 +350,12 @@ fn node_span(node: &Value) -> Option<NodeSpan> {
         .and_then(Value::as_str)?;
     let start = node
         .pointer("/span/start_line")
+        .or_else(|| node.pointer("/span/start/line"))
         .or_else(|| node.get("start_line"))
         .and_then(Value::as_u64)?;
     let end = node
         .pointer("/span/end_line")
+        .or_else(|| node.pointer("/span/end/line"))
         .or_else(|| node.get("end_line"))
         .and_then(Value::as_u64)
         .unwrap_or(start);

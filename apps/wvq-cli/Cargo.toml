@@ -20,5 +20,12 @@ path = "src/main.rs"
 serde_json = { workspace = true }
 wvq-command-bus = { workspace = true }
 
+[dev-dependencies]
+mcport = { workspace = true }
+qualityd = { path = "../qualityd" }
+wvq-mcp = { path = "../wvq-mcp" }
+wvq-proof = { workspace = true }
+wvq-store = { workspace = true }
+
 [lints]
 workspace = true

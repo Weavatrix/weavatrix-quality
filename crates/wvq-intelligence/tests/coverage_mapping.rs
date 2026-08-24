@@ -72,6 +72,35 @@ fn lcov_ranges_map_onto_graph_node_spans() {
 }
 
 #[test]
+fn current_weavatrix_nested_spans_map_at_symbol_granularity() {
+    let cov = coverage("service/permission.go", &[(3, 3)], &[(5, 5)]);
+    let graph = json!({
+        "nodes": [
+            {
+                "id": "symbol:service/permission.go#function:ViewerLabel@3:1",
+                "span": {
+                    "file": "service/permission.go",
+                    "start": {"line": 3, "column": 1},
+                    "end": {"line": 3, "column": 6}
+                }
+            },
+            {
+                "id": "symbol:service/permission.go#function:CanDelete@5:1",
+                "span": {
+                    "file": "service/permission.go",
+                    "start": {"line": 5, "column": 1},
+                    "end": {"line": 5, "column": 6}
+                }
+            }
+        ]
+    });
+
+    let mapped = map_coverage_to_nodes(Some(&cov), &graph).unwrap();
+    assert_eq!(mapped[0].measurement, CoverageMeasurement::Covered);
+    assert_eq!(mapped[1].measurement, CoverageMeasurement::Uncovered);
+}
+
+#[test]
 fn missing_lcov_is_unmeasured_not_uncovered() {
     let graph = json!({
         "nodes": [node("fn:add", "src/add.js", 1, 4, &json!({ "changed": true, "risk": "high" }))]

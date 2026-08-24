@@ -5,7 +5,7 @@
 
 **Turn product intent and a repository change into revision-bound proof — without spending LLM tokens on the green path.**
 
-Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
+Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` 2.7.1 as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
 
 ```text
 OpenSpec says what should remain true.
@@ -24,9 +24,11 @@ The canonical development checklist is implemented, but its items have different
 - Weavatrix produces revision-bound `graph_diff`, change impact, test selection, and immutable debt comparison;
 - impact is `base ∪ head ∪ removed`, never head-only;
 - Cargo/libtest, JUnit, LCOV, `go test -json`, and Go coverprofiles become normalized evidence;
-- measured coverage maps onto changed graph nodes and produces opt-in base/head `ProtectionSnapshot` evidence;
+- measured coverage maps onto changed graph symbols and produces base/head `ProtectionSnapshot` evidence for the default verdict axis;
 - SQLite + CAS preserve runs, evidence, proof-artifact provenance, debt history, AI usage, and immutable proofs across processes;
 - proof requires the exact configured runner case or Playwright assertion, not a green file path;
+- unambiguous single-case coverage is attributed to its exact bound test; aggregate coverage stays executor-level instead of being guessed onto cases;
+- a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, and sole-protector deletion across CLI, MCP, and `qualityd`;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 - every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.

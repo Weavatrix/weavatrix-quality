@@ -1268,7 +1268,11 @@ impl LiveService {
         let base = snapshot_artifact(store, &run.id, "base-protection-snapshot")?;
         match (base, head) {
             (Some(base), Some(head)) => {
-                let deltas = protection_delta(&base, &head, &DeltaContext::default());
+                let context = DeltaContext {
+                    relocations: snapshot_relocations(&base, &head),
+                    ..DeltaContext::default()
+                };
+                let deltas = protection_delta(&base, &head, &context);
                 let any_high_risk = compiled
                     .obligations
                     .iter()
@@ -1280,7 +1284,7 @@ impl LiveService {
                 };
                 let findings = gate_protection(&ProtectionCheckInput {
                     deltas: deltas.clone(),
-                    tests: Vec::new(),
+                    tests: protection_test_changes(&base, &head, &deltas, &BTreeSet::new()),
                     trends: Vec::new(),
                     policy: ProtectionPolicy {
                         high_risk_flows,
@@ -1442,12 +1446,19 @@ impl LiveService {
                 "base protection replay did not pass every registered runner".into(),
             ));
         }
-        let protection = live_protection_snapshot(&evidence.revision, &graph, &records)?
-            .ok_or_else(|| {
-                BusError::Runtime(
-                    "base protection replay produced no coverage for the impacted graph".into(),
-                )
-            })?;
+        let bindings = load_test_bindings(&worktree.path)?;
+        let protection = live_protection_snapshot(
+            &worktree.path,
+            &evidence.revision,
+            &graph,
+            &records,
+            &bindings,
+        )?
+        .ok_or_else(|| {
+            BusError::Runtime(
+                "base protection replay produced no coverage for the impacted graph".into(),
+            )
+        })?;
         Ok((protection, graph))
     }
 
@@ -2361,7 +2372,13 @@ impl QualityService for LiveService {
             &mut handles,
         )?;
         persist_dynamic_coverage_history(&store, &run_id, &before, &protection_graph, &records)?;
-        if let Some(protection) = live_protection_snapshot(&before, &protection_graph, &records)? {
+        if let Some(protection) = live_protection_snapshot(
+            &self.repo,
+            &before,
+            &protection_graph,
+            &records,
+            &live_selection.bindings,
+        )? {
             put_json_run_artifact(
                 &store,
                 &run_id,
@@ -8129,9 +8146,11 @@ fn ensure_complete_diff(diff: &Value) -> Result<(), BusError> {
 }
 
 fn live_protection_snapshot(
+    repo: &Path,
     revision: &RevisionId,
     graph: &Value,
     records: &[ExecutorRecord],
+    bindings: &[TestBinding],
 ) -> Result<Option<wvq_proof::ProtectionSnapshot>, BusError> {
     let Some(nodes) = graph.get("nodes").and_then(Value::as_array) else {
         return Ok(None);
@@ -8139,7 +8158,8 @@ fn live_protection_snapshot(
     if nodes.is_empty() {
         return Ok(None);
     }
-    let (flows, coverage_files) = measured_protection_flows(revision, graph, nodes, records)?;
+    let (flows, coverage_files) =
+        measured_protection_flows(repo, revision, graph, nodes, records, bindings)?;
     if flows.is_empty() {
         if !coverage_files.is_empty() {
             return Err(coverage_graph_mismatch(nodes, coverage_files));
@@ -8198,12 +8218,20 @@ fn persist_dynamic_coverage_history(
 }
 
 fn measured_protection_flows(
+    repo: &Path,
     revision: &RevisionId,
     graph: &Value,
     nodes: &[Value],
     records: &[ExecutorRecord],
+    bindings: &[TestBinding],
 ) -> Result<(BTreeMap<String, FlowProtection>, BTreeSet<String>), BusError> {
     let mut known_nodes = BTreeSet::new();
+    let symbol_files = nodes
+        .iter()
+        .filter(|node| node.get("kind").and_then(Value::as_str) != Some("file"))
+        .filter_map(|node| node.pointer("/span/file").and_then(Value::as_str))
+        .map(normalize_path)
+        .collect::<BTreeSet<_>>();
     for node in nodes {
         let Some(id) = graph_node_id(node) else {
             return Err(BusError::Intelligence(
@@ -8216,6 +8244,7 @@ fn measured_protection_flows(
     let mut flows = BTreeMap::<String, FlowProtection>::new();
     let mut coverage_files = BTreeSet::new();
     for record in records.iter().filter(|record| record.passed) {
+        let protectors = coverage_protectors(repo, record, bindings)?;
         for artifact in record
             .artifacts
             .iter()
@@ -8236,6 +8265,15 @@ fn measured_protection_flows(
                 .filter(|node| node.measurement != CoverageMeasurement::Unmeasured)
             {
                 let node_id = node.node_id;
+                if node_id
+                    .strip_prefix("file:")
+                    .is_some_and(|path| symbol_files.contains(&normalize_path(path)))
+                {
+                    // A file node is only a fallback when Weavatrix has no
+                    // symbol span for that source. Keeping both lets one hit in
+                    // ViewerLabel hide an uncovered CanDelete function.
+                    continue;
+                }
                 if !known_nodes.contains(&node_id) {
                     return Err(BusError::Intelligence(format!(
                         "coverage mapped unknown graph node {node_id}"
@@ -8256,14 +8294,14 @@ fn measured_protection_flows(
                 if node.measurement != CoverageMeasurement::Covered {
                     continue;
                 }
-                let tests = if record.selection.is_empty() {
-                    vec![format!("executor:{}@{}", record.executor, record.cwd)]
-                } else {
-                    record.selection.clone()
-                };
-                for test in tests {
-                    if !flow.tests.contains(&test) {
-                        flow.tests.push(test);
+                for protector in &protectors {
+                    if !flow.tests.contains(&protector.identity) {
+                        flow.tests.push(protector.identity.clone());
+                    }
+                    for obligation in &protector.obligations {
+                        if !flow.proven_obligations.contains(obligation) {
+                            flow.proven_obligations.push(obligation.clone());
+                        }
                     }
                 }
                 if !flow.covered_nodes.contains(&node_id) {
@@ -8273,6 +8311,95 @@ fn measured_protection_flows(
         }
     }
     Ok((flows, coverage_files))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoverageProtector {
+    identity: String,
+    obligations: Vec<String>,
+}
+
+/// Attribute one coverage artifact to an exact test only when the invocation
+/// makes that attribution unambiguous. A batch-wide coverage file remains
+/// executor-level evidence: guessing which case reached a flow would turn a
+/// test list into proof.
+fn coverage_protectors(
+    repo: &Path,
+    record: &ExecutorRecord,
+    bindings: &[TestBinding],
+) -> Result<Vec<CoverageProtector>, BusError> {
+    let mut cases = Vec::new();
+    for artifact in record
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == "normalized-test-run")
+    {
+        let normalized: NormalizedTestRun =
+            serde_json::from_slice(&artifact.bytes).map_err(|err| {
+                BusError::Runtime(format!(
+                    "cannot decode normalized evidence from {}: {err}",
+                    artifact.path
+                ))
+            })?;
+        cases.extend(
+            normalized
+                .cases
+                .into_iter()
+                .filter(|case| case.status == TestStatus::Pass),
+        );
+    }
+    if cases.len() == 1 {
+        let case = &cases[0];
+        let matched = bindings
+            .iter()
+            .filter(|binding| {
+                binding.case.as_deref() == Some(case.name.as_str())
+                    && binding
+                        .runner
+                        .as_deref()
+                        .is_none_or(|runner| runner == record.executor)
+                    && normalized_suite_matches(repo, record, binding, &case.suite)
+            })
+            .collect::<Vec<_>>();
+        if !matched.is_empty() {
+            let mut by_identity = BTreeMap::<String, BTreeSet<String>>::new();
+            for binding in matched {
+                by_identity
+                    .entry(format!("{}#{}", binding.path, case.name))
+                    .or_default()
+                    .extend(binding.obligations.iter().cloned());
+            }
+            return Ok(by_identity
+                .into_iter()
+                .map(|(identity, obligations)| CoverageProtector {
+                    identity,
+                    obligations: obligations.into_iter().collect(),
+                })
+                .collect());
+        }
+        return Ok(vec![CoverageProtector {
+            identity: format!("{}:{}#{}", record.executor, case.suite, case.name),
+            obligations: Vec::new(),
+        }]);
+    }
+    if record.selection.len() == 1 {
+        let identity = record.selection[0].clone();
+        let obligations = bindings
+            .iter()
+            .filter(|binding| binding.case.is_none() && binding.path == identity)
+            .flat_map(|binding| binding.obligations.iter().cloned())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        return Ok(vec![CoverageProtector {
+            identity,
+            obligations,
+        }]);
+    }
+    Ok(vec![CoverageProtector {
+        identity: format!("executor:{}@{}", record.executor, record.cwd),
+        obligations: Vec::new(),
+    }])
 }
 
 fn coverage_graph_mismatch(nodes: &[Value], coverage_files: BTreeSet<String>) -> BusError {
@@ -8323,31 +8450,19 @@ fn build_protection_view(
     head_graph: &Value,
     files: &ChangedFiles,
 ) -> ProtectionView {
+    let mut relocations = graph_relocations(diff);
+    relocations.extend(snapshot_relocations(base, head));
+    relocations.sort();
+    relocations.dedup();
     let context = DeltaContext {
         critical_branches: Vec::new(),
         intentionally_removed: Vec::new(),
-        relocations: graph_relocations(diff),
+        relocations,
     };
     let deltas = protection_delta(base, head, &context);
     let lineage = protection_lineage(base, head);
     let changed_tests = files.changed_tests().into_iter().collect::<BTreeSet<_>>();
-    let tests = lineage
-        .iter()
-        .flat_map(|item| {
-            item.lost_flows.iter().map(|flow| TestChange {
-                test: item.test.clone(),
-                flow: flow.clone(),
-                survives: item.state != "removed",
-                lost_flows: item.lost_flows.clone(),
-                lost_obligations: Vec::new(),
-                replaced_by: None,
-                assertions_weakened: false,
-                changed_with_implementation: changed_tests.contains(&item.test),
-                new_oracle_seal: false,
-                declared_spec_delta: false,
-            })
-        })
-        .collect::<Vec<_>>();
+    let tests = protection_test_changes(base, head, &deltas, &changed_tests);
     let any_high_risk = obligations
         .iter()
         .any(|item| matches!(item.risk, RiskLevel::High | RiskLevel::Critical));
@@ -8411,6 +8526,58 @@ fn build_protection_view(
     }
 }
 
+fn protection_test_changes(
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+    deltas: &[ProtectionDelta],
+    changed_tests: &BTreeSet<String>,
+) -> Vec<TestChange> {
+    let mut changes = Vec::new();
+    for item in protection_lineage(base, head) {
+        for flow in &item.lost_flows {
+            let delta = deltas.iter().find(|delta| delta.flow == *flow);
+            if delta.is_some_and(|delta| {
+                matches!(
+                    delta.state,
+                    ProtectionDeltaState::Preserved
+                        | ProtectionDeltaState::Improved
+                        | ProtectionDeltaState::Replaced
+                        | ProtectionDeltaState::Relocated
+                )
+            }) {
+                // Source identity changed, but measured protection followed the
+                // semantic flow. Moving a test with its implementation is not
+                // evidence that its oracle was weakened.
+                continue;
+            }
+            changes.push(TestChange {
+                test: item.test.clone(),
+                flow: flow.clone(),
+                survives: item.state != "removed",
+                lost_flows: item.lost_flows.clone(),
+                lost_obligations: delta
+                    .map(|delta| delta.lost_obligations.clone())
+                    .unwrap_or_default(),
+                replaced_by: None,
+                assertions_weakened: false,
+                changed_with_implementation: changed_tests
+                    .iter()
+                    .any(|path| test_identity_has_path(&item.test, path)),
+                new_oracle_seal: false,
+                declared_spec_delta: false,
+            });
+        }
+    }
+    changes
+}
+
+fn test_identity_has_path(identity: &str, path: &str) -> bool {
+    identity == path
+        || identity
+            .strip_prefix(path)
+            .is_some_and(|suffix| suffix.starts_with('#'))
+}
+
 fn graph_relocations(diff: &Value) -> Vec<(String, String)> {
     let mut relocations = values_at(diff, "/nodes/changed")
         .iter()
@@ -8420,9 +8587,82 @@ fn graph_relocations(diff: &Value) -> Vec<(String, String)> {
             (before != after).then_some((before, after))
         })
         .collect::<Vec<_>>();
+    let removed = values_at(diff, "/nodes/removed")
+        .iter()
+        .filter_map(graph_node_id)
+        .collect::<Vec<_>>();
+    let added = values_at(diff, "/nodes/added")
+        .iter()
+        .filter_map(graph_node_id)
+        .collect::<Vec<_>>();
+    for before in &removed {
+        let Some(signature) = stable_symbol_signature(before) else {
+            continue;
+        };
+        let candidates = added
+            .iter()
+            .filter(|after| stable_symbol_signature(after) == Some(signature))
+            .collect::<Vec<_>>();
+        if candidates.len() == 1
+            && removed
+                .iter()
+                .filter(|candidate| stable_symbol_signature(candidate) == Some(signature))
+                .count()
+                == 1
+        {
+            relocations.push((before.clone(), candidates[0].clone()));
+        }
+    }
     relocations.sort();
     relocations.dedup();
     relocations
+}
+
+fn snapshot_relocations(
+    base: &ProtectionSnapshot,
+    head: &ProtectionSnapshot,
+) -> Vec<(String, String)> {
+    let mut relocations = Vec::new();
+    for before in &base.flows {
+        if head.flow(&before.flow).is_some() {
+            continue;
+        }
+        let Some(signature) = stable_symbol_signature(&before.flow) else {
+            continue;
+        };
+        let candidates = head
+            .flows
+            .iter()
+            .filter(|after| stable_symbol_signature(&after.flow) == Some(signature))
+            .collect::<Vec<_>>();
+        if candidates.len() == 1
+            && base
+                .flows
+                .iter()
+                .filter(|candidate| stable_symbol_signature(&candidate.flow) == Some(signature))
+                .count()
+                == 1
+        {
+            relocations.push((before.flow.clone(), candidates[0].flow.clone()));
+        }
+    }
+    relocations.sort();
+    relocations.dedup();
+    relocations
+}
+
+fn stable_symbol_signature(id: &str) -> Option<&str> {
+    let tail = id.strip_prefix("symbol:")?.split_once('#')?.1;
+    let Some((symbol, position)) = tail.rsplit_once('@') else {
+        return Some(tail);
+    };
+    let is_source_position = position.split_once(':').is_some_and(|(line, column)| {
+        !line.is_empty()
+            && !column.is_empty()
+            && line.bytes().all(|byte| byte.is_ascii_digit())
+            && column.bytes().all(|byte| byte.is_ascii_digit())
+    });
+    Some(if is_source_position { symbol } else { tail })
 }
 
 fn protection_lineage(
@@ -8459,6 +8699,7 @@ fn protection_lineage(
             let after = head_flows.get(&test).cloned().unwrap_or_default();
             let lost_flows = before.difference(&after).cloned().collect::<Vec<_>>();
             let gained_flows = after.difference(&before).cloned().collect::<Vec<_>>();
+            let phantom = !before.is_empty() && !after.is_empty() && !lost_flows.is_empty();
             TestLineageView {
                 state: match (before.is_empty(), after.is_empty()) {
                     (false, false) => "unchanged",
@@ -8469,7 +8710,7 @@ fn protection_lineage(
                 .into(),
                 matched_on: "exact test identity".into(),
                 protection_changed: !lost_flows.is_empty() || !gained_flows.is_empty(),
-                phantom: !after.is_empty() && after.iter().all(|flow| head.flow(flow).is_none()),
+                phantom,
                 test,
                 lost_flows,
                 gained_flows,
@@ -9543,13 +9784,110 @@ mod tests {
         });
         let revision = RevisionId::new("revision-1").unwrap();
         let graph = json!({"nodes": [diff["nodes"]["changed"][0]["after"].clone()]});
-        let protection = live_protection_snapshot(&revision, &graph, &[record])
-            .unwrap()
-            .unwrap();
+        let protection =
+            live_protection_snapshot(Path::new("."), &revision, &graph, &[record], &[])
+                .unwrap()
+                .unwrap();
         let flow = protection.flow("symbol:add").unwrap();
         assert_eq!(flow.revision, "revision-1");
         assert_eq!(flow.covered_nodes, ["symbol:add"]);
         assert_eq!(flow.tests, ["executor:cargo-test@."]);
+    }
+
+    #[test]
+    fn a_single_normalized_case_owns_its_coverage_and_obligation() {
+        let root = TempDir::new("exact-protection-case");
+        let coverage = CoverageArtifact {
+            files: vec![wvq_runtime::FileCoverage {
+                path: "service/permission.go".into(),
+                covered: vec![wvq_runtime::LineRange { start: 3, end: 5 }],
+                uncovered: Vec::new(),
+            }],
+        };
+        let mut record = record("go-test");
+        record.cwd = "service".into();
+        record.artifacts.push(ProducedArtifact {
+            kind: "normalized-test-run".into(),
+            path: "go-test#normalized".into(),
+            bytes: serde_json::to_vec(&NormalizedTestRun {
+                cases: vec![wvq_runtime::TestCaseResult {
+                    name: "TestViewerCannotDelete".into(),
+                    suite: "fixture.local/product/service".into(),
+                    status: TestStatus::Pass,
+                    duration_ms: Some(1),
+                    message: None,
+                }],
+                coverage: None,
+                raw_artifacts: Vec::new(),
+            })
+            .unwrap(),
+        });
+        record.artifacts.push(ProducedArtifact {
+            kind: "coverage".into(),
+            path: "go-cover.out#normalized".into(),
+            bytes: serde_json::to_vec(&coverage).unwrap(),
+        });
+        let binding = TestBinding {
+            path: "service/permission_test.go".into(),
+            runner: Some("go-test".into()),
+            suite: Some("fixture.local/product/service".into()),
+            case: Some("TestViewerCannotDelete".into()),
+            obligations: BTreeSet::from(["viewer-deny".into()]),
+            cost: 10,
+            flake_penalty: 0,
+        };
+        let revision = RevisionId::new("revision-exact-protector").unwrap();
+        let graph = json!({"nodes": [{
+            "id": "function:service/permission.go:CanDelete",
+            "span": {"file": "service/permission.go", "start_line": 3, "end_line": 5}
+        }]});
+
+        let protection =
+            live_protection_snapshot(&root.0, &revision, &graph, &[record], &[binding])
+                .unwrap()
+                .unwrap();
+        let flow = protection
+            .flow("function:service/permission.go:CanDelete")
+            .unwrap();
+        assert_eq!(
+            flow.tests,
+            ["service/permission_test.go#TestViewerCannotDelete"]
+        );
+        assert_eq!(flow.proven_obligations, ["viewer-deny"]);
+    }
+
+    #[test]
+    fn batch_coverage_never_claims_which_normalized_case_protected_a_flow() {
+        let mut record = record("go-test");
+        record.cwd = "service".into();
+        record.artifacts.push(ProducedArtifact {
+            kind: "normalized-test-run".into(),
+            path: "go-test#normalized".into(),
+            bytes: serde_json::to_vec(&NormalizedTestRun {
+                cases: ["TestViewerCannotDelete", "TestAdminCanDelete"]
+                    .into_iter()
+                    .map(|name| wvq_runtime::TestCaseResult {
+                        name: name.into(),
+                        suite: "fixture.local/product/service".into(),
+                        status: TestStatus::Pass,
+                        duration_ms: Some(1),
+                        message: None,
+                    })
+                    .collect(),
+                coverage: None,
+                raw_artifacts: Vec::new(),
+            })
+            .unwrap(),
+        });
+
+        let protectors = coverage_protectors(Path::new("."), &record, &[]).unwrap();
+        assert_eq!(
+            protectors,
+            [CoverageProtector {
+                identity: "executor:go-test@service".into(),
+                obligations: Vec::new(),
+            }]
+        );
     }
 
     #[test]
