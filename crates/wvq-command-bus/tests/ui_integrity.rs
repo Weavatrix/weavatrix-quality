@@ -538,7 +538,8 @@ fn an_overlay_that_blocks_export_blocks_the_change_end_to_end() {
 fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelta {
     use std::collections::BTreeSet;
     use wvq_runtime::{
-        BrowserRunConfig, ProgramOracle, TestProgram, UiCollectionConfig, run_browser_program_at,
+        BrowserRunConfig, BrowserViewport, ProgramOracle, TestProgram, UiCollectionConfig,
+        run_browser_program_at,
     };
 
     let policy_yaml = "enabled: true\nmax_nodes: 2000\nallowed_overlaps:\n  - top:\n      \
@@ -568,6 +569,10 @@ fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelt
                     .join("js/playwright-runner"),
                 runtime_dir: dir.join("runtime"),
                 evidence_dir: dir.join("evidence"),
+                viewport: Some(BrowserViewport {
+                    width: viewport.0,
+                    height: viewport.1,
+                }),
                 ui_integrity: Some(UiCollectionConfig {
                     enabled: true,
                     max_nodes: 2_000,
@@ -591,14 +596,10 @@ fn classify(head: &'static str, viewport: (u32, u32)) -> wvq_ui::UiIntegrityDelt
             if evidence.snapshot.is_null() {
                 continue;
             }
-            let mut layout: wvq_ui::LayoutSnapshot =
+            let layout: wvq_ui::LayoutSnapshot =
                 serde_json::from_value(evidence.snapshot.clone()).unwrap();
-            // The fixture serves each build on its own port; force the viewport
-            // under test so base and head line up on one measurement point.
-            layout.viewport = wvq_ui::Viewport {
-                width: viewport.0,
-                height: viewport.1,
-            };
+            assert_eq!(layout.viewport.width, viewport.0);
+            assert_eq!(layout.viewport.height, viewport.1);
             let output = wvq_ui::detect(&layout, &policy).unwrap();
             snapshot.truncated |= output.truncated;
             snapshot.measured_states.insert(layout.state_key());

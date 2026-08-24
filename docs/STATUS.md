@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: exact executed-protector inventory through the committed B2 product path
+Session: real browser viewport transport for responsive measurement
 
 ## Now
 
@@ -18,7 +18,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | OracleSeal integrity | ✅ | ✅ | ✅ | ✅ |
 | Executable oracle | ✅ | ✅ | ✅ | ✅ Playwright |
 | Committed/worktree revision range | ✅ | ✅ | ✅ | ✅ base SHA + head SHA + merge-base |
-| Weavatrix embed | ✅ | ✅ | ✅ | ✅ 2.7.1 |
+| Weavatrix embed | ✅ | ✅ | ✅ | ✅ 2.7.2 |
 | Quality Debt Ratchet | ✅ | ✅ | ✅ | ✅ |
 | Test selection | ✅ | ✅ | ✅ | ✅ Cargo/Vitest shadow runs |
 | Exact case-level proof binding | ✅ | ✅ | ✅ | ✅ Cargo/Playwright; ✅ unambiguous single-case JUnit/Go; 🟡 aggregate coverage |
@@ -55,6 +55,8 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Responsive interval search | ✅ idea | ❌ | ❌ | ❌ |
 
 Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.2 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+
+Responsive measurements now set the actual Playwright viewport through the Rust-owned browser protocol. The Chromium regression fixture asserts the returned layout snapshot is the requested 767×720 viewport; it no longer relabels a 1280×720 render after collection. Adaptive breakpoint discovery and interval search remain the next independently reviewable task.
 
 Current validation: 162 Rust tests passed across all targets of the touched `wvq-proof`, `wvq-command-bus`, and `wvq-cli` crates, including all five committed product scenarios; warnings-denied Clippy passed for the same scope. The pre-B5 full workspace baseline was 493 Rust tests with zero failures. The prior 20 Playwright-runner tests, 5 npm package tests, and strict public `NodeNext` declarations remain unchanged by this Rust-owned path.
 

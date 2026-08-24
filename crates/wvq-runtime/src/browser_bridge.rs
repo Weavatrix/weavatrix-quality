@@ -62,10 +62,21 @@ pub struct BrowserRunConfig {
     pub runtime_dir: PathBuf,
     /// Ignored local directory for screenshot/trace files.
     pub evidence_dir: PathBuf,
+    /// Browser viewport. `None` uses the bridge default of 1280x720.
+    pub viewport: Option<BrowserViewport>,
     /// Deterministic UI-integrity collection. `None` collects nothing.
     pub ui_integrity: Option<UiCollectionConfig>,
     /// Cooperative cancellation.
     pub cancel: Arc<AtomicBool>,
+}
+
+/// Exact browser viewport used for a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct BrowserViewport {
+    /// CSS viewport width in pixels.
+    pub width: u32,
+    /// CSS viewport height in pixels.
+    pub height: u32,
 }
 
 /// Bounds the browser applies while collecting UI-integrity evidence.
@@ -260,6 +271,7 @@ pub fn run_browser_program_at(
                 "headless": config.headless,
                 "timeout_ms": u64::try_from(config.timeout.as_millis()).unwrap_or(u64::MAX),
                 "evidence_dir": config.evidence_dir,
+                "viewport": config.viewport,
             }
         }),
     )?;
@@ -433,6 +445,13 @@ fn validate_config(config: &BrowserRunConfig) -> Result<(), BrowserBridgeError> 
     if config.timeout.is_zero() || config.timeout > Duration::from_secs(120) {
         return Err(BrowserBridgeError::Config(
             "timeout must be between 1ms and 120s".into(),
+        ));
+    }
+    if let Some(viewport) = config.viewport
+        && (!(1..=16_384).contains(&viewport.width) || !(1..=16_384).contains(&viewport.height))
+    {
+        return Err(BrowserBridgeError::Config(
+            "viewport dimensions must be between 1 and 16384 pixels".into(),
         ));
     }
     if !config.module_root.is_dir() {

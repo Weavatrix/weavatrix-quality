@@ -1179,6 +1179,7 @@ impl LiveService {
                         .join(".weavatrix-quality")
                         .join("browser-evidence")
                         .join(safe_file_token(configured.program.id.as_str())),
+                    viewport: None,
                     ui_integrity: ui_collection_config(policy, &configured.oracles),
                     cancel: Arc::clone(&cancel),
                 },
@@ -2353,6 +2354,7 @@ impl QualityService for LiveService {
                             .repo
                             .join(".weavatrix-quality/runtime/playwright-runner"),
                         evidence_dir,
+                        viewport: None,
                         ui_integrity: ui_collection_config(&ui_policy, &configured.oracles),
                         cancel: Arc::clone(&cancel),
                     },
@@ -3367,6 +3369,7 @@ impl QualityService for LiveService {
                     .repo
                     .join(".weavatrix-quality/runtime/playwright-runner"),
                 evidence_dir: evidence_dir.clone(),
+                viewport: None,
                 // Authoring exercises one candidate program in isolation; UI
                 // integrity is a base/head comparison with nothing to compare.
                 ui_integrity: None,
@@ -3560,6 +3563,7 @@ impl QualityService for LiveService {
                     .repo
                     .join(".weavatrix-quality/runtime/playwright-runner"),
                 evidence_dir: evidence_dir.clone(),
+                viewport: None,
                 // Authoring exercises one candidate program in isolation; UI
                 // integrity is a base/head comparison with nothing to compare.
                 ui_integrity: None,
