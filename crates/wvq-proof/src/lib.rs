@@ -25,8 +25,9 @@ pub use budget::{
 };
 pub use change_verdict::{
     AiAxis, AxisState, BlockingReason, ChangeQualityVerdict, ChangeVerdictState, DebtAxis,
-    DebtItem, Limitation, ProofAxis, ProofOutcome, ProtectionAxis, StabilityAxis, UiFindingRef,
-    UiIntegrityAxis, VerdictInputs, compose, debt_rule_blocks,
+    DebtItem, DeltaFindingRef, DeltaTriangleAxis, Limitation, ProofAxis, ProofOutcome,
+    ProtectionAxis, StabilityAxis, UiFindingRef, UiIntegrityAxis, VerdictInputs, compose,
+    debt_rule_blocks,
 };
 pub use differential::{
     CodeDelta, DeltaTriangle, SpecDelta, TriangleAxes, TriangleReading, classify_triangle,

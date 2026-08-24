@@ -39,6 +39,23 @@ pub enum TriangleReading {
     NoChange,
 }
 
+impl TriangleReading {
+    /// Stable transport token.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ExpectedChangeCandidate => "expected_change_candidate",
+            Self::UnintendedBehaviorDrift => "unintended_behavior_drift",
+            Self::IncompleteImplementation => "incomplete_implementation",
+            Self::RequirementWithoutImplementation => "requirement_without_implementation",
+            Self::ProbableInternalRefactor => "probable_internal_refactor",
+            Self::EnvironmentNondeterminism => "environment_nondeterminism",
+            Self::ConfigOrStaleCodeEvidence => "config_or_stale_code_evidence",
+            Self::NoChange => "no_change",
+        }
+    }
+}
+
 /// The three Delta Triangle axes. Evidence, not a verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TriangleAxes {

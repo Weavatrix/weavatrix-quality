@@ -110,3 +110,23 @@ fn network_order_does_not_count_as_behavior_change() {
     let delta = behavior_delta(&base, &head);
     assert!(!delta.changed());
 }
+
+#[test]
+fn preview_origins_do_not_create_a_network_delta() {
+    let base = Observation {
+        network: vec!["POST http://127.0.0.1:41001/api/save 204".into()],
+        ..Observation::default()
+    };
+    let head = Observation {
+        network: vec!["POST http://127.0.0.1:52002/api/save 204".into()],
+        ..Observation::default()
+    };
+    let delta = behavior_delta(
+        &StructuredView::from_replay(&base, None),
+        &StructuredView::from_replay(&head, None),
+    );
+    assert!(
+        !delta.changed(),
+        "preview origin is not application behavior"
+    );
+}

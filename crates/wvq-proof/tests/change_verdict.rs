@@ -3,9 +3,10 @@
 
 use wvq_domain::{CheckId, Severity};
 use wvq_proof::{
-    AxisState, ChangeVerdictState, DebtAxis, DebtItem, Limitation, ProofOutcome, ProofVerdict,
-    ProtectionAxis, ProtectionDelta, ProtectionDeltaState, ProtectionFinding, ProtectionSummary,
-    StabilityAxis, UiFindingRef, UiIntegrityAxis, VerdictInputs, compose, debt_rule_blocks,
+    AxisState, ChangeVerdictState, DebtAxis, DebtItem, DeltaFindingRef, DeltaTriangleAxis,
+    Limitation, ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionDelta, ProtectionDeltaState,
+    ProtectionFinding, ProtectionSummary, StabilityAxis, UiFindingRef, UiIntegrityAxis,
+    VerdictInputs, compose, debt_rule_blocks,
 };
 
 fn proven(id: &str) -> ProofOutcome {
@@ -309,6 +310,50 @@ fn a_proven_test_cannot_hide_a_new_ui_occlusion() {
     assert_eq!(reason.subject, "button:Export");
     assert!(reason.detail.contains("WVQ-UI-LAYOUT-001"));
     assert!(reason.detail.contains("1280x720"));
+}
+
+#[test]
+fn a_proven_test_cannot_hide_unintended_behavior_drift() {
+    let mut inputs = healthy();
+    inputs.delta_triangle = DeltaTriangleAxis {
+        state: AxisState::Blocking,
+        code_changed: true,
+        behavior_changed: true,
+        measured_programs: 1,
+        changed_programs: vec!["checkout-ui".into()],
+        readings: vec!["unintended_behavior_drift".into()],
+        findings: vec![DeltaFindingRef {
+            check: "WVQ-BEHAV-001".into(),
+            severity: Severity::Error,
+            program: "checkout-ui".into(),
+            detail: "a11y changed without an OpenSpec delta".into(),
+        }],
+        ..DeltaTriangleAxis::default()
+    };
+    let verdict = compose(&inputs);
+    assert_eq!(verdict.proof.state, AxisState::Clean);
+    assert_eq!(verdict.state, ChangeVerdictState::Blocked);
+    assert_eq!(verdict.blocking_reasons[0].rank, 3);
+    assert_eq!(verdict.blocking_reasons[0].axis, "delta_triangle");
+    assert_eq!(verdict.blocking_reasons[0].subject, "checkout-ui");
+}
+
+#[test]
+fn incomplete_same_program_replay_is_not_a_pass() {
+    let mut inputs = healthy();
+    inputs.delta_triangle = DeltaTriangleAxis {
+        state: AxisState::Unmeasured,
+        unmeasured_programs: vec!["checkout-ui".into()],
+        ..DeltaTriangleAxis::default()
+    };
+    let verdict = compose(&inputs);
+    assert_eq!(verdict.state, ChangeVerdictState::NotEnoughEvidence);
+    assert!(
+        verdict
+            .limitations
+            .iter()
+            .any(|item| { item.axis == "delta_triangle" && item.detail.contains("checkout-ui") })
+    );
 }
 
 #[test]

@@ -280,6 +280,42 @@ pub struct UiIntegrityAxis {
     pub truncated: bool,
 }
 
+/// One explicit Delta Triangle finding projected into the change verdict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeltaFindingRef {
+    /// Stable detector identity (`WVQ-BEHAV-001`).
+    pub check: String,
+    /// Gate severity from the triangle classifier.
+    pub severity: Severity,
+    /// Exact `TestProgram` replayed on both revisions.
+    pub program: String,
+    /// First changed structured axis and the table reading.
+    pub detail: String,
+}
+
+/// Live Spec x Code x Behavior evidence from same-program base/head replay.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct DeltaTriangleAxis {
+    /// Axis state.
+    pub state: AxisState,
+    /// Whether the change modified its own `OpenSpec` authority.
+    pub spec_changed: bool,
+    /// Whether Weavatrix measured a changed code node or edge.
+    pub code_changed: bool,
+    /// Whether any paired program produced a structured behavior delta.
+    pub behavior_changed: bool,
+    /// Programs successfully replayed on both revisions.
+    pub measured_programs: u64,
+    /// Programs whose measured behavior changed.
+    pub changed_programs: Vec<String>,
+    /// Stable triangle readings, one per measured program.
+    pub readings: Vec<String>,
+    /// Explicit unexpected-delta findings.
+    pub findings: Vec<DeltaFindingRef>,
+    /// Programs that could not be replayed on both revisions.
+    pub unmeasured_programs: Vec<String>,
+}
+
 impl Default for AxisState {
     fn default() -> Self {
         Self::NotApplicable
@@ -302,6 +338,8 @@ pub struct VerdictInputs {
     pub ai: AiAxis,
     /// UI-integrity axis.
     pub ui_integrity: UiIntegrityAxis,
+    /// Same-program base/head Delta Triangle axis.
+    pub delta_triangle: DeltaTriangleAxis,
     /// Extra limitations discovered outside the axes.
     pub limitations: Vec<Limitation>,
 }
@@ -323,6 +361,8 @@ pub struct ChangeQualityVerdict {
     pub ai: AiAxis,
     /// UI-integrity axis.
     pub ui_integrity: UiIntegrityAxis,
+    /// Same-program base/head Delta Triangle axis.
+    pub delta_triangle: DeltaTriangleAxis,
     /// Every rule that fired, most important first.
     pub blocking_reasons: Vec<BlockingReason>,
     /// Everything that was in scope and not measured.
@@ -385,7 +425,12 @@ pub fn compose(inputs: &VerdictInputs) -> ChangeQualityVerdict {
 
     rank_1_contradiction(&proof, &mut reasons);
     rank_2_lost_protection(&inputs.protection, &mut reasons);
-    rank_3_new_blocking(&inputs.debt, &inputs.ui_integrity, &mut reasons);
+    rank_3_new_blocking(
+        &inputs.debt,
+        &inputs.ui_integrity,
+        &inputs.delta_triangle,
+        &mut reasons,
+    );
     rank_4_unproven_mandatory(&proof, &mut reasons);
     rank_5_returned_blocking(&inputs.debt, &inputs.ui_integrity, &mut reasons);
     rank_6_needs_human(&proof, &inputs.stability, &mut reasons);
@@ -418,6 +463,7 @@ pub fn compose(inputs: &VerdictInputs) -> ChangeQualityVerdict {
         stability: inputs.stability.clone(),
         ai: inputs.ai.clone(),
         ui_integrity: inputs.ui_integrity.clone(),
+        delta_triangle: inputs.delta_triangle.clone(),
         blocking_reasons: reasons,
         limitations,
     }
@@ -528,7 +574,12 @@ fn rank_2_lost_protection(protection: &ProtectionAxis, out: &mut Vec<BlockingRea
     }
 }
 
-fn rank_3_new_blocking(debt: &DebtAxis, ui: &UiIntegrityAxis, out: &mut Vec<BlockingReason>) {
+fn rank_3_new_blocking(
+    debt: &DebtAxis,
+    ui: &UiIntegrityAxis,
+    delta: &DeltaTriangleAxis,
+    out: &mut Vec<BlockingReason>,
+) {
     for item in debt.new.iter().filter(|item| item.blocking) {
         out.push(reason(
             3,
@@ -555,6 +606,19 @@ fn rank_3_new_blocking(debt: &DebtAxis, ui: &UiIntegrityAxis, out: &mut Vec<Bloc
                 "{} on {} at {}: {}",
                 finding.check, finding.route, finding.viewport, finding.detail
             ),
+        ));
+    }
+    for finding in delta
+        .findings
+        .iter()
+        .filter(|item| item.severity == Severity::Error)
+    {
+        out.push(reason(
+            3,
+            "WVQ-VERDICT-011",
+            "delta_triangle",
+            &finding.program,
+            format!("{}: {}", finding.check, finding.detail),
         ));
     }
 }
@@ -634,7 +698,7 @@ fn rank_7_unmeasured(
     out: &mut Vec<BlockingReason>,
     limitations: &mut Vec<Limitation>,
 ) {
-    let unmeasured: [(&str, AxisState, String); 5] = [
+    let unmeasured: [(&str, AxisState, String); 6] = [
         (
             "proof",
             proof.state,
@@ -662,6 +726,18 @@ fn rank_7_unmeasured(
             "ui_integrity",
             inputs.ui_integrity.state,
             ui_unmeasured_detail(&inputs.ui_integrity),
+        ),
+        (
+            "delta_triangle",
+            inputs.delta_triangle.state,
+            if inputs.delta_triangle.unmeasured_programs.is_empty() {
+                "same-program base/head browser replay was incomplete".into()
+            } else {
+                format!(
+                    "same-program base/head replay was incomplete for {}",
+                    inputs.delta_triangle.unmeasured_programs.join(", ")
+                )
+            },
         ),
     ];
     for (axis, state, detail) in unmeasured {
@@ -741,6 +817,18 @@ fn rank_9_warnings(inputs: &VerdictInputs, out: &mut Vec<BlockingReason>) {
                 "{} on {} at {}: {}",
                 finding.check, finding.route, finding.viewport, finding.detail
             ),
+        );
+    }
+    for finding in inputs
+        .delta_triangle
+        .findings
+        .iter()
+        .filter(|item| item.severity != Severity::Error)
+    {
+        warn(
+            "delta_triangle",
+            &finding.program,
+            format!("{}: {}", finding.check, finding.detail),
         );
     }
     if inputs.stability.flaky > 0 {

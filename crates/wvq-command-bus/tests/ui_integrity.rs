@@ -303,6 +303,15 @@ fn mutation_page(duplicate: bool) -> &'static str {
     ))
 }
 
+fn semantic_page(status: &str) -> &'static str {
+    leak(format!(
+        r#"<!doctype html><html><head><title>WVQ</title></head><body>
+          <button data-testid="export">Export</button>
+          <p>Status: {status}</p>
+        </body></html>"#,
+    ))
+}
+
 /// Variant D: a critical control whose label no longer fits and has no
 /// accessible name to fall back on.
 fn clipped_page() -> &'static str {
@@ -410,6 +419,12 @@ fn checkout_repo_with_program(base_url: &str, program: &str) -> TempRepo {
     std::fs::write(
         root.join("package.json"),
         r#"{"name":"wvq-ui-checkout","private":true,"dependencies":{"playwright":"1.62.1"}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/app.ts"),
+        "export function statusLabel() { return 'ready'; }\n",
     )
     .unwrap();
     link_node_modules(&root);
@@ -754,6 +769,54 @@ fn one_intent_that_emits_the_same_mutation_twice_blocks_the_change() {
         reason.axis == "ui_integrity"
             && reason.subject == "POST /api/save"
             && reason.detail.contains("WVQ-UI-NET-001")
+    }));
+}
+
+#[test]
+fn semantic_drift_blocks_the_default_verdict_without_an_opt_in_view() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(semantic_page("ready"));
+    let head_server = PageServer::start(semantic_page("delayed"));
+    let repo = checkout_repo(&base_server.url());
+    switch_to_head(&repo.0, &head_server.url());
+    std::fs::write(
+        repo.0.join("src/app.ts"),
+        "export function statusLabel() { return 'delayed'; }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+
+    let run = service
+        .run(&RunCommand {
+            change: "checkout-ui".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed");
+
+    // No ui_integrity_view or other opt-in comparison is called here.
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.verdict, "PROVEN");
+    assert_eq!(verified.state, "BLOCKED");
+    assert_eq!(verified.quality.delta_triangle.state.as_str(), "blocking");
+    assert!(!verified.quality.delta_triangle.spec_changed);
+    assert!(verified.quality.delta_triangle.code_changed);
+    assert!(verified.quality.delta_triangle.behavior_changed);
+    assert_eq!(
+        verified.quality.delta_triangle.readings,
+        vec!["unintended_behavior_drift"]
+    );
+    assert!(verified.quality.blocking_reasons.iter().any(|reason| {
+        reason.axis == "delta_triangle"
+            && reason.subject == "checkout-ui"
+            && reason.detail.contains("WVQ-BEHAV-001")
     }));
 }
 

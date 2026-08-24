@@ -2,11 +2,14 @@
 
 use std::collections::BTreeSet;
 
+use serde::{Deserialize, Serialize};
+
 use crate::behavior::{BehaviorState, ReplayHost, replay_program};
 use crate::program::{Observation, ProgramError, TestProgram};
 
 /// Comparison axes, in the spec-mandated order. Pixel is last.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DiffAxis {
     /// Current route.
     Route,
@@ -53,7 +56,7 @@ impl DiffAxis {
 }
 
 /// One axis that differed between base and head.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AxisDelta {
     /// Which axis.
     pub axis: DiffAxis,
@@ -64,7 +67,7 @@ pub struct AxisDelta {
 }
 
 /// Structured observation delta. Not a quality percentage.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BehaviorDelta {
     /// Changed axes, structured first. Pixel appears only if no structured change.
     pub axes: Vec<AxisDelta>,
@@ -114,7 +117,14 @@ impl StructuredView {
             a11y_digest: observation.a11y_digest.clone(),
             semantic_text: None,
             component: None,
-            network: observation.network.clone(),
+            // Base and head preview deployments normally use different
+            // origins. Origin is infrastructure identity, not application
+            // behaviour, so compare method/path/status instead.
+            network: observation
+                .network
+                .iter()
+                .map(|event| network_event_identity(event))
+                .collect(),
             console: observation.console.clone(),
             storage: observation
                 .storage
@@ -148,6 +158,28 @@ impl StructuredView {
         }
         view
     }
+}
+
+fn network_event_identity(event: &str) -> String {
+    let mut fields = event.splitn(3, ' ');
+    let method = fields.next().unwrap_or_default();
+    let url = fields.next().unwrap_or_default();
+    let status = fields.next().unwrap_or_default();
+    let identity = url_identity(url);
+    if status.is_empty() {
+        format!("{method} {identity}").trim().to_owned()
+    } else {
+        format!("{method} {identity} {status}")
+    }
+}
+
+fn url_identity(url: &str) -> &str {
+    let Some((_, after_scheme)) = url.split_once("://") else {
+        return url;
+    };
+    after_scheme
+        .find('/')
+        .map_or("/", |index| &after_scheme[index..])
 }
 
 /// Compare base vs head. Structured axes always run before pixel.

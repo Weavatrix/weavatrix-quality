@@ -250,7 +250,8 @@ fn the_dashboard_shows_every_axis_state_and_what_was_not_measured() {
             "debt",
             "stability",
             "ai",
-            "ui_integrity"
+            "ui_integrity",
+            "delta_triangle"
         ]
     );
     assert_eq!(

@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: typed browser action spans and duplicate mutation detection
+Session: default live Delta Triangle
 
 ## Now
 
@@ -31,7 +31,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | MCP default surface | ✅ | ✅ | ✅ | ✅ |
 | AI Cost Firewall | ✅ | ✅ | ✅ | ✅ loopback local model |
 | BehaviorGraph | ✅ | ✅ | ✅ | ✅ browser observations |
-| Delta Triangle | ✅ | ✅ | ❌ default | ❌ live base/head verdict |
+| Delta Triangle | ✅ | ✅ | ✅ default verdict axis | ✅ same-program base/head Chromium replay |
 | Spec Recovery | ✅ | ✅ | ✅ opt-in | ✅ Git + Weavatrix, QA-gated |
 | Test lineage | ✅ | ✅ | ✅ protection path | ✅ exact passing-case inventory independent of impacted coverage; aggregate coverage stays executor-level |
 | ProtectionSnapshot/Delta | ✅ | ✅ | ✅ default verdict axis; base replay stays explicit | ✅ base/head coverage replay |
@@ -55,7 +55,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Duplicate mutation requests | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head action spans |
 | Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
 
-Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
+Current implementation: the composite change verdict, deterministic UI-integrity axis, and live Delta Triangle are on `main`. Every normal browser run now replays the exact head-selected `TestProgram`, seed, and sealed oracles against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
 Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
 
@@ -63,11 +63,13 @@ Every attempted measured browser step now owns exact start/end observation index
 
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 71 `wvq-ui` tests, the 51-test runtime suite, 23 command-bus library tests, 35 command-bus integration tests, all 8 real Chromium UI/Storybook scenarios, and 21 Playwright-runner tests pass. The new real scenario proves a response-triggered POST retry is captured inside its originating action span and blocks the default composite verdict; the pure Rust cases prove the same request in two action spans remains two user intents. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
+Current validation: 71 `wvq-ui` tests, the 51-test runtime suite, 23 command-bus library tests, 35 command-bus integration tests, all 9 real Chromium UI/Storybook scenarios, and 21 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
 
 ## Composite change verdict
 
-`quality_verify` no longer aggregates `ProofVerdict` alone. Proof, protection, debt, stability, AI budget, and UI integrity are separate axes joined by a fixed priority order; each keeps its own facts and provenance and there is no opaque score. `blocking` and the process exit code follow the composite state, while the `verdict` token stays backward compatible.
+`quality_verify` no longer aggregates `ProofVerdict` alone. Proof, protection, debt, stability, AI budget, UI integrity, and Delta Triangle are separate axes joined by a fixed priority order; each keeps its own facts and provenance and there is no opaque score. `blocking` and the process exit code follow the composite state, while the `verdict` token stays backward compatible.
+
+Delta Triangle is now produced on the ordinary browser execution path. The head-selected program is the authority for both sides; the base checkout contributes only its versioned runtime coordinates, so a moved or changed test cannot compare itself with a different base program. Preview origins are removed from network identity before comparison. Structured axes are compared before pixels across every observation, base evidence stays behind CAS handles, an incomplete side is `unmeasured`, and `WVQ-BEHAV-001` blocks when Weavatrix sees code change and runtime behavior changes without an OpenSpec delta. This path uses zero model and vision tokens.
 
 An axis reports `not_applicable` when the change has no surface it can measure and `unmeasured` when it has that surface and the evidence is absent. The distinction is the point: missing evidence never becomes a pass, and an axis that was never in scope is not reported as a gap.
 
@@ -193,12 +195,13 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
 | behavior | Converts real Playwright observations into canonical persistent states and typed adjacent edges, reports novelty separately, and links obligations/API metadata without inventing coverage |
+| delta triangle | Replays each exact head-selected `TestProgram` against the merge-base runtime, compares every structured observation before pixel evidence, joins Git/OpenSpec + Weavatrix + behavior, and persists the default verdict axis |
 | ui integrity | Collects one bounded, settle-checked layout snapshot per step, runs the detectors in Rust, and persists `ui-layout-snapshot`, `ui-hit-test-map`, and `ui-integrity-findings`; `ui_integrity_view` replays the base and stores the classified `ui-integrity-delta` |
 | proof | Uses only the latest same-change, same-revision run; proof requires an exact normalized runner case or browser assertion, and persists the linked revision/evidence artifacts |
 | expectation replacement | Compares base/head `OracleSeal` documents, persists one immutable revision-bound proposal, refuses stale or developer-only approval, and feeds an exact QA/product-owner acceptance into the default protection verdict |
 | debt | Uses immutable base/head Weavatrix evidence and persistent fixed-history to classify `new/existing/fixed/returned/excepted` |
 | AI | Explicit opt-in loopback completion path, preflight reservation, server usage evidence, global + change-local ceilings, persistent per-change spend |
-| verdict | Composes proof, protection, debt, stability, AI, and UI integrity into one ranked change-level state from stored evidence, without executing anything |
+| verdict | Composes proof, protection, debt, stability, AI, UI integrity, and Delta Triangle into one ranked change-level state from stored evidence, without executing anything |
 
 `plan` reads existing same-revision proofs. `explain` resolves obligations, proofs, runs, selections, debt findings, and UI-integrity findings with provenance; a UI explanation names the target, the occluding or duplicate counterpart, the route and viewport, the exact probe and geometry numbers, and the artifact handles. `status`, evidence handles, proofs, debt history, and AI usage survive a new process.
 
@@ -231,8 +234,9 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Manual recorder and default Delta Triangle.** Record a bounded manual session into the existing `TestProgram` contract and compose real base/head behavior comparison into the ordinary verdict.
-2. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
-3. **Studio frontend.** Build the exception-first UI over the existing API, including measured React render profiling.
+1. **Passive session recorder.** Capture bounded semantic sessions during natural app use, compute their exact obligation/API/coverage/BehaviorGraph contribution, discard redundant traces, and admit useful paths as reviewable promotion candidates.
+2. **Deterministic network replay and accessibility.** Reuse recorded network behavior for fast stable frontend regression and add cheap model-less accessibility evidence before autonomous fallback.
+3. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+4. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

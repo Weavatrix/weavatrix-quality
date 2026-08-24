@@ -22,22 +22,23 @@ use wvq_intelligence::{
 };
 use wvq_proof::{
     AiAxis, AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, AxisState,
-    ChangeQualityVerdict, DebtAxis, DebtItem, DeltaContext, ExecutionEvidence, FailureEvidence,
-    FlakeClass, FlowProtection, FlowView, HealEdit, Limitation, LocalModelConfig,
-    LocalModelRequest, OracleReplacementReview, ProofOutcome, ProofVerdict, ProtectionAxis,
-    ProtectionCheckInput, ProtectionDelta, ProtectionDeltaState, ProtectionFinding,
-    ProtectionPolicy, ProtectionSnapshot, ProtectionView, StabilityAxis, TestChange,
-    TestLineageView, TimingBucket, UiFindingRef, UiIntegrityAxis, VerdictInputs, apply_heal,
-    assemble, call_local_model, compose, debt_rule_blocks, fingerprint_id, gate_protection,
-    protection_delta, snapshot_with_executed_tests, summarise, triage,
+    ChangeQualityVerdict, CodeDelta, DebtAxis, DebtItem, DeltaContext, DeltaFindingRef,
+    DeltaTriangleAxis, ExecutionEvidence, FailureEvidence, FlakeClass, FlowProtection, FlowView,
+    HealEdit, Limitation, LocalModelConfig, LocalModelRequest, OracleReplacementReview,
+    ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionCheckInput, ProtectionDelta,
+    ProtectionDeltaState, ProtectionFinding, ProtectionPolicy, ProtectionSnapshot, ProtectionView,
+    SpecDelta, StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef,
+    UiIntegrityAxis, VerdictInputs, apply_heal, assemble, call_local_model, compose,
+    debt_rule_blocks, fingerprint_id, gate_protection, join_triangle, protection_delta,
+    snapshot_with_executed_tests, summarise, triage,
 };
 use wvq_runtime::{
-    BehaviorState, BrowserAssertionStatus, BrowserProgramRun, BrowserRunConfig, BrowserViewport,
-    CaptureWhen, CoverageArtifact, ExecutionResult, ExecutorRegistry, ExecutorTarget,
-    NormalizedTestRun, PrepareRequest, ProgramOracle, TestAction, TestProgram, TestStatus,
-    UiCollectionConfig, default_limits, discover_executor_targets, parse_cargo_test,
-    parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, run_browser_program,
-    run_browser_program_at,
+    AxisDelta, BehaviorDelta, BehaviorState, BrowserAssertionStatus, BrowserProgramRun,
+    BrowserRunConfig, BrowserViewport, CaptureWhen, CoverageArtifact, DiffAxis, ExecutionResult,
+    ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest, ProgramOracle,
+    StructuredView, TestAction, TestProgram, TestStatus, UiCollectionConfig, behavior_delta,
+    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
+    parse_go_json, parse_junit, parse_lcov, run_browser_program, run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -75,6 +76,9 @@ use crate::replies::{
 
 /// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
 const UI_INTEGRITY_DELTA_KIND: &str = "ui-integrity-delta";
+
+/// CAS artifact kind holding live same-program Spec x Code x Behavior evidence.
+const DELTA_TRIANGLE_KIND: &str = "delta-triangle";
 
 /// CAS artifact kind for the exact expectation replacement a QA reviewed.
 const ORACLE_REPLACEMENT_KIND: &str = "oracle-replacement-proposal";
@@ -1158,6 +1162,73 @@ impl LiveService {
         }))
     }
 
+    /// Replay the exact head-selected programs against the merge-base runtime.
+    ///
+    /// The runtime coordinates (notably `base_url`) come from the base config,
+    /// while program steps, seed, evidence policy, and sealed oracles are the
+    /// exact head values already executed. This prevents a changed test from
+    /// making the two sides incomparable and avoids treating preview origins
+    /// as product behavior.
+    fn replay_base_browser_programs(
+        &self,
+        range: &RevisionRange,
+        head_policy: &BrowserPolicy,
+        head_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+        ui_policy: &UiIntegrityPolicy,
+        run_evidence_policy: &str,
+    ) -> Result<BaseBrowserReplay, BusError> {
+        let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
+        let revision = WeavatrixProvider
+            .analyze(&worktree.path)
+            .map_err(|err| BusError::Intelligence(err.to_string()))?
+            .revision;
+        let base_runtime =
+            load_browser_runtime_with(&worktree.path, Some(head_policy.module_root.as_path()))?
+                .ok_or_else(|| {
+                    BusError::Runtime("merge base has no browser runtime configuration".into())
+                })?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut runs = Vec::new();
+        for (configured, _) in head_runs {
+            let mut executable = configured.program.clone();
+            cap_browser_evidence(&mut executable, run_evidence_policy);
+            // Binary capture is not an input to structured comparison and its
+            // timestamped paths are not behavior. The paired replay keeps the
+            // exact actions, seed, oracles, network, console, and storage
+            // policy while avoiding orphaned base-worktree files.
+            executable.evidence_policy.screenshot = CaptureWhen::Never;
+            executable.evidence_policy.trace = CaptureWhen::Never;
+            let result = run_browser_program_at(
+                &BrowserRunConfig {
+                    base_url: base_runtime.base_url.clone(),
+                    browser: base_runtime.browser.clone(),
+                    headless: base_runtime.headless,
+                    timeout: base_runtime.timeout,
+                    module_root: base_runtime.module_root.clone(),
+                    runtime_dir: self
+                        .repo
+                        .join(".weavatrix-quality/runtime/playwright-runner"),
+                    evidence_dir: worktree
+                        .path
+                        .join(".weavatrix-quality/browser-evidence")
+                        .join(format!(
+                            "delta-base-{}",
+                            safe_file_token(configured.program.id.as_str())
+                        )),
+                    viewport: None,
+                    ui_integrity: ui_collection_config(ui_policy, &configured.oracles),
+                    cancel: Arc::clone(&cancel),
+                },
+                &executable,
+                &configured.oracles,
+                revision.as_str(),
+            )
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+            runs.push(result);
+        }
+        Ok(BaseBrowserReplay { revision, runs })
+    }
+
     /// Replay the configured browser programs at the merge base.
     fn measure_base_ui(
         &self,
@@ -1565,10 +1636,12 @@ impl LiveService {
         let (stability, stability_limits) = stability_axis(&self.repo, &store, run, compiled);
         let ai = self.ai_axis(&store, compiled)?;
         let (ui_integrity, ui_limits) = ui_integrity_axis(&store, run, compiled)?;
+        let (delta_triangle, delta_limits) = delta_triangle_axis(&store, run)?;
         let mut limitations = protection_limits;
         limitations.extend(debt_limits);
         limitations.extend(stability_limits);
         limitations.extend(ui_limits);
+        limitations.extend(delta_limits);
         Ok(VerdictInputs {
             proofs,
             protection,
@@ -1576,6 +1649,7 @@ impl LiveService {
             stability,
             ai,
             ui_integrity,
+            delta_triangle,
             limitations,
         })
     }
@@ -2222,6 +2296,11 @@ struct ConfiguredBrowserProgram {
     oracles: Vec<ProgramOracle>,
 }
 
+struct BaseBrowserReplay {
+    revision: RevisionId,
+    runs: Vec<BrowserProgramRun>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 struct StoredBrowserProgramEvidence {
     schema_v: u32,
@@ -2610,6 +2689,21 @@ impl QualityService for LiveService {
             }
         }
 
+        // Differential replay is part of the normal browser run, not an
+        // opt-in reporting view. A failure to obtain the base side is retained
+        // as unmeasured evidence after the head run itself is stored.
+        let base_browser_replay = browser.as_ref().and_then(|policy| {
+            (!browser_runs.is_empty()).then(|| {
+                self.replay_base_browser_programs(
+                    &range,
+                    policy,
+                    &browser_runs,
+                    &ui_policy,
+                    &cmd.evidence_policy,
+                )
+            })
+        });
+
         let after = self.revision()?;
         if before != after {
             return Err(BusError::Ambiguous(format!(
@@ -2770,6 +2864,19 @@ impl QualityService for LiveService {
             &cmd.evidence_policy,
             &mut handles,
         )?;
+        if let Some(base_replay) = base_browser_replay {
+            persist_delta_triangle(
+                &store,
+                &run_id,
+                &compiled,
+                &changed,
+                &graph_diff,
+                &browser_runs,
+                base_replay,
+                &cmd.evidence_policy,
+                &mut handles,
+            )?;
+        }
         persist_ui_integrity(
             &store,
             &run_id,
@@ -5410,6 +5517,86 @@ fn ui_integrity_axis(
     Ok((axis, Vec::new()))
 }
 
+fn delta_triangle_axis(
+    store: &Store,
+    run: &StoredRun,
+) -> Result<(DeltaTriangleAxis, Vec<Limitation>), BusError> {
+    let Ok(document) = read_single_run_json(store, &run.id, DELTA_TRIANGLE_KIND) else {
+        return Ok((DeltaTriangleAxis::default(), Vec::new()));
+    };
+    if document.get("schema_v").and_then(Value::as_u64) != Some(1) {
+        return Err(BusError::Store(
+            "unknown delta-triangle schema version".into(),
+        ));
+    }
+    let unmeasured_programs = values_at(&document, "/unmeasured_programs")
+        .iter()
+        .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+        .collect::<Vec<_>>();
+    let mut findings = Vec::new();
+    for value in values_at(&document, "/findings") {
+        let severity = match value.get("severity").and_then(Value::as_str) {
+            Some("info") => Severity::Info,
+            Some("warn") => Severity::Warn,
+            Some("error") => Severity::Error,
+            other => {
+                return Err(BusError::Store(format!(
+                    "delta-triangle finding has unknown severity `{}`",
+                    other.unwrap_or("<missing>")
+                )));
+            }
+        };
+        findings.push(DeltaFindingRef {
+            check: json_string(value, "check")?,
+            severity,
+            program: json_string(value, "program")?,
+            detail: json_string(value, "detail")?,
+        });
+    }
+    let axis = DeltaTriangleAxis {
+        state: parse_axis_state(document.get("state").and_then(Value::as_str))?,
+        spec_changed: document
+            .get("spec_changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        code_changed: document
+            .get("code_changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        behavior_changed: document
+            .get("behavior_changed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        measured_programs: json_u64(&document, "measured_programs"),
+        changed_programs: values_at(&document, "/changed_programs")
+            .iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect(),
+        readings: values_at(&document, "/readings")
+            .iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect(),
+        findings,
+        unmeasured_programs: unmeasured_programs.clone(),
+    };
+    let replay_detail = document
+        .get("replay_limitation")
+        .and_then(Value::as_str)
+        .filter(|detail| !detail.is_empty());
+    let limitations = (!unmeasured_programs.is_empty())
+        .then(|| Limitation {
+            axis: "delta_triangle".into(),
+            detail: format!(
+                "same-program base/head replay was incomplete for {}{}",
+                unmeasured_programs.join(", "),
+                replay_detail.map_or_else(String::new, |detail| format!(": {detail}"))
+            ),
+        })
+        .into_iter()
+        .collect();
+    Ok((axis, limitations))
+}
+
 fn parse_axis_state(token: Option<&str>) -> Result<AxisState, BusError> {
     match token {
         Some("not_applicable") => Ok(AxisState::NotApplicable),
@@ -5953,6 +6140,44 @@ fn load_browser_policy_with(
     obligations: &[TestObligation],
     module_root: Option<&Path>,
 ) -> Result<Option<BrowserPolicy>, BusError> {
+    let Some(mut policy) = load_browser_runtime_with(repo, module_root)? else {
+        return Ok(None);
+    };
+    let path = repo.join(".weavatrix-quality").join("config.yaml");
+    let raw = std::fs::read_to_string(&path).map_err(|err| {
+        BusError::Runtime(format!(
+            "cannot read quality policy {}: {err}",
+            path.display()
+        ))
+    })?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&raw).map_err(|err| {
+        BusError::Runtime(format!("invalid quality policy {}: {err}", path.display()))
+    })?;
+    let root = value.as_mapping().ok_or_else(|| {
+        BusError::Runtime(format!(
+            "quality policy {} must be a mapping",
+            path.display()
+        ))
+    })?;
+    let browser = yaml_get(root, "browser")
+        .and_then(serde_yaml::Value::as_mapping)
+        .ok_or_else(|| {
+            BusError::Runtime(format!(
+                "quality policy {} browser must be a mapping",
+                path.display()
+            ))
+        })?;
+    policy.programs = parse_browser_programs(repo, &path, browser, obligations)?;
+    Ok(Some(policy))
+}
+
+/// Load only the versioned browser runtime coordinates. Differential replay
+/// intentionally supplies the exact head `TestProgram` to both sides, so a
+/// stale or absent base program file must not replace it.
+fn load_browser_runtime_with(
+    repo: &Path,
+    module_root: Option<&Path>,
+) -> Result<Option<BrowserPolicy>, BusError> {
     let path = repo.join(".weavatrix-quality").join("config.yaml");
     let raw = match std::fs::read_to_string(&path) {
         Ok(raw) => raw,
@@ -5996,9 +6221,7 @@ fn load_browser_policy_with(
             path.display()
         ))
     })?;
-    let mut policy = parse_browser_runtime(repo, &path, browser, module_root)?;
-    policy.programs = parse_browser_programs(repo, &path, browser, obligations)?;
-    Ok(Some(policy))
+    parse_browser_runtime(repo, &path, browser, module_root).map(Some)
 }
 
 fn load_live_browser_policy(
@@ -7686,6 +7909,298 @@ fn normalized_status(status: TestStatus) -> &'static str {
         TestStatus::Fail => "failed",
         TestStatus::Skip => "skipped",
         TestStatus::Error => "error",
+    }
+}
+
+#[allow(
+    clippy::if_not_else,
+    clippy::too_many_arguments,
+    clippy::too_many_lines
+)]
+fn persist_delta_triangle(
+    store: &Store,
+    run_id: &RunId,
+    compiled: &Compiled,
+    changed: &ChangedFiles,
+    graph_diff: &Value,
+    head_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
+    base_replay: Result<BaseBrowserReplay, BusError>,
+    run_evidence_policy: &str,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let spec_changed = changed.changes_openspec_change(&compiled.change);
+    let code_changed = graph_diff_has_code_delta(graph_diff)?;
+    let mut measured_programs = 0_u64;
+    let mut changed_programs = Vec::new();
+    let mut readings = Vec::new();
+    let mut findings = Vec::new();
+    let mut unmeasured_programs = Vec::new();
+    let mut program_deltas = Vec::new();
+    let mut base_revision = None;
+    let mut replay_limitation = None;
+
+    match base_replay {
+        Err(error) => {
+            replay_limitation = Some(error.to_string());
+            unmeasured_programs.extend(
+                head_runs
+                    .iter()
+                    .map(|(configured, _)| configured.program.id.to_string()),
+            );
+        }
+        Ok(base) => {
+            base_revision = Some(base.revision.to_string());
+            if base.runs.len() != head_runs.len() {
+                unmeasured_programs.extend(
+                    head_runs
+                        .iter()
+                        .map(|(configured, _)| configured.program.id.to_string()),
+                );
+            } else {
+                for (program_index, ((configured, head), base_run)) in
+                    head_runs.iter().zip(&base.runs).enumerate()
+                {
+                    let program = configured.program.id.to_string();
+                    let base_handles = persist_base_browser_observations(
+                        store,
+                        run_id,
+                        program_index,
+                        base_run,
+                        run_evidence_policy != "none",
+                        handles,
+                    )?;
+                    let head_handles = if run_evidence_policy == "none" {
+                        Vec::new()
+                    } else {
+                        (0..head.observations.len())
+                            .map(|index| {
+                                format!(
+                                    "artifact-{}-browser-{program_index}-observation-{index}",
+                                    run_id.as_str()
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    if base_run.program != program
+                        || head.program != program
+                        || !browser_measurement_complete(base_run, &configured.program)
+                        || !browser_measurement_complete(head, &configured.program)
+                        || base_run.observations.len() != head.observations.len()
+                    {
+                        unmeasured_programs.push(program.clone());
+                        program_deltas.push(json!({
+                            "program": program,
+                            "measured": false,
+                            "base_passed": base_run.passed,
+                            "head_passed": head.passed,
+                            "base_observations": base_handles,
+                            "head_observations": head_handles,
+                        }));
+                        continue;
+                    }
+                    let delta =
+                        paired_observation_delta(&base_run.observations, &head.observations);
+                    let triangle = join_triangle(
+                        SpecDelta {
+                            changed: spec_changed,
+                        },
+                        CodeDelta {
+                            changed: code_changed,
+                        },
+                        &delta,
+                        &program,
+                    );
+                    measured_programs = measured_programs.saturating_add(1);
+                    if delta.changed() {
+                        changed_programs.push(program.clone());
+                    }
+                    readings.push(triangle.reading.as_str().to_owned());
+                    for finding in &triangle.findings {
+                        findings.push(json!({
+                            "check": finding.check.as_str(),
+                            "severity": severity_token(finding.severity),
+                            "program": program,
+                            "detail": finding.summary,
+                        }));
+                    }
+                    program_deltas.push(json!({
+                        "program": program,
+                        "measured": true,
+                        "reading": triangle.reading.as_str(),
+                        "behavior_changed": delta.changed(),
+                        "first_behavior_axis": triangle.first_behavior_axis,
+                        "pixel_compared": triangle.pixel_compared,
+                        "changed_axes": delta.axes.iter().map(|axis| axis.axis.as_str()).collect::<Vec<_>>(),
+                        "base_observations": base_handles,
+                        "head_observations": head_handles,
+                    }));
+                }
+            }
+        }
+    }
+    changed_programs.sort();
+    changed_programs.dedup();
+    unmeasured_programs.sort();
+    unmeasured_programs.dedup();
+    readings.sort();
+    let has_blocking = findings
+        .iter()
+        .any(|finding| finding.get("severity").and_then(Value::as_str) == Some("error"));
+    let state = if has_blocking {
+        "blocking"
+    } else if !unmeasured_programs.is_empty() {
+        "unmeasured"
+    } else if findings.is_empty() {
+        "clean"
+    } else {
+        "warnings"
+    };
+    let document = json!({
+        "schema_v": 1,
+        "state": state,
+        "spec_changed": spec_changed,
+        "code_changed": code_changed,
+        "behavior_changed": !changed_programs.is_empty(),
+        "measured_programs": measured_programs,
+        "changed_programs": changed_programs,
+        "readings": readings,
+        "findings": findings,
+        "unmeasured_programs": unmeasured_programs,
+        "base_revision": base_revision,
+        "replay_limitation": replay_limitation,
+        "programs": program_deltas,
+        "runtime_llm_tokens": 0,
+    });
+    put_json_run_artifact(
+        store,
+        run_id,
+        &format!("artifact-{}-delta-triangle", run_id.as_str()),
+        DELTA_TRIANGLE_KIND,
+        &document,
+        handles,
+    )
+}
+
+fn browser_measurement_complete(result: &BrowserProgramRun, program: &TestProgram) -> bool {
+    let all_steps_observed = result.action_spans.len() == program.steps.len()
+        && result.observations.len() == program.steps.len().saturating_add(1);
+    all_steps_observed
+        && (result.passed
+            || result
+                .failure
+                .as_deref()
+                .is_some_and(|failure| failure.starts_with("assertion_failed:")))
+}
+
+fn persist_base_browser_observations(
+    store: &Store,
+    run_id: &RunId,
+    program_index: usize,
+    result: &BrowserProgramRun,
+    keep: bool,
+    handles: &mut Vec<String>,
+) -> Result<Vec<String>, BusError> {
+    let mut observation_handles = Vec::new();
+    if !keep {
+        return Ok(observation_handles);
+    }
+    for (index, observation) in result.observations.iter().enumerate() {
+        let id = format!(
+            "artifact-{}-delta-base-{program_index}-observation-{index}",
+            run_id.as_str()
+        );
+        put_json_run_artifact(
+            store,
+            run_id,
+            &id,
+            "base-browser-observation",
+            observation,
+            handles,
+        )?;
+        observation_handles.push(id);
+    }
+    let evidence = json!({
+        "schema_v": 1,
+        "program": result.program,
+        "passed": result.passed,
+        "observations": observation_handles,
+        "action_spans": result.action_spans,
+    });
+    put_json_run_artifact(
+        store,
+        run_id,
+        &format!(
+            "artifact-{}-delta-base-{program_index}-program",
+            run_id.as_str()
+        ),
+        "base-browser-program-evidence",
+        &evidence,
+        handles,
+    )?;
+    Ok(observation_handles)
+}
+
+fn paired_observation_delta(
+    base: &[wvq_runtime::Observation],
+    head: &[wvq_runtime::Observation],
+) -> BehaviorDelta {
+    let mut axes = BTreeMap::<DiffAxis, (Vec<String>, Vec<String>)>::new();
+    let mut first_structured = None;
+    for (index, (base, head)) in base.iter().zip(head).enumerate() {
+        let delta = behavior_delta(
+            &StructuredView::from_replay(base, None),
+            &StructuredView::from_replay(head, None),
+        );
+        first_structured = first_structured.or(delta.first_structured);
+        for axis in delta.axes {
+            let entry = axes.entry(axis.axis).or_default();
+            entry
+                .0
+                .push(format!("{index}:{}", sha256_hex(axis.base.as_bytes())));
+            entry
+                .1
+                .push(format!("{index}:{}", sha256_hex(axis.head.as_bytes())));
+        }
+    }
+    if first_structured.is_some() {
+        axes.remove(&DiffAxis::Pixel);
+    }
+    BehaviorDelta {
+        axes: axes
+            .into_iter()
+            .map(|(axis, (base, head))| AxisDelta {
+                axis,
+                base: base.join(","),
+                head: head.join(","),
+            })
+            .collect(),
+        first_structured,
+        pixel_compared: first_structured.is_none(),
+    }
+}
+
+fn graph_diff_has_code_delta(diff: &Value) -> Result<bool, BusError> {
+    ensure_complete_diff(diff)?;
+    Ok([
+        "nodes_added",
+        "nodes_removed",
+        "nodes_changed",
+        "edges_added",
+        "edges_removed",
+    ]
+    .into_iter()
+    .any(|count| {
+        diff.pointer(&format!("/counts/{count}"))
+            .and_then(Value::as_u64)
+            .is_some_and(|value| value > 0)
+    }))
+}
+
+fn severity_token(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Info => "info",
+        Severity::Warn => "warn",
+        Severity::Error => "error",
     }
 }
 

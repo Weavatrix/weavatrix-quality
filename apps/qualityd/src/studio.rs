@@ -143,6 +143,7 @@ fn axes_of(quality: &ChangeQualityVerdict) -> Vec<AxisBody> {
         ("stability", quality.stability.state),
         ("ai", quality.ai.state),
         ("ui_integrity", quality.ui_integrity.state),
+        ("delta_triangle", quality.delta_triangle.state),
     ]
     .into_iter()
     .map(|(axis, state)| AxisBody {
