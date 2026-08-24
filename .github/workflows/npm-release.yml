@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    if: github.repository == 'Weavatrix/weavatrix-quality'
     strategy:
       fail-fast: false
       matrix:
@@ -83,7 +83,7 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    if: github.repository == 'Weavatrix/weavatrix-quality'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -119,7 +119,7 @@ jobs:
           MCP_NAME="$(node -p "require('./npm/wvq/package.json').mcpName")"
           [[ "$GITHUB_REF_NAME" == "v$VERSION" ]]
           [[ "$VERSION" == "$CARGO_VERSION" ]]
-          [[ "$SERVER_NAME" == "io.github.sergii-ziborov/weavatrix-quality" ]]
+          [[ "$SERVER_NAME" == "io.github.weavatrix/weavatrix-quality" ]]
           [[ "$MCP_NAME" == "$SERVER_NAME" ]]
           [[ "$SERVER_VERSION" == "$VERSION" ]]
           [[ "$SERVER_PACKAGE" == "wvq" ]]
@@ -178,9 +178,9 @@ jobs:
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
           ./mcp-publisher validate server.json
-          REGISTRY_RESPONSE="$(curl --fail --silent --show-error 'https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.sergii-ziborov%2Fweavatrix-quality')"
+          REGISTRY_RESPONSE="$(curl --fail --silent --show-error 'https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.weavatrix%2Fweavatrix-quality')"
           if jq --exit-status --arg version "$VERSION" \
-            '.servers[]?.server | select(.name == "io.github.sergii-ziborov/weavatrix-quality" and .version == $version)' \
+            '.servers[]?.server | select(.name == "io.github.weavatrix/weavatrix-quality" and .version == $version)' \
             <<<"$REGISTRY_RESPONSE" >/dev/null; then
             echo "MCP Registry already contains Weavatrix Quality $VERSION; skipping publish"
           else
@@ -191,11 +191,11 @@ jobs:
         shell: bash
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
-          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.sergii-ziborov%2Fweavatrix-quality/versions/$VERSION"
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.weavatrix%2Fweavatrix-quality/versions/$VERSION"
           for attempt in $(seq 1 24); do
             if curl --fail --silent --show-error "$REGISTRY_URL" |
               jq --exit-status --arg version "$VERSION" \
-                '.server.name == "io.github.sergii-ziborov/weavatrix-quality" and
+                '.server.name == "io.github.weavatrix/weavatrix-quality" and
                  .server.version == $version and
                  .server.packages[0].identifier == "wvq" and
                  .server.packages[0].version == $version' >/dev/null; then
@@ -205,13 +205,13 @@ jobs:
           done
           curl --fail --silent --show-error "$REGISTRY_URL" |
             jq --exit-status --arg version "$VERSION" \
-              '.server.name == "io.github.sergii-ziborov/weavatrix-quality" and
+              '.server.name == "io.github.weavatrix/weavatrix-quality" and
                .server.version == $version and
                .server.packages[0].identifier == "wvq" and
                .server.packages[0].version == $version' >/dev/null
 
   release:
-    if: github.repository == 'sergii-ziborov/weavatrix-quality'
+    if: github.repository == 'Weavatrix/weavatrix-quality'
     needs: publish
     runs-on: ubuntu-24.04
     permissions:

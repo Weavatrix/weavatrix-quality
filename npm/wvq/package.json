@@ -13,7 +13,7 @@
   "bugs": {
     "url": "https://github.com/Weavatrix/weavatrix-quality/issues"
   },
-  "mcpName": "io.github.sergii-ziborov/weavatrix-quality",
+  "mcpName": "io.github.weavatrix/weavatrix-quality",
   "engines": {
     "node": ">=20"
   },
