@@ -228,7 +228,7 @@ fn link_node_modules(root: &Path) {
         );
     }
     #[cfg(unix)]
-    std::os::unix::fs::symlink(source, target).expect("node_modules symlink");
+    std::os::unix::fs::symlink(&source, &target).expect("node_modules symlink");
     assert!(
         target.join("playwright/package.json").is_file(),
         "fixture must reuse the workspace Playwright installation; source={} source_exists={} target_exists={} target={:?}",
