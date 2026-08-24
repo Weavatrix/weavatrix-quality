@@ -4,11 +4,11 @@
   "title": "Weavatrix Quality",
   "description": "Revision-bound quality planning, execution, evidence, proof, and Playwright authoring.",
   "repository": {
-    "url": "https://github.com/sergii-ziborov/weavatrix-quality",
+    "url": "https://github.com/Weavatrix/weavatrix-quality",
     "source": "github"
   },
   "version": "0.0.1",
-  "websiteUrl": "https://github.com/sergii-ziborov/weavatrix-quality",
+  "websiteUrl": "https://github.com/Weavatrix/weavatrix-quality",
   "packages": [
     {
       "registryType": "npm",

@@ -20,6 +20,8 @@ pub struct CodeDeltaSummary {
     pub endpoints_removed: Vec<String>,
     /// Changed symbols.
     pub changed_symbols: Vec<String>,
+    /// Changed exported functions and methods proven by the code graph.
+    pub public_symbols: Vec<String>,
 }
 
 /// What changed in tests.
@@ -137,6 +139,7 @@ fn sorted_code_delta(mut delta: CodeDeltaSummary) -> CodeDeltaSummary {
         &mut delta.endpoints_added,
         &mut delta.endpoints_removed,
         &mut delta.changed_symbols,
+        &mut delta.public_symbols,
     ] {
         list.sort();
         list.dedup();

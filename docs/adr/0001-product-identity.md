@@ -14,7 +14,7 @@ The product is **Weavatrix Quality**.
 | Short / crate prefix | WVQ / `wvq-*` |
 | CLI | `wvq` |
 | Config / store | `.weavatrix-quality/` |
-| GitHub | `https://github.com/sergii-ziborov/weavatrix-quality` |
+| GitHub | `https://github.com/Weavatrix/weavatrix-quality` |
 
 It is a **separate product** that embeds `weavatrix-rust`. It is not a crate inside `weavatrix`, `weavatrix-rust`, or `weavatrix-loom`.
 

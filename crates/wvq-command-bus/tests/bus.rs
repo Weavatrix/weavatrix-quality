@@ -758,16 +758,121 @@ fn live_recovery_is_populated_from_git_and_weavatrix() {
         "/// Checked implementation.\npub fn add(a: i32, b: i32) -> i32 { a.saturating_add(b) }\n",
     )
     .unwrap();
+    std::fs::write(
+        repo.0.join("tests/addition.rs"),
+        "use wvq_live_fixture::add;\n\n#[test]\nfn adds() { assert_eq!(add(i32::MAX, 1), i32::MAX); }\n",
+    )
+    .unwrap();
     let service = LiveService::new(&repo.0);
-    let desk = service
+    let mut desk = service
         .recovery_desk("live-add", "HEAD", "WORKTREE")
         .unwrap();
     let packet = desk.packet().expect("live recovery packet");
     assert_eq!(packet.base_revision.len(), 40);
     assert!(packet.head_revision.contains("WORKTREE@"));
     assert!(!packet.code_delta_summary.changed_symbols.is_empty());
+    assert_eq!(packet.code_delta_summary.public_symbols.len(), 1);
     assert!(!packet.capability_clusters.is_empty());
-    assert_eq!(desk.review().change, "live-add");
+    let review = desk.review();
+    assert_eq!(review.change, "live-add");
+    assert_eq!(review.candidates.len(), 1);
+    assert_eq!(review.candidates[0].state, "QA_REVIEW");
+    assert!(review.candidates[0].requires_product_approval);
+    assert!(
+        review.candidates[0]
+            .findings
+            .iter()
+            .any(|finding| finding.contains("weak_oracle_independence"))
+    );
+    let candidate = review.candidates[0].id.clone();
+    assert!(
+        desk.seal(&candidate)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot seal without QA verification")
+    );
+}
+
+#[test]
+fn changed_symbol_recovery_does_not_duplicate_an_openspec_delta() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a.saturating_add(b) }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join("tests/addition.rs"),
+        "use wvq_live_fixture::add;\n\n#[test]\nfn adds() { assert_eq!(add(i32::MAX, 1), i32::MAX); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0
+            .join("openspec/changes/live-add/specs/arithmetic/spec.md"),
+        "# Delta for Arithmetic\n\n## ADDED Requirements\n\n### Requirement: Saturating addition\nThe system SHALL clamp integer overflow.\n\n#### Scenario: Overflow\n- GIVEN the largest integer\n- WHEN one is added\n- THEN the largest integer is returned\n",
+    )
+    .unwrap();
+
+    let desk = LiveService::new(&repo.0)
+        .recovery_desk("live-add", "HEAD", "WORKTREE")
+        .unwrap();
+    assert_eq!(
+        desk.packet()
+            .expect("recovery packet")
+            .code_delta_summary
+            .public_symbols
+            .len(),
+        1
+    );
+    assert!(
+        desk.review().candidates.is_empty(),
+        "an explicit OpenSpec delta already carries intent"
+    );
+}
+
+#[test]
+fn changed_symbol_recovery_ignores_private_helpers() {
+    let repo = live_runner_repo();
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\nfn private_helper() -> i32 { 1 }\n",
+    )
+    .unwrap();
+    git(&repo.0, &["add", "-A"]);
+    git(
+        &repo.0,
+        &[
+            "-c",
+            "user.name=WVQ Test",
+            "-c",
+            "user.email=wvq@example.invalid",
+            "commit",
+            "-qm",
+            "private helper baseline",
+        ],
+    );
+    std::fs::write(
+        repo.0.join("src/lib.rs"),
+        "pub fn add(a: i32, b: i32) -> i32 { a + b }\nfn private_helper() -> i32 { 2 }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.0.join("tests/addition.rs"),
+        "use wvq_live_fixture::add;\n\n#[test]\nfn adds() { assert_eq!(add(3, 2), 5); }\n",
+    )
+    .unwrap();
+
+    let desk = LiveService::new(&repo.0)
+        .recovery_desk("live-add", "HEAD", "WORKTREE")
+        .unwrap();
+    assert!(
+        desk.packet()
+            .expect("recovery packet")
+            .code_delta_summary
+            .public_symbols
+            .is_empty()
+    );
+    assert!(desk.review().candidates.is_empty());
 }
 
 #[test]

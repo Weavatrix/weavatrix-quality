@@ -2787,8 +2787,8 @@ escaped regressions must not increase as human execution is reduced
 
 # 63. Primary sources / research references
 
-- Weavatrix Rust: https://github.com/sergii-ziborov/weavatrix-rust
-- Weavatrix Architecture Firewall: https://github.com/sergii-ziborov/weavatrix-rust/blob/main/docs/architecture-firewall.md
+- Weavatrix Rust: https://github.com/Weavatrix/weavatrix-rust
+- Weavatrix Architecture Firewall: https://github.com/Weavatrix/weavatrix-rust/blob/main/docs/architecture-firewall.md
 - OpenSpec: https://github.com/Fission-AI/OpenSpec
 - OpenSpec customization/custom schemas: https://github.com/Fission-AI/OpenSpec/blob/main/docs/customization.md
 - Playwright CLI: https://github.com/microsoft/playwright-cli

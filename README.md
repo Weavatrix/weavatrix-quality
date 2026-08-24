@@ -1,11 +1,13 @@
 # Weavatrix Quality
 
-[![CI](https://github.com/sergii-ziborov/weavatrix-quality/actions/workflows/ci.yml/badge.svg)](https://github.com/sergii-ziborov/weavatrix-quality/actions/workflows/ci.yml)
+[![CI](https://github.com/Weavatrix/weavatrix-quality/actions/workflows/ci.yml/badge.svg)](https://github.com/Weavatrix/weavatrix-quality/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+The Spec-to-Proof quality layer of the [Weavatrix ecosystem](https://weavatrix.com/ecosystem).
 
 **Turn product intent and a repository change into revision-bound proof — without spending LLM tokens on the green path.**
 
-Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` 2.7.1 as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
+Weavatrix Quality (WVQ) is a Rust-first Spec-to-Proof quality platform. It compiles OpenSpec intent into sealed test obligations, uses `weavatrix-rust` 2.7.2 as its only code-intelligence engine, executes existing registered test runners, and stores immutable evidence and `Proof` records.
 
 ```text
 OpenSpec says what should remain true.
@@ -28,7 +30,7 @@ The canonical development checklist is implemented, but its items have different
 - SQLite + CAS preserve runs, evidence, proof-artifact provenance, debt history, AI usage, and immutable proofs across processes;
 - proof requires the exact configured runner case or Playwright assertion, not a green file path;
 - unambiguous single-case coverage is attributed to its exact bound test; aggregate coverage stays executor-level instead of being guessed onto cases;
-- a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, sole-protector deletion, and an approved business-expectation replacement across CLI, MCP, and `qualityd`;
+- a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, sole-protector deletion, approved business-expectation replacement, and changed-symbol recovery across CLI, MCP, and `qualityd`;
 - when an `OracleSeal` changes, WVQ prepares one immutable base/head/merge-base/content-revision review packet; ordinary analysis is automatic, while only an exact digest-matching QA or product-owner acceptance can authorize the new intent;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
@@ -81,6 +83,7 @@ wvq spec seal [--change ID]
 wvq analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
 wvq debt [--change ID]
 wvq select [--change ID]
+wvq recover [--change ID] [--base REF] [--head REF|WORKTREE]
 wvq run [--change ID] [--scope impacted|all] [--evidence-policy standard|minimal|none]
 wvq status
 wvq verify [--change ID]
@@ -90,6 +93,13 @@ wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt T
 ```
 
 Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1.
+
+`wvq recover` is the bounded missing-intent path. When Weavatrix proves that an
+exported function or method and a test changed without an OpenSpec delta, WVQ
+prepares one revision-bound evidence packet and one candidate. Private helpers,
+test declarations, and changes that already carry an OpenSpec delta are filtered
+before review. The normal path spends zero model tokens; implementation and its
+own changed test can only produce `QA_REVIEW` and can never auto-seal intent.
 
 For an actual selected-vs-full shadow measurement, use the live benchmark binary. It executes both scopes through `LiveService`, records real elapsed time and evidence bytes, and reports when impacted selection widened:
 

@@ -59,15 +59,15 @@ use wvq_ui::{
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, Command, ContextCommand,
-    DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand, RunCommand,
-    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand, RecoveryCommand,
+    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
-    ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, Reply, RunReply, SelectReply,
-    SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, bound_items,
-    estimate_tokens,
+    ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, RecoveryReply, Reply,
+    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
+    VerifyReply, bound_items, estimate_tokens,
 };
 
 /// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
@@ -289,6 +289,12 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError::NotFound`] when `openspec/changes` cannot be read.
     fn changes(&self, cmd: &ChangesCommand) -> Result<ChangesReply, BusError>;
+    /// Build a revision-bound recovery packet without sealing recovered intent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when revision or graph evidence is incomplete.
+    fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -319,6 +325,9 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::AuthorPromote(cmd) => service.author_promote(&cmd).map(Reply::AuthorPromote),
         Command::AuthorHeal(cmd) => service.author_heal(&cmd).map(Reply::AuthorHeal),
         Command::Changes(cmd) => service.changes(&cmd).map(Reply::Changes),
+        Command::Recovery(cmd) => service
+            .recovery(&cmd)
+            .map(|reply| Reply::Recovery(Box::new(reply))),
     }
 }
 
@@ -749,6 +758,13 @@ impl QualityService for FakeService {
             changes: vec!["sankey-others".into()],
         })
     }
+
+    fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError> {
+        Err(BusError::NotFound(format!(
+            "fake recovery is not configured for {}",
+            cmd.change
+        )))
+    }
 }
 
 /// Filesystem-backed service with registered bounded executors and a persistent evidence ledger.
@@ -887,7 +903,10 @@ impl LiveService {
             tests_delta: files.tests_delta(),
             behavior_delta: Vec::new(),
         });
-        let candidates = recovery_candidates(&surfaces, &code_delta, &evidence);
+        let recover_changed_symbols =
+            !files.changed_tests().is_empty() && !files.changes_openspec_change(change);
+        let candidates =
+            recovery_candidates(&surfaces, &code_delta, &evidence, recover_changed_symbols);
         let test_intent = files
             .changed_tests()
             .into_iter()
@@ -1855,6 +1874,11 @@ impl ChangedFiles {
         files.sort();
         files.dedup();
         files
+    }
+
+    fn changes_openspec_change(&self, change: &str) -> bool {
+        let prefix = format!("openspec/changes/{change}/");
+        self.all().iter().any(|path| path.starts_with(&prefix))
     }
 }
 
@@ -3607,6 +3631,20 @@ impl QualityService for LiveService {
             changes: list_changes(&self.repo)?,
         })
     }
+
+    fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError> {
+        let desk = self.recovery_desk(&cmd.change, &cmd.base, &cmd.head)?;
+        let packet = desk.packet().cloned().ok_or_else(|| {
+            BusError::Intelligence("recovery producer omitted its evidence packet".into())
+        })?;
+        Ok(RecoveryReply {
+            packet,
+            review: desk.review(),
+            questions: desk.questions(),
+            proposed_patch: desk.preview_patch(),
+            runtime_llm_tokens: 0,
+        })
+    }
 }
 
 struct ValidatedAuthorProgram {
@@ -4288,6 +4326,13 @@ fn recovery_code_delta(diff: &Value) -> (CodeDeltaSummary, PublicSurfaceDelta) {
         .collect::<Vec<_>>();
     changed_symbols.sort();
     changed_symbols.dedup();
+    let mut public_symbols = changed_nodes
+        .iter()
+        .filter(|node| graph_node_is_public_function(node))
+        .filter_map(|node| recovery_public_symbol_id(node))
+        .collect::<Vec<_>>();
+    public_symbols.sort();
+    public_symbols.dedup();
     let mut components = changed_nodes
         .iter()
         .filter(|node| {
@@ -4309,18 +4354,15 @@ fn recovery_code_delta(diff: &Value) -> (CodeDeltaSummary, PublicSurfaceDelta) {
             endpoints_added: surfaces.added.clone(),
             endpoints_removed: surfaces.removed.clone(),
             changed_symbols,
+            public_symbols,
         },
         surfaces,
     )
 }
 
 fn recovery_existing_requirements(repo: &Path, change: &str) -> Result<Vec<String>, BusError> {
-    let path = repo
-        .join("openspec")
-        .join("changes")
-        .join(change)
-        .join("spec.md");
-    if !path.is_file() {
+    let path = repo.join("openspec").join("changes").join(change);
+    if !path.is_dir() {
         return Ok(Vec::new());
     }
     let spec = read_change(repo, change)?;
@@ -4476,58 +4518,81 @@ fn recovery_candidates(
     surfaces: &PublicSurfaceDelta,
     code: &CodeDeltaSummary,
     evidence: &[IntentEvidence],
+    recover_changed_symbols: bool,
 ) -> Vec<CandidateRequirement> {
     let mut subjects = surfaces
         .added
         .iter()
-        .map(|surface| (surface.as_str(), true, "surface is available"))
+        .map(|surface| (surface.as_str(), true, "surface is available", false))
         .chain(
             surfaces
                 .removed
                 .iter()
-                .map(|surface| (surface.as_str(), false, "surface is unavailable")),
+                .map(|surface| (surface.as_str(), false, "surface is unavailable", false)),
         )
         .chain(
             code.components
                 .iter()
-                .map(|component| (component.as_str(), true, "component is visible")),
+                .map(|component| (component.as_str(), true, "component is visible", false)),
+        )
+        .chain(
+            recover_changed_symbols
+                .then_some(code.public_symbols.as_slice())
+                .into_iter()
+                .flatten()
+                .map(|symbol| (symbol.as_str(), true, "", true)),
         )
         .collect::<Vec<_>>();
-    subjects.sort_by_key(|(subject, expected, _)| ((*subject).to_owned(), *expected));
+    subjects.sort_by_key(|(subject, expected, _, _)| ((*subject).to_owned(), *expected));
     subjects.dedup_by(|left, right| left.0 == right.0 && left.1 == right.1);
     subjects
         .into_iter()
         .take(100)
         .enumerate()
-        .map(|(index, (subject, expected_to_hold, outcome))| {
+        .map(|(index, (subject, expected_to_hold, outcome, changed_symbol))| {
             let lower = subject.to_ascii_lowercase();
             CandidateRequirement {
                 id: format!("recovered-{}-{}", index + 1, recovery_slug(subject)),
                 subject: subject.to_owned(),
-                text: format!(
-                    "When a user exercises `{subject}`, the externally observable {outcome}."
-                ),
+                text: if changed_symbol {
+                    "When a user exercises the affected public capability, the externally observable outcome SHALL match the behavior demonstrated by the changed test.".into()
+                } else {
+                    format!(
+                        "When a user exercises `{subject}`, the externally observable {outcome}."
+                    )
+                },
                 expected_to_hold,
                 actor: Some("user".into()),
                 precondition: Some("the changed capability is deployed".into()),
-                trigger: Some(format!("the user exercises `{subject}`")),
+                trigger: Some(if changed_symbol {
+                    "the user exercises the affected public capability".into()
+                } else {
+                    format!("the user exercises `{subject}`")
+                }),
                 endpoint: (surfaces.added.contains(&subject.to_owned())
                     || surfaces.removed.contains(&subject.to_owned()))
                 .then(|| subject.to_owned()),
                 evidence: evidence
                     .iter()
-                    .filter(|item| item.text.contains(subject))
+                    .filter(|item| {
+                        item.text.contains(subject)
+                            || (changed_symbol && item.source == EvidenceSource::ChangedTest)
+                    })
                     .take(20)
                     .cloned()
                     .collect(),
-                shape: CandidateShape {
-                    numeric_limit: subject.chars().any(|character| character.is_ascii_digit()),
-                    permission_sensitive: ["permission", "auth", "role", "admin", "viewer"]
-                        .iter()
-                        .any(|token| lower.contains(token)),
-                    async_ui: ["async", "loading", "refresh", "request"]
-                        .iter()
-                        .any(|token| lower.contains(token)),
+                shape: if changed_symbol {
+                    CandidateShape::default()
+                } else {
+                    CandidateShape {
+                        numeric_limit: subject.chars().any(|character| character.is_ascii_digit()),
+                        permission_sensitive: ["permission", "auth", "role", "admin", "viewer"]
+                            .iter()
+                            .any(|token| lower.contains(token)),
+                        async_ui: ["async", "loading", "refresh", "request"]
+                            .iter()
+                            .any(|token| lower.contains(token)),
+                    }
                 },
                 covered_cases: Vec::new(),
             }
@@ -9101,6 +9166,41 @@ fn graph_node_id(node: &Value) -> Option<String> {
         .or_else(|| node.get("label"))
         .and_then(Value::as_str)
         .map(ToOwned::to_owned)
+}
+
+fn graph_node_is_public_function(node: &Value) -> bool {
+    let kind = node
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::to_ascii_lowercase);
+    matches!(kind.as_deref(), Some("function" | "method"))
+        && node
+            .pointer("/attributes/exported")
+            .and_then(Value::as_bool)
+            == Some(true)
+        && node
+            .pointer("/attributes/test_only")
+            .and_then(Value::as_bool)
+            != Some(true)
+        && graph_node_source_path(node).is_none_or(|path| !is_test_path(path))
+}
+
+fn graph_node_source_path(node: &Value) -> Option<&str> {
+    node.get("path").and_then(Value::as_str).or_else(|| {
+        node.get("id")
+            .and_then(Value::as_str)?
+            .strip_prefix("symbol:")?
+            .split_once('#')
+            .map(|(path, _)| path)
+    })
+}
+
+fn recovery_public_symbol_id(node: &Value) -> Option<String> {
+    let id = graph_node_id(node)?;
+    Some(
+        id.rsplit_once('@')
+            .map_or(id.clone(), |(stable, _)| stable.to_owned()),
+    )
 }
 
 fn surface_labels(nodes: &[Value]) -> Vec<String> {

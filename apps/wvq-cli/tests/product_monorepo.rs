@@ -19,7 +19,7 @@ use mcport::serve_controlled_streams;
 use qualityd::{HttpRequest, Studio};
 use serde_json::{Value, json};
 use wvq_command_bus::{LiveService, QualityService, VerifyCommand};
-use wvq_mcp::{quality_server, runtime_config};
+use wvq_mcp::{SharedDesk, quality_server, recovery_server, runtime_config};
 use wvq_store::Store;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -127,6 +127,7 @@ enum HeadScenario {
     PhantomProtector,
     DeletedProtector,
     ApprovedExpectationReplacement,
+    MissingSpecChangedSymbol,
 }
 
 fn workspace() -> PathBuf {
@@ -536,6 +537,24 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
                 "viewer-allow",
             )
         }
+        HeadScenario::MissingSpecChangedSymbol => {
+            write(
+                &root,
+                "service/permission.go",
+                "package service\n\nfunc ViewerLabel() string { return \"Viewer\" }\n\nfunc CanDelete(_role string) bool { return true }\n",
+            );
+            write(
+                &root,
+                "service/permission_test.go",
+                "package service\n\nimport \"testing\"\n\nfunc TestViewerCanDelete(t *testing.T) {\n\tif !CanDelete(\"viewer\") { t.Fatal(\"viewer must be allowed\") }\n}\n",
+            );
+            (
+                "B5: code and protector change without declared intent",
+                "service/permission_test.go",
+                "TestViewerCanDelete",
+                "viewer-deny",
+            )
+        }
     };
     write(
         &root,
@@ -581,6 +600,29 @@ fn protocol_verify(service: &Arc<dyn QualityService>) -> String {
         runtime_config(),
     )
     .expect("MCP call");
+    String::from_utf8(captured.0.lock().unwrap().clone()).expect("MCP UTF-8")
+}
+
+fn protocol_recovery_review(desk: &SharedDesk) -> String {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "quality_spec_review",
+            "arguments": {}
+        }
+    });
+    let input = Cursor::new(format!("{request}\n").into_bytes());
+    let writer = SharedWriter::default();
+    let captured = writer.clone();
+    serve_controlled_streams(
+        Arc::new(recovery_server(desk)),
+        input,
+        writer,
+        runtime_config(),
+    )
+    .expect("recovery MCP call");
     String::from_utf8(captured.0.lock().unwrap().clone()).expect("MCP UTF-8")
 }
 
@@ -893,4 +935,94 @@ fn committed_monorepo_replaces_an_expectation_only_after_one_exact_approval() {
         summary["state"].as_str(),
         Some("PASS" | "PASS_WITH_WARNINGS")
     ));
+}
+
+#[test]
+fn committed_b5_routes_one_changed_public_symbol_to_review_without_auto_sealing() {
+    let fixture = product_fixture(HeadScenario::MissingSpecChangedSymbol);
+    let live = LiveService::new(&fixture.repo.0);
+    let mut desk = live
+        .recovery_desk("viewer-delete", &fixture.base, &fixture.head)
+        .expect("build committed B5 recovery packet");
+    let packet = desk.packet().expect("B5 packet");
+    assert_eq!(packet.base_revision, fixture.base);
+    assert_eq!(packet.head_revision, fixture.head);
+    assert_eq!(
+        packet.code_delta_summary.public_symbols.len(),
+        1,
+        "only the business function should survive public-symbol filtering: {:?}",
+        packet.code_delta_summary.public_symbols
+    );
+    assert!(
+        packet.code_delta_summary.public_symbols[0].contains("CanDelete"),
+        "the graph must name the changed business symbol: {:?}",
+        packet.code_delta_summary.public_symbols
+    );
+    assert_eq!(packet.tests_delta.changed, ["service/permission_test.go"]);
+    assert!(
+        !packet.neighboring_requirements.is_empty(),
+        "nested OpenSpec remains visible as context even though it did not change"
+    );
+
+    let review = desk.review();
+    assert_eq!(review.candidates.len(), 1);
+    let candidate = &review.candidates[0];
+    assert_eq!(candidate.state, "QA_REVIEW");
+    assert!(candidate.requires_product_approval);
+    assert!(
+        candidate
+            .findings
+            .iter()
+            .any(|finding| finding.contains("weak_oracle_independence"))
+    );
+    let candidate_id = candidate.id.clone();
+    assert!(
+        desk.seal(&candidate_id)
+            .unwrap_err()
+            .to_string()
+            .contains("cannot seal without QA verification")
+    );
+
+    let root = fixture.repo.0.to_str().expect("UTF-8 fixture path");
+    let cli = wvq_cli::run(&[
+        "--repo".into(),
+        root.into(),
+        "recover".into(),
+        "--change".into(),
+        "viewer-delete".into(),
+        "--base".into(),
+        fixture.base.clone(),
+        "--head".into(),
+        fixture.head.clone(),
+    ]);
+    assert_eq!(cli.code, 0, "{}", cli.stderr);
+    let cli_json: Value = serde_json::from_str(&cli.stdout).expect("CLI recovery JSON");
+    assert_eq!(cli_json["command"], "recovery");
+    assert_eq!(
+        cli_json["body"]["review"]["candidates"][0]["state"],
+        "QA_REVIEW"
+    );
+    assert_eq!(cli_json["body"]["runtime_llm_tokens"], 0);
+
+    let shared = Arc::new(Mutex::new(desk));
+    let mcp = protocol_recovery_review(&shared);
+    assert!(mcp.contains("QA_REVIEW"), "{mcp}");
+    assert!(mcp.contains("weak_oracle_independence"), "{mcp}");
+    assert!(mcp.contains("CanDelete"), "{mcp}");
+
+    let studio_service: Arc<dyn QualityService> = Arc::new(LiveService::new(&fixture.repo.0));
+    let studio = Studio::new(
+        studio_service,
+        Store::open(&fixture.repo.0).expect("fixture store"),
+    )
+    .with_recovery(shared);
+    let response = studio.handle(&HttpRequest {
+        method: "GET".into(),
+        path: "/api/v1/recovery/review".into(),
+        body: String::new(),
+    });
+    assert_eq!(response.status, 200, "{}", response.body);
+    let body: Value = serde_json::from_str(&response.body).expect("Studio recovery JSON");
+    assert_eq!(body["candidates"][0]["state"], "QA_REVIEW");
+    assert_eq!(body["candidates"].as_array().map(Vec::len), Some(1));
 }

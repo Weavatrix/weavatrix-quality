@@ -143,6 +143,7 @@ fn the_narrative_keeps_hints_out_of_declared_intent() {
             endpoints_added: vec!["GET /api/sankey/others".into()],
             endpoints_removed: vec![],
             changed_symbols: vec!["renderNodes".into(), "buildSankeyData".into()],
+            public_symbols: Vec::new(),
         },
         tests_delta: TestsDelta {
             added: vec!["sankey-others.spec.ts".into()],
