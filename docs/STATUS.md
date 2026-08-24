@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-24
-Session: deterministic network replay
+Session: requirement-aware accessibility continuity
 
 ## Now
 
@@ -39,6 +39,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + exact spans + sealed assertions + observations |
 | Manual record → promoted replay | ✅ | ✅ | ✅ CLI/MCP/Studio + explicit promotion | ✅ passive Chromium capture + novelty discard + replay preview |
 | Deterministic network replay | ✅ | ✅ | ✅ config + run/record/CAS | ✅ Chromium record → strict replay, same profile on base/head |
+| Accessibility built-ins and continuity | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright facts + base/head ratchet |
 | Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
@@ -48,7 +49,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
 | Committed product fixture | ✅ A/B1–B5 | ✅ A/B1–B5 | ✅ CLI/MCP/Studio for B2/B4/B5 | ✅ A/B1–B5 |
 | Sealed UI predicates | ✅ | ✅ | ✅ | ✅ Chromium, each asserted both ways |
-| `LayoutSnapshot` v1 | ✅ | ✅ | ✅ | ✅ bounded, redacted, settle-checked |
+| `LayoutSnapshot` v2 | ✅ | ✅ | ✅ | ✅ bounded, redacted, settle-checked |
 | UI Integrity detectors | ✅ | ✅ | ✅ | ✅ Chromium base/head fixture |
 | UI Integrity ratchet | ✅ | ✅ | ✅ | ✅ new/existing/fixed/returned/excepted |
 | UI Integrity in MCP/Studio | ✅ | ✅ | ✅ | ✅ `quality_verify`, `quality_explain`, summary |
@@ -58,6 +59,8 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 
 Current implementation: the composite change verdict, deterministic UI-integrity axis, live Delta Triangle, passive recorder, and runner-neutral network replay are on `main`. Every normal browser run replays the exact head-selected `TestProgram`, seed, sealed oracles, and network profile against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with Git/OpenSpec and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
+Accessibility now uses the same ordinary base/head browser replay as UI integrity; no opt-in view is needed to gate a change. Playwright v2 snapshots collect only bounded semantic facts: tag/type, computed role and accessible name, label association, keyboard focusability, native/ARIA disabled state, selected role states, dialog modality/focus, and whether a concrete sealed predicate target named the node. Rust owns six standards-derived checks for control name, form label, required-flow keyboard reachability, role/state consistency, dialog name, and modal focus. New defects on sealed targets block; non-required defects are warning debt, so adoption does not hand QA an unrelated cleanup queue. Old defects remain ratcheted, fixed defects are credited, missing or truncated evidence is not clean, and the full path uses zero runtime model or vision tokens. A real fixture keeps its behavioral seal `PROVEN` while removing the required Export button name; normal `run` stores the delta and composite `quality_verify` blocks it.
+
 Network replay is a separate bounded artifact, not a relaxation of ordinary observation redaction. The browser captures only same-origin fetch/XHR JSON responses; request headers, cookies, non-JSON bodies, sensitive JSON keys, email-like values, bearer tokens, and JWT-like strings never enter the profile. Normal observations still contain only method, URL, resource class, and optional status. `live`, `record`, strict `replay`, and `hybrid` are parsed from repository policy with unknown fields and invalid bounds refused. Strict replay aborts an unrecorded API call and fails the run even if a sealed UI assertion passes. A real command-bus fixture captures a profile through passive recording, retrieves it from CAS, loads it through versioned `config.yaml`, and proves that both head and merge-base replay make zero additional upstream API calls.
 
 Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
@@ -66,7 +69,7 @@ Every attempted measured browser step now owns exact start/end observation index
 
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 71 `wvq-ui` tests, the 54-test runtime suite, 23 command-bus library tests, 36 command-bus integration tests, all 9 real Chromium UI/Storybook scenarios, and 23 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
+Current validation: 73 `wvq-ui` tests, the 54-test runtime suite, 23 command-bus library tests, 36 command-bus integration tests, all 10 real Chromium UI/Storybook scenarios, and 24 Playwright-runner tests pass. One real scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. Warnings-denied Clippy covers all targets in `wvq-ui`, `wvq-runtime`, and `wvq-command-bus` plus their transitive WVQ crates.
 
 ## Composite change verdict
 
@@ -99,11 +102,11 @@ Coverage is assigned to an exact case only when normalized evidence contains one
 
 `wvq-ui` is a pure-Rust crate: no browser, no DOM, no model. Collection stays in `js/playwright-runner`, orchestration in `wvq-command-bus`, evidence in `wvq-store`, sealed expectations in `wvq-spec`, so detector logic exists exactly once.
 
-`LayoutSnapshot` v1 is deliberately not a DOM. It carries geometry, semantic identity, and hit-test results — never `innerHTML`, form values, cookies, storage contents, response bodies, or unbounded text. Labels are collapsed and cut to 120 characters in the page before they leave it, and `textContent` only names an element that is a control or a leaf, so a list row never copies the text of everything inside it.
+`LayoutSnapshot` v2 is deliberately not a DOM. It carries geometry, semantic identity, bounded accessibility facts, and hit-test results — never `innerHTML`, form values, cookies, storage contents, response bodies, or unbounded text. Labels are collapsed and cut to 120 characters in the page before they leave it, input values are never used as names except for button-like input types, and `textContent` only names an element that is a control or a leaf, so a list row never copies the text of everything inside it.
 
 Collection is deterministic or it says so. Fonts are awaited with a bounded timeout, animations and transitions are frozen and driven to their end state, and the page is read twice: two reads that disagree beyond tolerance mark the snapshot unsettled instead of trusting one of them. Geometry and hit testing happen in a single `evaluate`, so both describe one DOM state and node identities are derived once. Node, hit-test-sample, candidate-pair, artifact-byte, and label bounds are all explicit, and hitting any of them sets `truncated`, which propagates into the verdict as a limitation.
 
-Eight detectors ship: `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, `WVQ-UI-LAYOUT-004` confirmed control overlap, and `WVQ-UI-NET-001` a repeated mutating request inside one exact action span.
+Fourteen detectors ship. The UI set is `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, `WVQ-UI-LAYOUT-004` confirmed control overlap, and `WVQ-UI-NET-001` a repeated mutating request inside one exact action span. The accessibility set is `WVQ-A11Y-NAME-001`, `WVQ-A11Y-LABEL-001`, `WVQ-A11Y-KEYBOARD-001`, `WVQ-A11Y-STATE-001`, `WVQ-A11Y-DIALOG-001`, and `WVQ-A11Y-DIALOG-002`.
 
 Most of the work is refusing false positives, and each exclusion is a specific rule rather than a confidence threshold: repeated row actions are separated by entity scope; a control's own children never occlude it; `pointer-events: none` layers never intercept; ancestor/descendant containment is structure, not collision; content inside a scroll container is reachable by scrolling; an accepted ellipsis still needs the accessible full value to be present; and geometric overlap with no hit-test confirmation is not reported at all. When no row or dialog scope can be resolved, an ambiguous pair drops to a warning instead of blocking.
 
@@ -240,8 +243,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Accessibility.** Add cheap model-less accessibility evidence and base/head continuity before autonomous fallback.
-2. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
-3. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
+1. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+2. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

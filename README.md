@@ -75,6 +75,8 @@ The same browser run also produces live Delta Triangle evidence by replaying the
 
 Every attempted measured Playwright step now owns an exact start/end observation span. The bounded network journal assigns each request a monotonic identity and records only method, URL, and optional response status—never bodies or header values. WVQ waits for an immediate application-level mutation retry within a bounded action settle window, then ratchets base against head. Two identical mutating requests inside one action produce blocking `WVQ-UI-NET-001`; the same request in two separate action spans is preserved as two user intents and is not called a duplicate. A truncated or disabled journal is missing evidence, never a clean result.
 
+The same v2 layout snapshot carries bounded accessibility facts without exporting markup or form values. Playwright measures computed role/name, label association, focusability, disabled and selected states, dialog modality/focus, and the exact semantic targets named by sealed predicates; Rust applies the rules and severity. Missing names or labels, inconsistent role/state, required-flow keyboard loss, and broken dialog semantics are base/head-ratcheted. A new error on a sealed target blocks the ordinary composite verdict, while unrelated accessibility debt is a warning instead of a surprise cleanup assignment for QA. This path uses zero runtime model and vision tokens.
+
 For a package whose test script is exactly `vitest` or `vitest run`, WVQ selects the registered Vitest executor and adds the runner's built-in JUnit reporter automatically. It resolves the repository-local binary through offline, non-interactive npm execution, imports the report, and deletes only WVQ's private `.weavatrix-quality/junit.xml` before checking the revision. Repository-owned report paths are never removed. More complex package scripts stay on the generic npm boundary and can still contribute any fresh supported JUnit/LCOV artifacts they produce.
 
 Repositories using Storybook's official Vitest addon get a separate bounded browser-project executor. An impacted run unions the base and head Weavatrix surfaces, selects an existing `.stories.*` file only when that story is in the union, and invokes `vitest run --project=storybook` rather than the ordinary Vitest project. When `@vitest/coverage-v8` is declared, the executor also emits LCOV; otherwise WVQ records the real browser case without pretending coverage exists. JUnit failures override a zero process exit code, so a reporter-only failure cannot become a false pass.
@@ -274,8 +276,9 @@ changing upstream cannot create a false behavioral delta.
 `ui_integrity` is off unless the section is present, in which case the axis
 reports `not_applicable` rather than a silent pass. When it is on, the bundled
 Playwright bridge collects one bounded layout snapshot per executed step —
-geometry, semantic identity, and hit-test results, never `innerHTML`, form
-values, cookies, or unbounded text — and Rust decides what any of it means.
+geometry, semantic identity, accessibility facts, and hit-test results, never
+`innerHTML`, form values, cookies, or unbounded text — and Rust decides what
+any of it means.
 Detection costs zero model tokens and zero vision calls.
 
 Responsive search is enabled with UI integrity by default. The browser exposes
@@ -294,11 +297,13 @@ date, or an exception without a reason is refused rather than ignored, and
 there is no `accept_all`. Expired allowances stop applying and are reported so
 they do not keep suppressing a finding unnoticed.
 
-`quality_run` collects head evidence automatically. Comparing it against the
-base revision needs `ui_integrity_view`, which replays the same programs at the
-merge base; that comparison is what turns a finding into `new`, `existing`,
-`fixed`, or `returned`. Without it the axis reports `unmeasured`, because head
-evidence alone cannot show that anything was preserved.
+`quality_run` collects head evidence and replays the same selected programs at
+the merge base automatically. That ordinary comparison turns UI and
+accessibility findings into `new`, `existing`, `fixed`, or `returned`, persists
+the delta for `quality_verify`, and returns its evidence handle. If either side
+cannot be measured, the axis reports `unmeasured`; head evidence alone can
+never claim that protection was preserved. `ui_integrity_view` remains a
+detailed projection of the same evidence, not a prerequisite for the gate.
 
 The model endpoint must resolve to loopback and return OpenAI-compatible completion content plus usage counters. WVQ checks the worst-case reservation before connecting, caps the response at 1 MiB, supports content-length and chunked responses, then persists measured usage. Change-local `quality.yaml` AI hints can only reduce the global token ceilings.
 

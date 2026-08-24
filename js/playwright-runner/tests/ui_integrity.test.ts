@@ -58,7 +58,7 @@ test("real Chromium collection produces a bounded, settled layout snapshot", asy
       </main>
     </body></html>`);
 
-  assert.equal(snapshot.schema_v, 1);
+  assert.equal(snapshot.schema_v, 2);
   assert.equal(snapshot.program, "ui-fixture");
   assert.equal(snapshot.step, 0);
   assert.equal(snapshot.route, "/");
@@ -83,6 +83,45 @@ test("real Chromium collection produces a bounded, settled layout snapshot", asy
     samples.every((sample) => sample.topmost === save.id),
     "an unobstructed button owns every one of its probe points",
   );
+});
+
+test("accessibility facts are measured without exporting form values", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <button data-testid="unnamed"></button>
+      <input data-testid="email" type="email" placeholder="Email address" value="private@example.invalid">
+      <section role="region" aria-label="Paid"><div role="button" data-testid="checkout">Checkout</div></section>
+      <section role="region" aria-label="Draft"><div role="button" data-testid="draft-checkout">Checkout</div></section>
+      <div role="checkbox" data-testid="terms">Accept terms</div>
+      <div role="dialog" aria-modal="true" data-testid="dialog"><button>Close</button></div>
+    </body></html>`, {
+    required_targets: [{
+      role: "button",
+      accessible_name: "Checkout",
+      scope: { role: "region", accessible_name: "Paid" },
+    }],
+  });
+
+  const unnamed = snapshot.nodes.find((node) => node.test_id === "unnamed");
+  const email = snapshot.nodes.find((node) => node.test_id === "email");
+  const checkout = snapshot.nodes.find((node) => node.test_id === "checkout");
+  const draftCheckout = snapshot.nodes.find((node) => node.test_id === "draft-checkout");
+  const terms = snapshot.nodes.find((node) => node.test_id === "terms");
+  const dialog = snapshot.nodes.find((node) => node.test_id === "dialog");
+  assert(unnamed && email && checkout && draftCheckout && terms && dialog);
+  assert.equal(unnamed.tag, "button");
+  assert.equal(unnamed.focusable, true);
+  assert.equal(unnamed.accessible_name, undefined);
+  assert.equal(email.input_type, "email");
+  assert.equal(email.accessible_name, "Email address");
+  assert.equal(email.label_associated, false, "a placeholder is not a label association");
+  assert.equal(checkout.required_by_oracle, true);
+  assert.equal(draftCheckout.required_by_oracle, false, "semantic scope stays exact");
+  assert.equal(checkout.focusable, false);
+  assert.equal(terms.aria_checked, undefined);
+  assert.equal(dialog.modal, true);
+  assert.equal(dialog.contains_focus, false);
+  assert(!JSON.stringify(snapshot).includes("private@example.invalid"));
 });
 
 test("parsed media and container width breakpoints become bounded probe hints", async () => {
@@ -257,6 +296,7 @@ test("geometry comparison honours the tolerance", () => {
       pointer_events: true,
       scrollable: false,
       decorative: false,
+      required_by_oracle: false,
     },
   ];
   assert.equal(geometryMatches(node(0), node(0.5), 1), true);

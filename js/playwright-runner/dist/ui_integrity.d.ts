@@ -22,8 +22,9 @@
  * `getComputedStyle`, `elementsFromPoint`, and scroll-versus-client metrics.
  */
 import type { Page } from "playwright";
+import type { Target } from "./execute.js";
 /** Schema version Rust accepts. Bumping it is a breaking change. */
-export declare const LAYOUT_SNAPSHOT_SCHEMA_V = 1;
+export declare const LAYOUT_SNAPSHOT_SCHEMA_V = 2;
 /** Longest accessible name or label kept in evidence. Matches `wvq-ui`. */
 export declare const MAX_LABEL_CHARS = 120;
 /** Hard ceiling on collected nodes, whatever local policy asks for. */
@@ -47,6 +48,19 @@ export type UiNode = {
     role?: string;
     accessible_name?: string;
     label?: string;
+    tag?: string;
+    input_type?: string;
+    required_by_oracle: boolean;
+    focusable?: boolean;
+    label_associated?: boolean;
+    native_disabled?: boolean;
+    modal?: boolean;
+    contains_focus?: boolean;
+    aria_disabled?: string;
+    aria_checked?: string;
+    aria_selected?: string;
+    aria_pressed?: string;
+    aria_expanded?: string;
     component_hint?: string;
     entity_key?: string;
     rects: Rect[];
@@ -109,11 +123,14 @@ export type UiIntegrityConfig = {
     test_id_attribute?: string;
     /** Extra semantic targets sealed predicates name, so they are never dropped. */
     required_test_ids?: string[];
+    /** Exact semantic targets sealed predicates depend on. */
+    required_targets?: Target[];
     /** Discover parsed CSS/container width transitions for adaptive probing. */
     responsive_breakpoints?: boolean;
 };
-type ResolvedConfig = Required<Omit<UiIntegrityConfig, "required_test_ids">> & {
+type ResolvedConfig = Required<Omit<UiIntegrityConfig, "required_test_ids" | "required_targets">> & {
     required_test_ids: string[];
+    required_targets: Target[];
 };
 export declare function resolveConfig(config: UiIntegrityConfig | undefined): ResolvedConfig;
 /** Everything one collection produced, plus why it may be incomplete. */

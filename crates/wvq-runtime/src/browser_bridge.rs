@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use wvq_domain::ObligationId;
 
-use crate::{Observation, TestAction, TestProgram};
+use crate::{Observation, Target, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 1024 * 1024;
@@ -259,6 +259,9 @@ pub struct UiCollectionConfig {
     pub test_id_attribute: String,
     /// Test ids sealed predicates name, so the collector never drops them.
     pub required_test_ids: Vec<String>,
+    /// Full semantic targets named by sealed predicates. Used only to mark
+    /// requirement-aware accessibility evidence, never to execute selectors.
+    pub required_targets: Vec<Target>,
     /// Discover parsed CSS/container width transitions for adaptive probing.
     pub responsive_breakpoints: bool,
 }
@@ -272,6 +275,7 @@ impl Default for UiCollectionConfig {
             settle_timeout_ms: 2_000,
             test_id_attribute: "data-testid".into(),
             required_test_ids: Vec::new(),
+            required_targets: Vec::new(),
             responsive_breakpoints: false,
         }
     }

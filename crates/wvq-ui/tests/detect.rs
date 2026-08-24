@@ -122,6 +122,133 @@ fn checks(snapshot: &LayoutSnapshot) -> Vec<(UiCheck, String, Severity)> {
         .collect()
 }
 
+#[test]
+fn standards_derived_accessibility_rules_report_only_measured_failures() {
+    let mut unnamed = control("unnamed", "button", "", rect(10.0, 10.0, 80.0, 30.0));
+    unnamed.accessible_name = None;
+    unnamed.tag = Some("button".into());
+    unnamed.focusable = Some(true);
+
+    let mut email = control(
+        "email",
+        "textbox",
+        "Email address",
+        rect(10.0, 50.0, 180.0, 30.0),
+    );
+    email.tag = Some("input".into());
+    email.input_type = Some("email".into());
+    email.focusable = Some(true);
+    email.label_associated = Some(false);
+
+    let mut sealed_button = control(
+        "sealed",
+        "button",
+        "Checkout",
+        rect(10.0, 90.0, 100.0, 30.0),
+    );
+    sealed_button.tag = Some("div".into());
+    sealed_button.required_by_oracle = true;
+    sealed_button.focusable = Some(false);
+
+    let mut checkbox = control(
+        "terms",
+        "checkbox",
+        "Accept terms",
+        rect(10.0, 130.0, 120.0, 30.0),
+    );
+    checkbox.tag = Some("div".into());
+    checkbox.focusable = Some(true);
+
+    let mut dialog = panel("dialog", rect(250.0, 20.0, 300.0, 200.0));
+    dialog.tag = Some("div".into());
+    dialog.role = Some("dialog".into());
+    dialog.accessible_name = None;
+    dialog.modal = Some(true);
+    dialog.contains_focus = Some(false);
+
+    let found = checks(&snapshot(vec![
+        unnamed,
+        email,
+        sealed_button,
+        checkbox,
+        dialog,
+    ]));
+    assert!(found.iter().any(|(check, subject, severity)| {
+        *check == UiCheck::AccessibleName
+            && subject == "button:<unnamed>"
+            && *severity == Severity::Warn
+    }));
+    assert!(found.iter().any(|(check, subject, severity)| {
+        *check == UiCheck::FormLabel
+            && subject == "textbox:Email address"
+            && *severity == Severity::Warn
+    }));
+    assert!(found.iter().any(|(check, subject, severity)| {
+        *check == UiCheck::KeyboardReachability
+            && subject == "button:Checkout"
+            && *severity == Severity::Error
+    }));
+    assert!(found.iter().any(|(check, subject, severity)| {
+        *check == UiCheck::RoleState
+            && subject == "checkbox:Accept terms"
+            && *severity == Severity::Warn
+    }));
+    assert!(found.iter().any(|(check, _, severity)| {
+        *check == UiCheck::DialogName && *severity == Severity::Warn
+    }));
+    assert!(found.iter().any(|(check, _, severity)| {
+        *check == UiCheck::DialogFocus && *severity == Severity::Warn
+    }));
+}
+
+#[test]
+fn accessible_native_controls_and_a_focused_named_dialog_stay_clean() {
+    let mut email = control(
+        "email",
+        "textbox",
+        "Email address",
+        rect(10.0, 10.0, 180.0, 30.0),
+    );
+    email.tag = Some("input".into());
+    email.input_type = Some("email".into());
+    email.focusable = Some(true);
+    email.label_associated = Some(true);
+    email.native_disabled = Some(false);
+
+    let mut checkbox = control(
+        "terms",
+        "checkbox",
+        "Accept terms",
+        rect(10.0, 50.0, 120.0, 30.0),
+    );
+    checkbox.tag = Some("input".into());
+    checkbox.input_type = Some("checkbox".into());
+    checkbox.focusable = Some(true);
+    checkbox.label_associated = Some(true);
+    checkbox.native_disabled = Some(false);
+
+    let mut dialog = panel("dialog", rect(250.0, 20.0, 300.0, 200.0));
+    dialog.tag = Some("dialog".into());
+    dialog.role = Some("dialog".into());
+    dialog.accessible_name = Some("Confirm order".into());
+    dialog.modal = Some(true);
+    dialog.contains_focus = Some(true);
+
+    let found = checks(&snapshot(vec![email, checkbox, dialog]));
+    assert!(
+        found.iter().all(|(check, _, _)| !matches!(
+            check,
+            UiCheck::AccessibleName
+                | UiCheck::FormLabel
+                | UiCheck::KeyboardReachability
+                | UiCheck::RoleState
+                | UiCheck::DialogName
+                | UiCheck::DialogFocus
+        )),
+        "accessible controls must stay clean: {found:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Duplicate identity
 // ---------------------------------------------------------------------------
@@ -670,10 +797,10 @@ fn a_disabled_policy_produces_no_findings() {
 #[test]
 fn an_unknown_snapshot_schema_fails_closed() {
     let mut state = snapshot(vec![]);
-    state.schema_v = 2;
+    state.schema_v = 3;
     assert!(matches!(
         detect(&state, &enabled_policy()),
-        Err(wvq_ui::UiError::UnknownSchema(2))
+        Err(wvq_ui::UiError::UnknownSchema(3))
     ));
 }
 

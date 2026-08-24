@@ -35,6 +35,18 @@ pub enum UiCheck {
     /// `WVQ-UI-NET-001` — one user-intent action emitted the same mutating
     /// request more than once.
     DuplicateMutationRequest,
+    /// `WVQ-A11Y-NAME-001` — an enabled interactive control has no accessible name.
+    AccessibleName,
+    /// `WVQ-A11Y-LABEL-001` — a form control has no associated label.
+    FormLabel,
+    /// `WVQ-A11Y-KEYBOARD-001` — a sealed interactive target is not keyboard reachable.
+    KeyboardReachability,
+    /// `WVQ-A11Y-STATE-001` — an ARIA role and its state are inconsistent.
+    RoleState,
+    /// `WVQ-A11Y-DIALOG-001` — a visible dialog has no accessible name.
+    DialogName,
+    /// `WVQ-A11Y-DIALOG-002` — a visible modal dialog does not contain focus.
+    DialogFocus,
 }
 
 impl UiCheck {
@@ -50,12 +62,18 @@ impl UiCheck {
             Self::TextClipping => "WVQ-UI-LAYOUT-003",
             Self::ForbiddenOverlap => "WVQ-UI-LAYOUT-004",
             Self::DuplicateMutationRequest => "WVQ-UI-NET-001",
+            Self::AccessibleName => "WVQ-A11Y-NAME-001",
+            Self::FormLabel => "WVQ-A11Y-LABEL-001",
+            Self::KeyboardReachability => "WVQ-A11Y-KEYBOARD-001",
+            Self::RoleState => "WVQ-A11Y-STATE-001",
+            Self::DialogName => "WVQ-A11Y-DIALOG-001",
+            Self::DialogFocus => "WVQ-A11Y-DIALOG-002",
         }
     }
 
     /// Every P0 detector, in catalogue order.
     #[must_use]
-    pub fn all() -> [Self; 8] {
+    pub fn all() -> [Self; 14] {
         [
             Self::DuplicateDomId,
             Self::DuplicateTestId,
@@ -65,6 +83,12 @@ impl UiCheck {
             Self::TextClipping,
             Self::ForbiddenOverlap,
             Self::DuplicateMutationRequest,
+            Self::AccessibleName,
+            Self::FormLabel,
+            Self::KeyboardReachability,
+            Self::RoleState,
+            Self::DialogName,
+            Self::DialogFocus,
         ]
     }
 

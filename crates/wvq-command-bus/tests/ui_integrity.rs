@@ -312,6 +312,15 @@ fn semantic_page(status: &str) -> &'static str {
     ))
 }
 
+fn accessibility_page(named: bool) -> &'static str {
+    let name = if named { " aria-label=\"Export\"" } else { "" };
+    leak(format!(
+        r#"<!doctype html><html><head><title>WVQ</title></head><body>
+          <button data-testid="export"{name}><svg aria-hidden="true"></svg></button>
+        </body></html>"#,
+    ))
+}
+
 /// Variant D: a critical control whose label no longer fits and has no
 /// accessible name to fall back on.
 fn clipped_page() -> &'static str {
@@ -818,6 +827,67 @@ fn semantic_drift_blocks_the_default_verdict_without_an_opt_in_view() {
             && reason.subject == "checkout-ui"
             && reason.detail.contains("WVQ-BEHAV-001")
     }));
+}
+
+#[test]
+fn losing_a_required_accessible_name_blocks_the_default_verdict() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(accessibility_page(true));
+    let head_server = PageServer::start(accessibility_page(false));
+    let repo = checkout_repo(&base_server.url());
+    switch_to_head(&repo.0, &head_server.url());
+    let service = LiveService::new(&repo.0);
+
+    let run = service
+        .run(&RunCommand {
+            change: "checkout-ui".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })
+        .unwrap();
+    assert_eq!(run.outcome, "passed", "{run:#?}");
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert_eq!(verified.verdict, "PROVEN");
+    assert_eq!(verified.state, "BLOCKED", "{verified:#?}");
+    assert_eq!(verified.quality.ui_integrity.state.as_str(), "blocking");
+    assert!(verified.quality.blocking_reasons.iter().any(|reason| {
+        reason.axis == "ui_integrity"
+            && reason.subject == "testid:export"
+            && reason.detail.contains("WVQ-A11Y-NAME-001")
+    }));
+
+    let delta_handle = run
+        .artifact_handles
+        .iter()
+        .find(|handle| handle.contains("ui-integrity-delta"))
+        .expect("default run stores the accessibility delta");
+    let evidence = service
+        .evidence(&EvidenceCommand {
+            handle: delta_handle.clone(),
+        })
+        .unwrap();
+    let delta: serde_json::Value =
+        serde_json::from_str(evidence.inline_text.as_deref().unwrap()).unwrap();
+    let finding = delta["new"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|finding| finding["check"] == "WVQ-A11Y-NAME-001")
+        .expect("accessible-name regression");
+    assert_eq!(finding["subject"], "testid:export");
+    assert!(
+        finding["detail"]
+            .as_str()
+            .unwrap()
+            .contains("0 accessible-name characters")
+    );
 }
 
 #[test]

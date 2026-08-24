@@ -8,7 +8,7 @@ use wvq_ui::{
 
 fn finding(width: u32) -> UiIntegrityFinding {
     let snapshot: wvq_ui::LayoutSnapshot = serde_json::from_value(serde_json::json!({
-        "schema_v": 1,
+        "schema_v": 2,
         "revision": "head",
         "program": "checkout",
         "step": 1,

@@ -22,7 +22,7 @@
  * `getComputedStyle`, `elementsFromPoint`, and scroll-versus-client metrics.
  */
 /** Schema version Rust accepts. Bumping it is a breaking change. */
-export const LAYOUT_SNAPSHOT_SCHEMA_V = 1;
+export const LAYOUT_SNAPSHOT_SCHEMA_V = 2;
 /** Longest accessible name or label kept in evidence. Matches `wvq-ui`. */
 export const MAX_LABEL_CHARS = 120;
 /** Hard ceiling on collected nodes, whatever local policy asks for. */
@@ -39,6 +39,7 @@ export function resolveConfig(config) {
         settle_timeout_ms: clampInt(raw.settle_timeout_ms ?? 2_000, 1, 30_000),
         test_id_attribute: raw.test_id_attribute ?? "data-testid",
         required_test_ids: (raw.required_test_ids ?? []).filter((value) => typeof value === "string" && value.trim() !== ""),
+        required_targets: normalizeRequiredTargets(raw.required_targets ?? []),
         responsive_breakpoints: raw.responsive_breakpoints ?? false,
     };
 }
@@ -100,6 +101,49 @@ export async function collectLayoutSnapshot(page, identity, config) {
         truncated: limitations.length > 0,
     };
     return { snapshot, limitations };
+}
+function normalizeRequiredTargets(targets) {
+    if (!Array.isArray(targets) || targets.length > 256) {
+        throw new Error("required accessibility targets exceed the 256-target ceiling");
+    }
+    const fields = ["role", "accessible_name", "label", "test_id", "component_hint"];
+    const allowed = new Set([...fields, "scope", "fallback_css"]);
+    const normalize = (target, depth) => {
+        if (depth > 4)
+            throw new Error("required accessibility target scope exceeds depth 4");
+        if (!target || typeof target !== "object" || Array.isArray(target)) {
+            throw new Error("required accessibility target must be an object");
+        }
+        for (const field of Object.keys(target)) {
+            if (!allowed.has(field))
+                throw new Error(`required accessibility target field ${field} is unknown`);
+        }
+        const result = {};
+        for (const field of fields) {
+            const value = target[field];
+            if (value === undefined)
+                continue;
+            if (typeof value !== "string" || value.trim() === "" || value.length > MAX_LABEL_CHARS) {
+                throw new Error(`required accessibility target ${field} is invalid`);
+            }
+            result[field] = value.trim();
+        }
+        if (target.fallback_css !== undefined) {
+            if (typeof target.fallback_css !== "string" ||
+                target.fallback_css.trim() === "" ||
+                target.fallback_css.length > 512)
+                throw new Error("required accessibility target fallback_css is invalid");
+            result.fallback_css = target.fallback_css.trim();
+        }
+        if (target.scope !== undefined)
+            result.scope = normalize(target.scope, depth + 1);
+        if (Object.keys(result).every((field) => field === "scope")) {
+            throw new Error("required accessibility target has no semantic identity");
+        }
+        return result;
+    };
+    const normalized = targets.map((target) => normalize(target, 0));
+    return Array.from(new Map(normalized.map((target) => [JSON.stringify(target), target])).values());
 }
 /** Read parsed media/container width conditions; source text is never reparsed. */
 async function readResponsiveBreakpoints(page) {
@@ -205,7 +249,7 @@ async function waitForFonts(page, timeoutMs) {
  * Everything it returns is a plain, bounded, JSON-safe value.
  */
 async function readPage(page, config) {
-    return page.evaluate(({ maxNodes, testIdAttribute, requiredTestIds, maxLabel, maxHitTests, inset }) => {
+    return page.evaluate(({ maxNodes, testIdAttribute, requiredTestIds, requiredTargets, maxLabel, maxHitTests, inset, }) => {
         const INTERACTIVE_TAGS = new Set([
             "A",
             "BUTTON",
@@ -301,11 +345,16 @@ async function readPage(page, config) {
             }
             if (element.tagName === "IMG")
                 return text(element.getAttribute("alt"));
-            if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+            if (element instanceof HTMLInputElement ||
+                element instanceof HTMLSelectElement ||
+                element instanceof HTMLTextAreaElement) {
                 const labels = element.labels;
                 const first = labels?.[0];
                 if (first)
                     return text(first.textContent);
+                if (element instanceof HTMLInputElement &&
+                    ["button", "submit", "reset"].includes(element.type))
+                    return text(element.value);
                 return text(element.getAttribute("placeholder"));
             }
             const title = element.getAttribute("title");
@@ -313,13 +362,107 @@ async function readPage(page, config) {
             // control or a leaf. On a container it is the concatenated text of
             // everything inside, which is both noise and a needless copy of page
             // content: a list row would claim the name of the button it holds.
-            const ownsItsText = INTERACTIVE_TAGS.has(element.tagName) || element.childElementCount === 0;
+            const ownsItsText = INTERACTIVE_TAGS.has(element.tagName) ||
+                INTERACTIVE_ROLES.has(roleOf(element) ?? "") ||
+                element.childElementCount === 0;
             const own = ownsItsText ? text(element.textContent) : undefined;
             return own ?? text(title);
         };
         const isEnabled = (element) => !element.hasAttribute("disabled") &&
             element.getAttribute("aria-disabled") !== "true" &&
             !element.disabled;
+        const labelAssociated = (element) => {
+            if (text(element.getAttribute("aria-label")))
+                return true;
+            const labelledBy = element.getAttribute("aria-labelledby");
+            if (labelledBy?.split(/\s+/).some((token) => Boolean(text(document.getElementById(token)?.textContent))))
+                return true;
+            if (element instanceof HTMLInputElement ||
+                element instanceof HTMLSelectElement ||
+                element instanceof HTMLTextAreaElement)
+                return (element.labels?.length ?? 0) > 0;
+            return false;
+        };
+        const naturallyFocusable = (element) => {
+            if (!isEnabled(element))
+                return false;
+            if (element instanceof HTMLAnchorElement)
+                return element.hasAttribute("href");
+            if (element instanceof HTMLInputElement)
+                return element.type !== "hidden";
+            return element instanceof HTMLButtonElement ||
+                element instanceof HTMLSelectElement ||
+                element instanceof HTMLTextAreaElement ||
+                element instanceof HTMLElement && element.tagName === "SUMMARY";
+        };
+        const focusable = (element) => {
+            if (!isEnabled(element))
+                return false;
+            const explicit = element.getAttribute("tabindex");
+            return naturallyFocusable(element) ||
+                explicit !== null && Number.isInteger(Number(explicit)) && Number(explicit) >= 0;
+        };
+        const isModal = (element) => {
+            if (element.getAttribute("aria-modal") === "true")
+                return true;
+            if (!(element instanceof HTMLDialogElement) || !element.open)
+                return false;
+            try {
+                return element.matches(":modal");
+            }
+            catch {
+                return false;
+            }
+        };
+        const targetFacts = (element) => ({
+            role: roleOf(element),
+            name: nameOf(element),
+            label: text(element.getAttribute("aria-label")),
+            testId: text(element.getAttribute(testIdAttribute)),
+            component: text(element.getAttribute("data-component")),
+        });
+        const requiredTargetMatches = (target, element) => {
+            const facts = targetFacts(element);
+            const comparisons = [
+                [target.role, facts.role],
+                [target.accessible_name, facts.name],
+                [target.label, facts.label ?? facts.name],
+                [target.test_id, facts.testId],
+                [target.component_hint, facts.component],
+            ];
+            let named = false;
+            for (const [expected, actual] of comparisons) {
+                if (expected === undefined)
+                    continue;
+                named = true;
+                if (expected !== actual)
+                    return false;
+            }
+            if (target.fallback_css !== undefined) {
+                named = true;
+                try {
+                    if (!element.matches(target.fallback_css))
+                        return false;
+                }
+                catch {
+                    return false;
+                }
+            }
+            if (target.scope !== undefined) {
+                let ancestor = element.parentElement;
+                let matched = false;
+                while (ancestor) {
+                    if (requiredTargetMatches(target.scope, ancestor)) {
+                        matched = true;
+                        break;
+                    }
+                    ancestor = ancestor.parentElement;
+                }
+                if (!matched)
+                    return false;
+            }
+            return named;
+        };
         const scrollableStyle = (style) => ["auto", "scroll", "overlay"].includes(style.overflowX) ||
             ["auto", "scroll", "overlay"].includes(style.overflowY);
         const clipsChildren = (style) => ["hidden", "clip", "auto", "scroll"].includes(style.overflowX) ||
@@ -406,7 +549,15 @@ async function readPage(page, config) {
                 style.visibility === "collapse" ||
                 Number(style.opacity) === 0;
             const testId = element.getAttribute(testIdAttribute) ?? undefined;
-            const mustKeep = testId !== undefined && required.has(testId);
+            let semanticMustKeep = false;
+            for (const target of requiredTargets) {
+                if (requiredTargetMatches(target, element)) {
+                    semanticMustKeep = true;
+                    break;
+                }
+            }
+            const mustKeep = (testId !== undefined && required.has(testId)) ||
+                semanticMustKeep;
             if (mustKeep || isCandidate(element, style)) {
                 if (nodes.length >= maxNodes) {
                     truncated = true;
@@ -436,6 +587,7 @@ async function readPage(page, config) {
                     decorative: element.getAttribute("aria-hidden") === "true" ||
                         element.getAttribute("role") === "presentation" ||
                         element.getAttribute("role") === "none",
+                    required_by_oracle: false,
                     rects: clientRects.length > 0 ? clientRects : [box],
                 };
                 const domId = text(element.id);
@@ -455,6 +607,31 @@ async function readPage(page, config) {
                 const component = text(element.getAttribute("data-component"));
                 if (component)
                     node.component_hint = component;
+                node.tag = element.tagName.toLowerCase();
+                if (element instanceof HTMLInputElement)
+                    node.input_type = element.type.toLowerCase();
+                node.focusable = !hidden && focusable(element);
+                node.label_associated = labelAssociated(element);
+                if (element instanceof HTMLButtonElement ||
+                    element instanceof HTMLInputElement ||
+                    element instanceof HTMLSelectElement ||
+                    element instanceof HTMLTextAreaElement)
+                    node.native_disabled = element.disabled;
+                node.modal = isModal(element);
+                const active = document.activeElement;
+                node.contains_focus = Boolean(active && active !== document.body && element.contains(active));
+                for (const [attribute, field] of [
+                    ["aria-disabled", "aria_disabled"],
+                    ["aria-checked", "aria_checked"],
+                    ["aria-selected", "aria_selected"],
+                    ["aria-pressed", "aria_pressed"],
+                    ["aria-expanded", "aria_expanded"],
+                ]) {
+                    const value = text(element.getAttribute(attribute))?.toLowerCase();
+                    if (value)
+                        node[field] = value;
+                }
+                node.required_by_oracle = mustKeep;
                 const entity = nearestEntity(element);
                 if (entity)
                     node.entity_key = entity;
@@ -583,6 +760,7 @@ async function readPage(page, config) {
         maxNodes: config.max_nodes,
         testIdAttribute: config.test_id_attribute,
         requiredTestIds: config.required_test_ids,
+        requiredTargets: config.required_targets,
         maxLabel: MAX_LABEL_CHARS,
         maxHitTests: HARD_MAX_HIT_TESTS,
         inset: 2,

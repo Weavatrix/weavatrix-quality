@@ -17,7 +17,7 @@ use wvq_domain::{ContentHash, RevisionId};
 use crate::UiError;
 
 /// Only schema version the detectors accept. Unknown versions fail closed.
-pub const LAYOUT_SNAPSHOT_SCHEMA_V: u32 = 1;
+pub const LAYOUT_SNAPSHOT_SCHEMA_V: u32 = 2;
 
 /// Hard ceiling on collected nodes, whatever local policy asks for.
 pub const MAX_NODES: usize = 20_000;
@@ -186,6 +186,41 @@ pub struct UiNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 
+    /// Lowercase HTML tag. Structural evidence only; never markup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Lowercase input type, only for an `input` element. Never its value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_type: Option<String>,
+    /// This exact semantic node is named by a sealed predicate.
+    #[serde(default)]
+    pub required_by_oracle: bool,
+
+    /// Browser facts needed by standards-derived accessibility rules. `None`
+    /// means an older collector did not measure the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focusable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_associated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_disabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modal: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contains_focus: Option<bool>,
+
+    /// Raw bounded ARIA state tokens. Rust owns role/state interpretation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aria_disabled: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aria_checked: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aria_selected: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aria_pressed: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aria_expanded: Option<String>,
+
     /// Framework component name, when the app exposes one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_hint: Option<String>,
@@ -317,6 +352,13 @@ impl UiNode {
             ("role", self.role.as_deref()),
             ("dom_id", self.dom_id.as_deref()),
             ("test_id", self.test_id.as_deref()),
+            ("tag", self.tag.as_deref()),
+            ("input_type", self.input_type.as_deref()),
+            ("aria_disabled", self.aria_disabled.as_deref()),
+            ("aria_checked", self.aria_checked.as_deref()),
+            ("aria_selected", self.aria_selected.as_deref()),
+            ("aria_pressed", self.aria_pressed.as_deref()),
+            ("aria_expanded", self.aria_expanded.as_deref()),
         ] {
             if value.is_some_and(|text| text.chars().count() > MAX_LABEL_CHARS) {
                 return Err(UiError::Malformed(format!(

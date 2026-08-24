@@ -53,6 +53,7 @@ pub fn detect(
     }
     duplicate_identity(snapshot, UiCheck::DuplicateDomId, &mut out.findings);
     duplicate_identity(snapshot, UiCheck::DuplicateTestId, &mut out.findings);
+    accessibility(snapshot, &mut out.findings);
     let index = snapshot.index();
     ambiguous_interactive(snapshot, &index, &mut out.findings);
     let hits = hit_index(snapshot);
@@ -63,6 +64,255 @@ pub fn detect(
     out.truncated |= overlap_truncated;
     sort_findings(&mut out.findings);
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Standards-derived accessibility checks. The browser reports facts; Rust
+// owns every rule and severity decision.
+// ---------------------------------------------------------------------------
+
+fn accessibility(snapshot: &LayoutSnapshot, out: &mut Vec<UiIntegrityFinding>) {
+    for node in snapshot.nodes.iter().filter(|node| node.visible) {
+        // `tag` is the v2 measurement marker. An older pre-v2 node is unknown,
+        // not an accessibility failure.
+        let Some(tag) = node.tag.as_deref() else {
+            continue;
+        };
+        let named = node
+            .accessible_name
+            .as_deref()
+            .is_some_and(|name| !name.trim().is_empty());
+        if node.interactive && node.enabled && !node.decorative && !named {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::AccessibleName,
+                accessibility_severity(node),
+                "1 visible enabled control has 0 accessible-name characters",
+                out,
+            );
+        }
+        if form_control_requires_label(tag, node.input_type.as_deref())
+            && node.label_associated == Some(false)
+        {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::FormLabel,
+                accessibility_severity(node),
+                "1 visible form control has 0 associated label sources; placeholder text is not a label",
+                out,
+            );
+        }
+        if node.required_by_oracle
+            && node.interactive
+            && node.enabled
+            && keyboard_focus_required(node.role.as_deref())
+            && node.focusable == Some(false)
+        {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::KeyboardReachability,
+                Severity::Error,
+                "1 sealed interactive target has 0 keyboard focus paths",
+                out,
+            );
+        }
+        let state_issues = role_state_issues(node, tag);
+        if !state_issues.is_empty() {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::RoleState,
+                accessibility_severity(node),
+                &format!(
+                    "{} role/state inconsistencies: {}",
+                    state_issues.len(),
+                    state_issues.join("; ")
+                ),
+                out,
+            );
+        }
+        if matches!(node.role.as_deref(), Some("dialog" | "alertdialog")) && !named {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::DialogName,
+                accessibility_severity(node),
+                "1 visible dialog has 0 accessible-name characters",
+                out,
+            );
+        }
+        if matches!(node.role.as_deref(), Some("dialog" | "alertdialog"))
+            && node.modal == Some(true)
+            && node.contains_focus == Some(false)
+        {
+            push_accessibility(
+                snapshot,
+                node,
+                UiCheck::DialogFocus,
+                accessibility_severity(node),
+                "1 visible modal dialog contains 0 focused descendants",
+                out,
+            );
+        }
+    }
+}
+
+fn accessibility_severity(node: &UiNode) -> Severity {
+    if node.required_by_oracle {
+        Severity::Error
+    } else {
+        Severity::Warn
+    }
+}
+
+fn push_accessibility(
+    snapshot: &LayoutSnapshot,
+    node: &UiNode,
+    check: UiCheck,
+    severity: Severity,
+    detail: &str,
+    out: &mut Vec<UiIntegrityFinding>,
+) {
+    let mut finding = base(
+        snapshot,
+        check,
+        severity,
+        node.semantic_identity(),
+        detail.to_owned(),
+    );
+    finding.component_hint.clone_from(&node.component_hint);
+    finding.nodes = vec![node.id.to_string()];
+    out.push(finding);
+}
+
+fn form_control_requires_label(tag: &str, input_type: Option<&str>) -> bool {
+    match tag {
+        "select" | "textarea" => true,
+        "input" => !matches!(
+            input_type.unwrap_or("text"),
+            "hidden" | "button" | "submit" | "reset" | "image"
+        ),
+        _ => false,
+    }
+}
+
+fn keyboard_focus_required(role: Option<&str>) -> bool {
+    matches!(
+        role,
+        Some(
+            "button"
+                | "link"
+                | "checkbox"
+                | "switch"
+                | "textbox"
+                | "combobox"
+                | "searchbox"
+                | "slider"
+                | "spinbutton"
+        )
+    )
+}
+
+fn role_state_issues(node: &UiNode, tag: &str) -> Vec<String> {
+    let mut issues = Vec::new();
+    validate_state_token(
+        "aria-disabled",
+        node.aria_disabled.as_deref(),
+        &["true", "false"],
+        &mut issues,
+    );
+    validate_state_token(
+        "aria-checked",
+        node.aria_checked.as_deref(),
+        &["true", "false", "mixed", "undefined"],
+        &mut issues,
+    );
+    validate_state_token(
+        "aria-selected",
+        node.aria_selected.as_deref(),
+        &["true", "false", "undefined"],
+        &mut issues,
+    );
+    validate_state_token(
+        "aria-pressed",
+        node.aria_pressed.as_deref(),
+        &["true", "false", "mixed", "undefined"],
+        &mut issues,
+    );
+    validate_state_token(
+        "aria-expanded",
+        node.aria_expanded.as_deref(),
+        &["true", "false", "undefined"],
+        &mut issues,
+    );
+
+    let role = node.role.as_deref();
+    let native_checked =
+        tag == "input" && matches!(node.input_type.as_deref(), Some("checkbox" | "radio"));
+    if matches!(role, Some("checkbox" | "radio" | "switch"))
+        && !native_checked
+        && node.aria_checked.is_none()
+    {
+        issues.push("custom checked role has no aria-checked state".into());
+    }
+    if node.aria_checked.is_some()
+        && !matches!(
+            role,
+            Some(
+                "checkbox"
+                    | "menuitemcheckbox"
+                    | "menuitemradio"
+                    | "option"
+                    | "radio"
+                    | "switch"
+                    | "treeitem"
+            )
+        )
+    {
+        issues.push("aria-checked is unsupported by this role".into());
+    }
+    if node.aria_pressed.is_some() && role != Some("button") {
+        issues.push("aria-pressed requires role button".into());
+    }
+    if node.aria_selected.is_some()
+        && !matches!(
+            role,
+            Some("gridcell" | "option" | "row" | "tab" | "treeitem")
+        )
+    {
+        issues.push("aria-selected is unsupported by this role".into());
+    }
+    if node.aria_checked.as_deref() == Some("mixed")
+        && !matches!(role, Some("checkbox" | "menuitemcheckbox"))
+    {
+        issues.push("mixed aria-checked is unsupported by this role".into());
+    }
+    if node.native_disabled == Some(true) && node.aria_disabled.as_deref() == Some("false") {
+        issues.push("native disabled state contradicts aria-disabled=false".into());
+    }
+    if node.native_disabled == Some(false)
+        && node.aria_disabled.as_deref() == Some("true")
+        && matches!(tag, "button" | "input" | "select" | "textarea")
+    {
+        issues.push("aria-disabled=true leaves the native control enabled".into());
+    }
+    issues
+}
+
+fn validate_state_token(
+    name: &str,
+    value: Option<&str>,
+    allowed: &[&str],
+    issues: &mut Vec<String>,
+) {
+    if let Some(value) = value
+        && !allowed.contains(&value)
+    {
+        issues.push(format!("{name} has invalid token `{value}`"));
+    }
 }
 
 fn base(

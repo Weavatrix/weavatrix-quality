@@ -37,9 +37,10 @@ use wvq_runtime::{
     BrowserRecordingRequest, BrowserRunConfig, BrowserViewport, CaptureWhen, CoverageArtifact,
     DiffAxis, ExecutionResult, ExecutorRegistry, ExecutorTarget, NetworkMode, NetworkReplayProfile,
     NetworkRunPolicy, NormalizedTestRun, PrepareRequest, ProgramOracle, Recorder, StructuredView,
-    TestAction, TestProgram, TestStatus, UiCollectionConfig, behavior_delta, default_limits,
-    discover_executor_targets, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit,
-    parse_lcov, promote, record_browser_session, run_browser_program, run_browser_program_at,
+    Target, TestAction, TestProgram, TestStatus, UiCollectionConfig, behavior_delta,
+    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
+    parse_go_json, parse_junit, parse_lcov, promote, record_browser_session, run_browser_program,
+    run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -1593,6 +1594,16 @@ impl LiveService {
         delta: &UiIntegrityDelta,
     ) -> Result<(), BusError> {
         let mut handles = Vec::new();
+        Self::persist_ui_delta_with_handles(store, run, base, delta, &mut handles)
+    }
+
+    fn persist_ui_delta_with_handles(
+        store: &Store,
+        run: &RunId,
+        base: &UiIntegritySnapshot,
+        delta: &UiIntegrityDelta,
+        handles: &mut Vec<String>,
+    ) -> Result<(), BusError> {
         if read_single_run_json(store, run, "base-ui-integrity-findings").is_err() {
             put_bounded_ui_artifact(
                 store,
@@ -1608,7 +1619,7 @@ impl LiveService {
                     "responsive_breakpoints_incomplete": base.responsive_breakpoints_incomplete,
                     "truncated": base.truncated,
                 }),
-                &mut handles,
+                handles,
             )?;
         }
         if read_single_run_json(store, run, UI_INTEGRITY_DELTA_KIND).is_ok() {
@@ -1620,7 +1631,7 @@ impl LiveService {
             &format!("artifact-{}-ui-integrity-delta", run.as_str()),
             UI_INTEGRITY_DELTA_KIND,
             &ui_delta_document(delta),
-            &mut handles,
+            handles,
         )
     }
 
@@ -2943,6 +2954,63 @@ impl QualityService for LiveService {
             &cmd.evidence_policy,
             &mut handles,
         )?;
+        let head_ui = persist_ui_integrity(
+            &store,
+            &run_id,
+            &before,
+            &ui_policy,
+            &browser_runs,
+            &mut handles,
+        )?;
+        if let (Some(head_ui), Some(base_replay)) = (head_ui.as_ref(), base_browser_replay.as_ref())
+        {
+            let base_ui = match base_replay {
+                Ok(base) if base.runs.len() == browser_runs.len() => {
+                    let borrowed = browser_runs
+                        .iter()
+                        .zip(&base.runs)
+                        .map(|((configured, _), result)| (*configured, result.clone()))
+                        .collect::<Vec<_>>();
+                    analyse_ui_snapshots(&base.revision, &ui_policy, &borrowed)?.snapshot
+                }
+                Ok(base) => UiIntegritySnapshot {
+                    revision: base.revision.to_string(),
+                    truncated: true,
+                    ..UiIntegritySnapshot::default()
+                },
+                Err(_) => UiIntegritySnapshot {
+                    revision: range.merge_base.clone(),
+                    truncated: true,
+                    ..UiIntegritySnapshot::default()
+                },
+            };
+            let previously_fixed = store
+                .previously_fixed_debt()
+                .map_err(|err| BusError::Store(err.to_string()))?
+                .into_iter()
+                .filter(|item| item.starts_with("ui:"))
+                .collect::<BTreeSet<_>>();
+            let mut delta = ratchet_ui(&base_ui, head_ui, &previously_fixed, &ui_policy);
+            if ui_policy.responsive.enabled && base_replay.is_ok() {
+                let (intervals, truncated) = self.measure_responsive_ui(
+                    &range,
+                    &compiled,
+                    &ui_policy,
+                    &base_ui,
+                    head_ui,
+                    &previously_fixed,
+                )?;
+                delta.responsive_intervals = intervals;
+                delta.responsive_truncated = truncated;
+            }
+            let fixed = delta.fixed_fingerprints();
+            if !fixed.is_empty() {
+                store
+                    .remember_fixed_debt(&fixed, &before)
+                    .map_err(|err| BusError::Store(err.to_string()))?;
+            }
+            Self::persist_ui_delta_with_handles(&store, &run_id, &base_ui, &delta, &mut handles)?;
+        }
         if let Some(base_replay) = base_browser_replay {
             persist_delta_triangle(
                 &store,
@@ -2956,14 +3024,6 @@ impl QualityService for LiveService {
                 &mut handles,
             )?;
         }
-        persist_ui_integrity(
-            &store,
-            &run_id,
-            &before,
-            &ui_policy,
-            &browser_runs,
-            &mut handles,
-        )?;
         let behavior =
             persist_browser_behavior(&store, &run_id, &before, &browser_runs, &mut handles)?;
         let test_analytics =
@@ -6490,10 +6550,13 @@ fn ui_collection_config(
         return None;
     }
     let mut required = BTreeSet::new();
+    let mut required_targets = BTreeMap::new();
     for oracle in oracles {
         collect_predicate_test_ids(&oracle.expected, &mut required);
+        collect_predicate_targets(&oracle.expected, &mut required_targets);
         if let Some(condition) = &oracle.condition {
             collect_predicate_test_ids(condition, &mut required);
+            collect_predicate_targets(condition, &mut required_targets);
         }
     }
     Some(UiCollectionConfig {
@@ -6503,8 +6566,34 @@ fn ui_collection_config(
         settle_timeout_ms: 2_000,
         test_id_attribute: "data-testid".into(),
         required_test_ids: required.into_iter().collect(),
+        required_targets: required_targets.into_values().collect(),
         responsive_breakpoints: policy.responsive.enabled,
     })
+}
+
+/// Every semantic `target` object nested in a sealed predicate. The canonical
+/// JSON is the deterministic deduplication key; invalid target-shaped values
+/// are ignored here because predicate compilation validates executable shapes.
+fn collect_predicate_targets(predicate: &Value, out: &mut BTreeMap<String, Target>) {
+    match predicate {
+        Value::Object(map) => {
+            if let Some(value) = map.get("target")
+                && let Ok(target) = serde_json::from_value::<Target>(value.clone())
+                && let Ok(key) = serde_json::to_string(&target)
+            {
+                out.insert(key, target);
+            }
+            for value in map.values() {
+                collect_predicate_targets(value, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_predicate_targets(item, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Every `test_id` any nested predicate target names.
