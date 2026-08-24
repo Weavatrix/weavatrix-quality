@@ -30,6 +30,7 @@ The canonical development checklist is implemented, but its items have different
 - SQLite + CAS preserve runs, evidence, proof-artifact provenance, debt history, AI usage, and immutable proofs across processes;
 - proof requires the exact configured runner case or Playwright assertion, not a green file path;
 - unambiguous single-case coverage is attributed to its exact bound test; aggregate coverage stays executor-level instead of being guessed onto cases;
+- every passing normalized case is inventoried independently of impacted coverage, so a green test that reaches no relevant symbol is reported as a phantom protector instead of looking deleted;
 - a committed React/Node/Go/OpenSpec fixture proves safe relocation, phantom protection, sole-protector deletion, approved business-expectation replacement, and changed-symbol recovery across CLI, MCP, and `qualityd`;
 - when an `OracleSeal` changes, WVQ prepares one immutable base/head/merge-base/content-revision review packet; ordinary analysis is automatic, while only an exact digest-matching QA or product-owner acceptance can authorize the new intent;
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
