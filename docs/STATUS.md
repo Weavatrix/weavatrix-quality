@@ -56,7 +56,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 
 Current implementation: the composite change verdict and deterministic UI-integrity axis are on `main`. The current tree embeds `weavatrix-rust` 2.7.2 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
-Local validation: 493 Rust tests passed with zero failures. Workspace Clippy passed for all targets with warnings denied. The prior 20 Playwright-runner tests, 5 npm package tests, and strict public `NodeNext` declarations remain unchanged by this Rust-owned path.
+Pre-B5 full validation: 493 Rust tests passed with zero failures, and workspace Clippy passed for all targets with warnings denied. The B5 path separately passed the complete touched-crate suite (`wvq-command-bus`, `wvq-spec-recovery`, and `wvq-cli`, including all committed product scenarios) plus warnings-denied Clippy. The prior 20 Playwright-runner tests, 5 npm package tests, and strict public `NodeNext` declarations remain unchanged by this Rust-owned path.
 
 ## Composite change verdict
 
