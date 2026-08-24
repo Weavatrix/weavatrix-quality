@@ -15,6 +15,11 @@ import type {
 import type { Driver, Target, WaitCondition } from "./execute.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
 import {
+  installSemanticRecorder,
+  type RecorderCapture,
+  type RecorderInstallConfig,
+} from "./record.js";
+import {
   collectLayoutSnapshot,
   type CollectionResult,
   type UiIntegrityConfig,
@@ -99,9 +104,31 @@ type ResolvedBrowserConfig = Required<Omit<BrowserConfig, "viewport">> & {
 
 const MAX_NETWORK_REQUESTS = 2_048;
 
-type NetworkEvent = { sequence: number; method: string; url: string; status?: number };
+type NetworkEvent = {
+  sequence: number;
+  method: string;
+  url: string;
+  status?: number;
+  resource_type?: string;
+};
 type ConsoleEvent = { type: string; text: string };
 type ApiResult = { status: number; json?: unknown };
+
+export type RecordedBrowserEvent = {
+  action: Record<string, unknown>;
+  observation: Observation;
+};
+
+export type RecordedBrowserPoll = {
+  events: RecordedBrowserEvent[];
+  limitations: string[];
+  done: boolean;
+};
+
+export type RecordedOracleResult = {
+  obligation: string;
+  status: "passed" | "contradicted" | "condition_not_established";
+};
 
 export class PlaywrightDriver implements Driver {
   readonly #browser: Browser;
@@ -121,6 +148,11 @@ export class PlaywrightDriver implements Driver {
   #traceStarted = false;
   #networkRequestsTruncated = false;
   #lastMutationChange = 0;
+  #recording = false;
+  #recordingDone = false;
+  #recordQueue: RecordedBrowserEvent[] = [];
+  #recordLimitations: string[] = [];
+  #recordChain: Promise<void> = Promise.resolve();
 
   private constructor(
     browser: Browser,
@@ -145,6 +177,7 @@ export class PlaywrightDriver implements Driver {
         sequence: this.#network.length + 1,
         method: request.method().toUpperCase(),
         url: request.url(),
+        resource_type: request.resourceType(),
       };
       this.#network.push(event);
       this.#requestEvents.set(request, event);
@@ -196,6 +229,68 @@ export class PlaywrightDriver implements Driver {
       driver.#traceStarted = true;
     }
     return driver;
+  }
+
+  /** Begin passive capture before opening the requested route. */
+  async startRecording(
+    route: string,
+    config: RecorderInstallConfig,
+  ): Promise<{ initial: Observation }> {
+    if (this.#recording) throw new Error("a recorder is already active");
+    if (this.#page.url() !== "about:blank") {
+      throw new Error("passive recording must start before navigation");
+    }
+    this.#recording = true;
+    await installSemanticRecorder(
+      this.#context,
+      this.#page,
+      {
+        capture: async (capture) => this.#captureRecordedEvent(capture),
+        finish: () => {
+          this.#recordingDone = true;
+        },
+      },
+      config,
+    );
+    const initial = await this.observe(false, false);
+    await this.navigate(route);
+    await this.settleAction();
+    this.#recordQueue.push({
+      action: { action: "navigate", route },
+      observation: await this.observe(false, false),
+    });
+    return { initial };
+  }
+
+  /** Drain events captured since the previous poll. */
+  async pollRecording(): Promise<RecordedBrowserPoll> {
+    if (!this.#recording) throw new Error("passive recorder is not active");
+    if (!this.#page.isClosed()) await this.#page.waitForTimeout(25);
+    else this.#recordingDone = true;
+    await this.#recordChain;
+    const events = this.#recordQueue.splice(0);
+    const limitations = this.#recordLimitations.splice(0);
+    return { events, limitations, done: this.#recordingDone };
+  }
+
+  /** Evaluate existing sealed predicates at the exact final recorded state. */
+  async evaluateRecordedOracles(): Promise<RecordedOracleResult[]> {
+    await this.#recordChain;
+    const outcomes: RecordedOracleResult[] = [];
+    for (const oracle of this.#oracles.values()) {
+      if (oracle.condition && !(await this.#evaluate(oracle.condition))) {
+        outcomes.push({ obligation: oracle.obligation, status: "condition_not_established" });
+        continue;
+      }
+      const passed = oracle.expected.kind === "all"
+        ? (await Promise.all(oracle.expected.predicates.map((predicate) => this.#evaluate(predicate)))).every(Boolean)
+        : await this.#evaluate(oracle.expected);
+      outcomes.push({
+        obligation: oracle.obligation,
+        status: passed ? "passed" : "contradicted",
+      });
+    }
+    return outcomes;
   }
 
   async navigate(route: string): Promise<void> {
@@ -431,6 +526,19 @@ export class PlaywrightDriver implements Driver {
     await this.#context.close().catch(() => undefined);
     await this.#browser.close().catch(() => undefined);
     this.#closed = true;
+  }
+
+  async #captureRecordedEvent(capture: RecorderCapture): Promise<void> {
+    if (capture.limitation) this.#recordLimitations.push(capture.limitation);
+    if (!capture.action || this.#recordingDone) return;
+    this.#recordChain = this.#recordChain.then(async () => {
+      await this.settleAction();
+      this.#recordQueue.push({
+        action: capture.action as unknown as Record<string, unknown>,
+        observation: await this.observe(false, false),
+      });
+    });
+    await this.#recordChain;
   }
 
   #locator(target: Target): Locator {

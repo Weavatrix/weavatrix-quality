@@ -57,6 +57,29 @@ export class WvqClient {
         ], signal)
     }
 
+    record({
+        change = 'current', base = 'HEAD', head = 'WORKTREE', route = '/', fixtureValues = {},
+        idleTimeoutMs = 3_000, maxEvents = 200, headless, signal,
+    } = {}) {
+        requirePositiveInteger('idleTimeoutMs', idleTimeoutMs)
+        requirePositiveInteger('maxEvents', maxEvents)
+        if (typeof fixtureValues !== 'object' || fixtureValues === null || Array.isArray(fixtureValues)
+            || Object.entries(fixtureValues).some(([key, value]) => !key.trim() || typeof value !== 'string')) {
+            throw new TypeError('fixtureValues must contain non-empty names and string values')
+        }
+        if (headless !== undefined && typeof headless !== 'boolean') {
+            throw new TypeError('headless must be boolean')
+        }
+        const args = [
+            'record', '--change', requireText('change', change),
+            '--base', requireText('base', base), '--head', requireText('head', head),
+            '--route', requireText('route', route), '--idle-ms', String(idleTimeoutMs),
+            '--max-events', String(maxEvents), '--fixtures-json', JSON.stringify(fixtureValues),
+        ]
+        if (headless !== undefined) args.push('--headless', String(headless))
+        return this.#call('record', args, signal)
+    }
+
     status({ signal } = {}) {
         return this.#call('status', ['status'], signal)
     }

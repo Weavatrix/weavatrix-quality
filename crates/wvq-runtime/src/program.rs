@@ -521,6 +521,9 @@ pub struct NetworkRequestObservation {
     /// Response status when it was observed before this snapshot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
+    /// Playwright resource class (`fetch`, `xhr`, `document`, …), when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_type: Option<String>,
 }
 
 /// Structured observation. Binary screenshots stay handles.

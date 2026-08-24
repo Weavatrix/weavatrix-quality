@@ -9,6 +9,7 @@ fn request(sequence: u64, method: &str, url: &str) -> NetworkRequestObservation 
         method: method.into(),
         url: url.into(),
         status: Some(200),
+        resource_type: Some("fetch".into()),
     }
 }
 

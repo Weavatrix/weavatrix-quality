@@ -4,6 +4,7 @@ import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { installSemanticRecorder, } from "./record.js";
 import { collectLayoutSnapshot, } from "./ui_integrity.js";
 const MAX_NETWORK_REQUESTS = 2_048;
 export class PlaywrightDriver {
@@ -24,6 +25,11 @@ export class PlaywrightDriver {
     #traceStarted = false;
     #networkRequestsTruncated = false;
     #lastMutationChange = 0;
+    #recording = false;
+    #recordingDone = false;
+    #recordQueue = [];
+    #recordLimitations = [];
+    #recordChain = Promise.resolve();
     constructor(browser, context, page, program, oracles, config) {
         this.#browser = browser;
         this.#context = context;
@@ -40,6 +46,7 @@ export class PlaywrightDriver {
                 sequence: this.#network.length + 1,
                 method: request.method().toUpperCase(),
                 url: request.url(),
+                resource_type: request.resourceType(),
             };
             this.#network.push(event);
             this.#requestEvents.set(request, event);
@@ -88,6 +95,61 @@ export class PlaywrightDriver {
             driver.#traceStarted = true;
         }
         return driver;
+    }
+    /** Begin passive capture before opening the requested route. */
+    async startRecording(route, config) {
+        if (this.#recording)
+            throw new Error("a recorder is already active");
+        if (this.#page.url() !== "about:blank") {
+            throw new Error("passive recording must start before navigation");
+        }
+        this.#recording = true;
+        await installSemanticRecorder(this.#context, this.#page, {
+            capture: async (capture) => this.#captureRecordedEvent(capture),
+            finish: () => {
+                this.#recordingDone = true;
+            },
+        }, config);
+        const initial = await this.observe(false, false);
+        await this.navigate(route);
+        await this.settleAction();
+        this.#recordQueue.push({
+            action: { action: "navigate", route },
+            observation: await this.observe(false, false),
+        });
+        return { initial };
+    }
+    /** Drain events captured since the previous poll. */
+    async pollRecording() {
+        if (!this.#recording)
+            throw new Error("passive recorder is not active");
+        if (!this.#page.isClosed())
+            await this.#page.waitForTimeout(25);
+        else
+            this.#recordingDone = true;
+        await this.#recordChain;
+        const events = this.#recordQueue.splice(0);
+        const limitations = this.#recordLimitations.splice(0);
+        return { events, limitations, done: this.#recordingDone };
+    }
+    /** Evaluate existing sealed predicates at the exact final recorded state. */
+    async evaluateRecordedOracles() {
+        await this.#recordChain;
+        const outcomes = [];
+        for (const oracle of this.#oracles.values()) {
+            if (oracle.condition && !(await this.#evaluate(oracle.condition))) {
+                outcomes.push({ obligation: oracle.obligation, status: "condition_not_established" });
+                continue;
+            }
+            const passed = oracle.expected.kind === "all"
+                ? (await Promise.all(oracle.expected.predicates.map((predicate) => this.#evaluate(predicate)))).every(Boolean)
+                : await this.#evaluate(oracle.expected);
+            outcomes.push({
+                obligation: oracle.obligation,
+                status: passed ? "passed" : "contradicted",
+            });
+        }
+        return outcomes;
     }
     async navigate(route) {
         await this.#page.goto(this.#resolveUrl(route), { waitUntil: "domcontentloaded" });
@@ -292,6 +354,20 @@ export class PlaywrightDriver {
         await this.#context.close().catch(() => undefined);
         await this.#browser.close().catch(() => undefined);
         this.#closed = true;
+    }
+    async #captureRecordedEvent(capture) {
+        if (capture.limitation)
+            this.#recordLimitations.push(capture.limitation);
+        if (!capture.action || this.#recordingDone)
+            return;
+        this.#recordChain = this.#recordChain.then(async () => {
+            await this.settleAction();
+            this.#recordQueue.push({
+                action: capture.action,
+                observation: await this.observe(false, false),
+            });
+        });
+        await this.#recordChain;
     }
     #locator(target) {
         validateTarget(target);

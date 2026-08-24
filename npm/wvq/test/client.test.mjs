@@ -51,6 +51,9 @@ test('typed client maps methods to bounded native argv', async () => {
         scope: 'impacted',
         evidencePolicy: 'minimal',
     }), { ok: true })
+    assert.deepEqual(await client.record({
+        change: 'live', route: '/dashboard', fixtureValues: { name: 'Alice' }, headless: true,
+    }), { ok: true })
     assert.deepEqual(calls, [{
         binary: 'wvq-test',
         args: ['--repo', 'C:/repo', 'spec', 'validate', '--change', 'live'],
@@ -59,6 +62,13 @@ test('typed client maps methods to bounded native argv', async () => {
         args: [
             '--repo', 'C:/repo', 'run', '--change', 'live', '--base', 'base-sha',
             '--head', 'WORKTREE', '--scope', 'impacted', '--evidence-policy', 'minimal',
+        ],
+    }, {
+        binary: 'wvq-test',
+        args: [
+            '--repo', 'C:/repo', 'record', '--change', 'live', '--base', 'HEAD',
+            '--head', 'WORKTREE', '--route', '/dashboard', '--idle-ms', '3000',
+            '--max-events', '200', '--fixtures-json', '{"name":"Alice"}', '--headless', 'true',
         ],
     }])
 })
@@ -120,13 +130,31 @@ test('MCP client fixes authoring scope at process startup', async () => {
             program: { schema_v: 1, id: 'generated' },
         },
     })
+    assert.deepEqual(await client.record({
+        route: '/dashboard', fixtureValues: { name: 'Alice' }, headless: true,
+    }), { valid: true })
+    assert.deepEqual(calls[2], {
+        binary: 'wvq-mcp-test',
+        args: [
+            '--repo', '/repo', '--profile', 'authoring', '--change', 'live',
+            '--base', 'base-sha', '--head', 'WORKTREE',
+        ],
+        tool: 'quality_test_record',
+        input: {
+            route: '/dashboard',
+            fixture_values: { name: 'Alice' },
+            idle_timeout_ms: 3000,
+            max_events: 200,
+            headless: true,
+        },
+    })
     assert.deepEqual(
         await client.heal('generated', 1, [{
             edit: 'insert_wait', after: 0, condition: { kind: 'url', route: '/ready' },
         }], { screenshot: false }),
         { valid: true },
     )
-    assert.deepEqual(calls[2], {
+    assert.deepEqual(calls[3], {
         binary: 'wvq-mcp-test',
         args: [
             '--repo', '/repo', '--profile', 'authoring', '--change', 'live',

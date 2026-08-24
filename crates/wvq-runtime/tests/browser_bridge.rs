@@ -15,8 +15,9 @@ use browser_lock::BrowserLock;
 use serde_json::json;
 use wvq_domain::{ObligationId, ProgramId};
 use wvq_runtime::{
-    BrowserAssertionStatus, BrowserRunConfig, EvidencePolicy, ProgramOracle, ProgramSource, Target,
-    TestAction, TestProgram, duplicate_mutation_requests, run_browser_program,
+    BrowserAssertionStatus, BrowserRecordingRequest, BrowserRunConfig, EvidencePolicy,
+    ProgramOracle, ProgramSource, Target, TestAction, TestProgram, duplicate_mutation_requests,
+    record_browser_session, run_browser_program,
 };
 
 struct TempDir(PathBuf);
@@ -184,6 +185,91 @@ fn rust_host_executes_a_real_playwright_program() {
     server.join().unwrap();
 }
 
+#[test]
+fn rust_host_records_a_real_semantic_session_without_raw_form_values() {
+    let _guard = BrowserLock::acquire();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_stop = Arc::clone(&stop);
+    let server = thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    thread::spawn(move || respond_recording(stream));
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(err) => panic!("recording test server: {err}"),
+            }
+        }
+    });
+    let temp = TempDir::new();
+    let result = record_browser_session(
+        &BrowserRunConfig {
+            base_url: format!("http://{address}"),
+            browser: "chromium".into(),
+            headless: true,
+            timeout: Duration::from_secs(30),
+            module_root: package_root(),
+            runtime_dir: temp.0.join("runtime-record"),
+            evidence_dir: temp.0.join("evidence-record"),
+            viewport: None,
+            ui_integrity: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+        },
+        &BrowserRecordingRequest {
+            session: "rust-passive-recording".into(),
+            route: "/".into(),
+            fixture_values: [("name".into(), "Alice".into())].into(),
+            idle_timeout: Duration::from_secs(2),
+            max_events: 20,
+        },
+        &[ProgramOracle {
+            obligation: ObligationId::new("details-visible").unwrap(),
+            condition: None,
+            expected: json!({
+                "kind": "text_equals",
+                "target": {"role": "status"},
+                "value": "Details for Alice"
+            }),
+        }],
+    )
+    .unwrap();
+    assert_eq!(result.initial.route.as_deref(), Some("blank"));
+    assert_eq!(result.events.len(), 3, "{result:#?}");
+    assert!(matches!(
+        result.events[0].action,
+        TestAction::Navigate { .. }
+    ));
+    assert!(matches!(
+        &result.events[1].action,
+        TestAction::Fill { value, .. } if value == "name"
+    ));
+    assert!(matches!(
+        result.events[2].action,
+        TestAction::Activate { .. }
+    ));
+    assert!(
+        result
+            .limitations
+            .iter()
+            .any(|item| item.contains("has no named fixture"))
+    );
+    assert!(
+        !serde_json::to_string(&result.events)
+            .unwrap()
+            .contains("s3cr3t-private")
+    );
+    assert_eq!(result.obligations.len(), 1);
+    assert_eq!(result.obligations[0].status, "passed");
+
+    stop.store(true, Ordering::Release);
+    server.join().unwrap();
+}
+
 fn respond(mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut request = [0_u8; 4096];
@@ -194,6 +280,40 @@ fn respond(mut stream: TcpStream) {
             fetch('/api/save', {method: 'POST'})
               .then(() => fetch('/api/save', {method: 'POST'}));
           });
+        </script></body></html>";
+    write!(
+        stream,
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .unwrap();
+    stream.write_all(body).unwrap();
+    stream.flush().unwrap();
+}
+
+fn respond_recording(mut stream: TcpStream) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let mut request = [0_u8; 4096];
+    let _ = stream.read(&mut request);
+    let body = br"<!doctype html><html><body>
+        <label>Name <input id='name'></label><label>Secret <input id='secret'></label>
+        <button data-testid='open-details'>Open details</button><section role='status' hidden></section>
+        <script>
+          document.querySelector('button').addEventListener('click', () => {
+            const status = document.querySelector('[role=status]');
+            status.hidden = false;
+            status.textContent = 'Details for ' + document.querySelector('#name').value;
+          });
+          setTimeout(() => {
+            const name = document.querySelector('#name'); name.value = 'Alice';
+            name.dispatchEvent(new Event('change', {bubbles:true}));
+            const secret = document.querySelector('#secret'); secret.value = 's3cr3t-private';
+            secret.dispatchEvent(new Event('change', {bubbles:true}));
+            document.querySelector('button').click();
+            setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', {
+              key:'E', ctrlKey:true, shiftKey:true, bubbles:true
+            })), 150);
+          }, 100);
         </script></body></html>";
     write!(
         stream,

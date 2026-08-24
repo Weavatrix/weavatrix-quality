@@ -127,6 +127,17 @@ fn authoring_http_projects_the_complete_browser_program_lifecycle() {
     assert_eq!(preview["screenshot_handles"].as_array().unwrap().len(), 1);
     assert!(preview["trace_handle"].as_str().is_some());
 
+    let recorded = post(
+        &studio,
+        "/api/v1/authoring/record",
+        r#"{"change":"live","route":"/dashboard","headless":true}"#,
+    );
+    assert_eq!(recorded.status, 200, "{}", recorded.body);
+    let recorded = json(&recorded);
+    assert_eq!(recorded["useful"], true);
+    assert_eq!(recorded["runtime_llm_tokens"], 0);
+    assert_eq!(recorded["preview"]["passed"], true);
+
     let promoted = post(
         &studio,
         "/api/v1/authoring/promote",

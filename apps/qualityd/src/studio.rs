@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
     AuthorValidateCommand, BusError, ChangesCommand, DebtCommand, DebtReply, EvidenceCommand,
-    ExplainCommand, ProofSummary, QualityService, StatusCommand, VerifyCommand,
+    ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand, VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -41,6 +41,7 @@ enum Route<'a> {
     AuthorDraft,
     AuthorValidate,
     AuthorPreview,
+    AuthorRecord,
     AuthorPromote,
     AuthorHeal,
 }
@@ -53,6 +54,7 @@ impl Route<'_> {
             | Self::AuthorDraft
             | Self::AuthorValidate
             | Self::AuthorPreview
+            | Self::AuthorRecord
             | Self::AuthorPromote
             | Self::AuthorHeal => "POST",
             _ => "GET",
@@ -277,6 +279,7 @@ impl Studio {
             Route::AuthorDraft => self.author_draft(&request.body),
             Route::AuthorValidate => self.author_validate(&request.body),
             Route::AuthorPreview => self.author_preview(&request.body),
+            Route::AuthorRecord => self.author_record(&request.body),
             Route::AuthorPromote => self.author_promote(&request.body),
             Route::AuthorHeal => self.author_heal(&request.body),
         }
@@ -484,6 +487,17 @@ impl Studio {
         }
     }
 
+    fn author_record(&self, body: &str) -> HttpResponse {
+        let command: RecordCommand = match parse_json_body(body) {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
+        match self.service.record(&command) {
+            Ok(reply) => ok(&reply),
+            Err(err) => bus_error(&err),
+        }
+    }
+
     fn author_promote(&self, body: &str) -> HttpResponse {
         let command: AuthorPromoteCommand = match parse_json_body(body) {
             Ok(command) => command,
@@ -579,6 +593,7 @@ fn parse_route(path: &str) -> Option<Route<'_>> {
         ["api", "v1", "authoring", "draft"] => Some(Route::AuthorDraft),
         ["api", "v1", "authoring", "validate"] => Some(Route::AuthorValidate),
         ["api", "v1", "authoring", "preview"] => Some(Route::AuthorPreview),
+        ["api", "v1", "authoring", "record"] => Some(Route::AuthorRecord),
         ["api", "v1", "authoring", "promote"] => Some(Route::AuthorPromote),
         ["api", "v1", "authoring", "heal"] => Some(Route::AuthorHeal),
         _ => None,

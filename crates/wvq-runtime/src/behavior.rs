@@ -42,6 +42,22 @@ pub struct BehaviorState {
 }
 
 impl BehaviorState {
+    /// Build the persistent semantic state used by browser runs and passive recordings.
+    #[must_use]
+    pub fn from_observation(observation: &crate::Observation) -> Option<Self> {
+        let route = observation
+            .route
+            .as_deref()
+            .map(str::trim)
+            .filter(|route| !route.is_empty())?;
+        Some(Self {
+            route: route.to_owned(),
+            a11y_digest: observation.a11y_digest.clone(),
+            viewport: observation.viewport.clone(),
+            ..Self::default()
+        })
+    }
+
     /// Canonical JSON bytes used by both state identity and CAS persistence.
     ///
     /// # Errors
@@ -100,7 +116,8 @@ fn insert_opt(
 }
 
 /// One recorded transition: `before --action--> after`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BehaviorEdge {
     /// Source state digest.
     pub src: ContentHash,
@@ -110,8 +127,29 @@ pub struct BehaviorEdge {
     pub dst: ContentHash,
 }
 
+impl BehaviorEdge {
+    /// Stable edge identity shared by novelty scoring and persistence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramError::Malformed`] when the action cannot be serialized.
+    pub fn identity(&self) -> Result<ContentHash, ProgramError> {
+        let action = serde_json::to_string(&self.action)
+            .map_err(|err| ProgramError::Malformed(err.to_string()))?;
+        let bytes = format!("{}|{action}|{}", self.src, self.dst);
+        let hex = Sha256::digest(bytes.as_bytes())
+            .iter()
+            .fold(String::new(), |mut out, byte| {
+                let _ = write!(out, "{byte:02x}");
+                out
+            });
+        ContentHash::new(hex).map_err(|err| ProgramError::Malformed(err.to_string()))
+    }
+}
+
 /// One recorded event in a manual session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RecordedEvent {
     /// User/runtime action.
     pub action: TestAction,
@@ -120,7 +158,8 @@ pub struct RecordedEvent {
 }
 
 /// Finished manual session. Valuable QA must not disappear after one run.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BehaviorTrace {
     /// Session identity.
     pub session_id: String,
@@ -128,6 +167,9 @@ pub struct BehaviorTrace {
     pub fixture: Option<String>,
     /// Deterministic seed used while recording.
     pub seed: Option<u64>,
+    /// Named safe fixtures referenced by recorded form actions.
+    #[serde(default)]
+    pub data: BTreeMap<String, serde_json::Value>,
     /// Linked sealed obligations.
     pub obligations: Vec<ObligationId>,
     /// Linked API operations.
@@ -187,6 +229,7 @@ pub struct Recorder {
     obligations: BTreeSet<ObligationId>,
     api_operations: BTreeSet<String>,
     coverage: BTreeSet<String>,
+    data: BTreeMap<String, serde_json::Value>,
 }
 
 impl Recorder {
@@ -203,6 +246,7 @@ impl Recorder {
             obligations: BTreeSet::new(),
             api_operations: BTreeSet::new(),
             coverage: BTreeSet::new(),
+            data: BTreeMap::new(),
         }
     }
 
@@ -244,6 +288,11 @@ impl Recorder {
         self.coverage.insert(node.into());
     }
 
+    /// Register one explicit replay fixture. The recorder never invents values.
+    pub fn link_fixture(&mut self, name: impl Into<String>, value: serde_json::Value) {
+        self.data.insert(name.into(), value);
+    }
+
     /// Finish the session.
     ///
     /// # Errors
@@ -259,6 +308,7 @@ impl Recorder {
             session_id: self.session_id,
             fixture: self.fixture,
             seed: self.seed,
+            data: self.data,
             obligations: self.obligations.into_iter().collect(),
             api_operations: self.api_operations.into_iter().collect(),
             coverage: self.coverage.into_iter().collect(),
@@ -273,6 +323,8 @@ impl Recorder {
 pub struct GraphMemory {
     /// Digests already in the `BehaviorGraph`.
     pub known_states: BTreeSet<String>,
+    /// Edge identities already in the `BehaviorGraph`.
+    pub known_edges: BTreeSet<String>,
     /// Obligations already proven or linked.
     pub known_obligations: BTreeSet<String>,
     /// API operations already seen.
@@ -290,6 +342,8 @@ pub struct CoverageContribution {
     pub new_obligations: Vec<String>,
     /// New hashed behavior states.
     pub new_behavior_states: u64,
+    /// New non-loop behavior transitions.
+    pub new_behavior_edges: u64,
     /// New API operations.
     pub new_api_operations: Vec<String>,
     /// New coverage nodes.
@@ -318,12 +372,27 @@ pub fn coverage_contribution(
     }
     let (existing_obligations, new_obligations) =
         split_known(&trace.obligations, &memory.known_obligations);
+    let mut seen_edges = BTreeSet::new();
+    let mut new_behavior_edges = 0_u64;
+    for edge in trace
+        .edges()?
+        .into_iter()
+        .filter(|edge| edge.src != edge.dst)
+    {
+        let identity = edge.identity()?;
+        if seen_edges.insert(identity.to_string())
+            && !memory.known_edges.contains(identity.as_str())
+        {
+            new_behavior_edges = new_behavior_edges.saturating_add(1);
+        }
+    }
     let (_, new_api_operations) = split_known_str(&trace.api_operations, &memory.known_apis);
     let (_, new_code_coverage) = split_known_str(&trace.coverage, &memory.known_coverage);
     Ok(CoverageContribution {
         existing_obligations,
         new_obligations,
         new_behavior_states,
+        new_behavior_edges,
         new_api_operations,
         new_code_coverage,
         redundant_steps: count_redundant(trace)?,
@@ -438,7 +507,7 @@ pub fn promote(trace: &BehaviorTrace, program_id: ProgramId) -> Result<TestProgr
         obligations: trace.obligations.clone(),
         preconditions: Vec::new(),
         steps,
-        data: BTreeMap::new(),
+        data: trace.data.clone(),
         faults: BTreeMap::new(),
         api_operations: BTreeMap::new(),
         evidence_policy: crate::program::EvidencePolicy::default(),

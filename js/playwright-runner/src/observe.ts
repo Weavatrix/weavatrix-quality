@@ -19,6 +19,7 @@ export type Observation = {
     method: string;
     url: string;
     status?: number;
+    resource_type?: string;
   }>;
   network_requests_truncated: boolean;
   console: string[];

@@ -494,6 +494,47 @@ pub struct AuthorPreviewReply {
     pub program_persisted: bool,
 }
 
+/// Result of one passive Playwright recording and deterministic novelty admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecordReply {
+    /// Ephemeral or persisted session identity.
+    pub session_id: String,
+    /// Resolved OpenSpec change.
+    pub change: String,
+    /// Exact repository/Weavatrix revision observed before and after recording.
+    pub revision: String,
+    /// Semantic events captured, including the initial navigation.
+    pub captured_events: u64,
+    /// True only when the session adds behavior, API, or obligation knowledge.
+    pub useful: bool,
+    /// True when no persistent session or candidate was created.
+    pub discarded: bool,
+    /// Stable reason for a redundant or unusable session.
+    pub discard_reason: Option<String>,
+    /// Behavior states absent before this session.
+    pub new_behavior_states: u64,
+    /// Non-loop behavior edges absent before this session.
+    pub new_behavior_edges: u64,
+    /// Existing sealed obligations that matched the exact final state.
+    pub linked_obligations: Vec<String>,
+    /// Newly learned obligation links.
+    pub new_obligations: Vec<String>,
+    /// Normalized API operations observed during the session.
+    pub api_operations: Vec<String>,
+    /// Newly learned API operations.
+    pub new_api_operations: Vec<String>,
+    /// Redaction, budget, or replay limitations; never raw form values.
+    pub limitations: Vec<String>,
+    /// Canonical recorded `TestProgram`, only when at least one sealed oracle matched.
+    pub candidate: Option<Value>,
+    /// Passing/failing replay admission. Promotion remains explicit and QA-gated.
+    pub preview: Option<AuthorPreviewReply>,
+    /// CAS-backed canonical `BehaviorTrace` for admitted sessions.
+    pub trace_handle: Option<String>,
+    /// Normal recording and replay never spend model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Result of explicitly promoting one passing preview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AuthorPromoteReply {
@@ -603,6 +644,9 @@ pub enum Reply {
     /// [`AuthorPreviewReply`].
     #[serde(rename = "author_preview")]
     AuthorPreview(AuthorPreviewReply),
+    /// [`RecordReply`].
+    #[serde(rename = "record")]
+    Record(Box<RecordReply>),
     /// [`AuthorPromoteReply`].
     #[serde(rename = "author_promote")]
     AuthorPromote(AuthorPromoteReply),

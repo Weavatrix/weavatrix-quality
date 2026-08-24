@@ -158,7 +158,7 @@ fn protocol_call_server(
 }
 
 #[test]
-fn authoring_profile_exposes_only_five_high_level_playwright_tools() {
+fn authoring_profile_exposes_only_six_high_level_playwright_tools() {
     let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
     let built = authoring_server(&service, "live", "HEAD", "WORKTREE");
     let catalog = built.catalog();
@@ -175,6 +175,7 @@ fn authoring_profile_exposes_only_five_high_level_playwright_tools() {
             "quality_test_validate",
             "quality_test_preview",
             "quality_test_promote",
+            "quality_test_record",
             "quality_test_heal"
         ]
     );
@@ -238,6 +239,17 @@ fn authoring_profile_runs_the_shared_command_bus_with_fixed_scope() {
     );
     assert!(promoted.contains("\"program_revision\":1"), "{promoted}");
     assert!(promoted.contains("\"persisted\":true"), "{promoted}");
+
+    let recorded = protocol_call_server(
+        authoring_server(&service, "live", "BASE", "HEAD"),
+        "quality_test_record",
+        &serde_json::json!({"route": "/dashboard", "headless": true}),
+    );
+    assert!(
+        recorded.contains("\"session_id\":\"recording-fake\""),
+        "{recorded}"
+    );
+    assert!(recorded.contains("\"runtime_llm_tokens\":0"), "{recorded}");
 
     let healed = protocol_call_server(
         authoring_server(&service, "live", "BASE", "HEAD"),

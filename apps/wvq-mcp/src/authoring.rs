@@ -3,6 +3,7 @@
 //! Agents receive high-level draft/validate/preview operations. They never get
 //! a generic browser control, JavaScript evaluation, shell, or oracle mutation.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -13,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use wvq_command_bus::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, BusError, QualityService,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, QualityService, RecordCommand,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -50,6 +51,21 @@ struct PromoteInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RecordInput {
+    #[serde(default = "default_route")]
+    route: String,
+    #[serde(default)]
+    fixture_values: BTreeMap<String, String>,
+    #[serde(default = "default_idle_timeout_ms")]
+    idle_timeout_ms: u64,
+    #[serde(default = "default_max_events")]
+    max_events: u32,
+    #[serde(default)]
+    headless: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HealInput {
     program_id: String,
     expected_program_revision: u32,
@@ -68,7 +84,19 @@ fn default_true() -> bool {
     true
 }
 
-/// Five high-level tools, fixed to one startup-selected change and Git range.
+fn default_route() -> String {
+    "/".into()
+}
+
+fn default_idle_timeout_ms() -> u64 {
+    3_000
+}
+
+fn default_max_events() -> u32 {
+    200
+}
+
+/// Six high-level tools, fixed to one startup-selected change and Git range.
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn authoring_server(
@@ -81,17 +109,21 @@ pub fn authoring_server(
     let validate_service = Arc::clone(service);
     let preview_service = Arc::clone(service);
     let promote_service = Arc::clone(service);
+    let record_service = Arc::clone(service);
     let heal_service = Arc::clone(service);
     let draft_change = change.to_owned();
     let validate_change = change.to_owned();
     let preview_change = change.to_owned();
     let promote_change = change.to_owned();
+    let record_change = change.to_owned();
     let heal_change = change.to_owned();
     let draft_base = base.to_owned();
     let preview_base = base.to_owned();
+    let record_base = base.to_owned();
     let heal_base = base.to_owned();
     let draft_head = head.to_owned();
     let preview_head = head.to_owned();
+    let record_head = head.to_owned();
     let heal_head = head.to_owned();
     ConcurrentMcpServer::new("weavatrix-quality-authoring", env!("CARGO_PKG_VERSION"))
         .instructions(
@@ -168,6 +200,43 @@ pub fn authoring_server(
                     preview_id: input.preview_id,
                     program: input.program,
                 }))
+            },
+        )
+        .typed_tool(
+            "quality_test_record",
+            "Open a bounded Playwright session, passively capture semantic natural use, discard redundant traces, and return a sealed reviewable replay candidate when useful. Unknown form values are not captured.",
+            schema_record(),
+            move |ctx, input: RecordInput| {
+                let cancel = Arc::new(AtomicBool::new(false));
+                let completed = Arc::new(AtomicBool::new(false));
+                let watcher_cancel = Arc::clone(&cancel);
+                let watcher_completed = Arc::clone(&completed);
+                let watcher_context = ctx.clone();
+                let watcher = thread::spawn(move || {
+                    while !watcher_completed.load(Ordering::Acquire) {
+                        if watcher_context.is_cancelled() {
+                            watcher_cancel.store(true, Ordering::Release);
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                });
+                let reply = record_service.record_controlled(
+                    &RecordCommand {
+                        change: record_change.clone(),
+                        base: record_base.clone(),
+                        head: record_head.clone(),
+                        route: input.route,
+                        fixture_values: input.fixture_values,
+                        idle_timeout_ms: input.idle_timeout_ms,
+                        max_events: input.max_events,
+                        headless: input.headless,
+                    },
+                    cancel,
+                );
+                completed.store(true, Ordering::Release);
+                let _ = watcher.join();
+                tool_result(reply)
             },
         )
         .typed_tool(
@@ -289,6 +358,40 @@ fn schema_promote() -> Value {
             }
         },
         "required": ["preview_id", "program"],
+        "additionalProperties": false
+    })
+}
+
+fn schema_record() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "route": {
+                "type": "string",
+                "pattern": "^/[^/].*|^/$",
+                "description": "Same-origin root-relative route. Defaults to /."
+            },
+            "fixture_values": {
+                "type": "object",
+                "maxProperties": 256,
+                "additionalProperties": {"type": "string", "maxLength": 8192},
+                "description": "Explicit safe values keyed by replay fixture name. Unknown form values are redacted."
+            },
+            "idle_timeout_ms": {
+                "type": "integer",
+                "minimum": 50,
+                "maximum": 60000
+            },
+            "max_events": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+            },
+            "headless": {
+                "type": "boolean",
+                "description": "Defaults false so a human can naturally use the page."
+            }
+        },
         "additionalProperties": false
     })
 }

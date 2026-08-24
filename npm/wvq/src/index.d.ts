@@ -327,6 +327,27 @@ export interface AuthorPreviewReply {
     program_persisted: false
 }
 
+export interface RecordReply {
+    session_id: string
+    change: string
+    revision: string
+    captured_events: number
+    useful: boolean
+    discarded: boolean
+    discard_reason: string | null
+    new_behavior_states: number
+    new_behavior_edges: number
+    linked_obligations: string[]
+    new_obligations: string[]
+    api_operations: string[]
+    new_api_operations: string[]
+    limitations: string[]
+    candidate: JsonValue | null
+    preview: AuthorPreviewReply | null
+    trace_handle: string | null
+    runtime_llm_tokens: 0
+}
+
 export interface AuthorPromoteReply {
     change: string
     revision: string
@@ -375,6 +396,13 @@ export class WvqClient {
     debt(options?: RangeOptions): Promise<DebtReply>
     select(options?: RangeOptions): Promise<SelectReply>
     run(options?: RangeOptions & { scope?: RunScope; evidencePolicy?: EvidencePolicy }): Promise<RunReply>
+    record(options?: RangeOptions & {
+        route?: string
+        fixtureValues?: Record<string, string>
+        idleTimeoutMs?: number
+        maxEvents?: number
+        headless?: boolean
+    }): Promise<RecordReply>
     status(options?: CallOptions): Promise<StatusReply>
     verify(options?: { change?: string; signal?: AbortSignal }): Promise<VerifyReply>
     explain(id: string, options?: CallOptions): Promise<ExplainReply>
@@ -413,6 +441,15 @@ export class WvqMcpClient {
         program: Record<string, JsonValue>,
         options?: CallOptions,
     ): Promise<AuthorPromoteReply>
+    record(options?: {
+        route?: string
+        fixtureValues?: Record<string, string>
+        idleTimeoutMs?: number
+        maxEvents?: number
+        headless?: boolean
+        signal?: AbortSignal
+        timeoutMs?: number
+    }): Promise<RecordReply>
     heal(
         programId: string,
         expectedProgramRevision: number,

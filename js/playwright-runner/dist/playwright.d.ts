@@ -1,6 +1,7 @@
 /** Actual Playwright adapter. Policy and sealed predicates arrive from Rust. */
 import type { Driver, Target, WaitCondition } from "./execute.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
+import { type RecorderInstallConfig } from "./record.js";
 import { type CollectionResult, type UiIntegrityConfig } from "./ui_integrity.js";
 export type PredicateTarget = Omit<Target, "component_hint">;
 export type Predicate = {
@@ -113,10 +114,31 @@ export type BrowserConfig = {
     };
     evidence_dir: string;
 };
+export type RecordedBrowserEvent = {
+    action: Record<string, unknown>;
+    observation: Observation;
+};
+export type RecordedBrowserPoll = {
+    events: RecordedBrowserEvent[];
+    limitations: string[];
+    done: boolean;
+};
+export type RecordedOracleResult = {
+    obligation: string;
+    status: "passed" | "contradicted" | "condition_not_established";
+};
 export declare class PlaywrightDriver implements Driver {
     #private;
     private constructor();
     static create(program: BrowserProgram, oracles: ProgramOracle[], rawConfig: BrowserConfig): Promise<PlaywrightDriver>;
+    /** Begin passive capture before opening the requested route. */
+    startRecording(route: string, config: RecorderInstallConfig): Promise<{
+        initial: Observation;
+    }>;
+    /** Drain events captured since the previous poll. */
+    pollRecording(): Promise<RecordedBrowserPoll>;
+    /** Evaluate existing sealed predicates at the exact final recorded state. */
+    evaluateRecordedOracles(): Promise<RecordedOracleResult[]>;
     navigate(route: string): Promise<void>;
     activate(target: Target): Promise<void>;
     fill(target: Target, value: string): Promise<void>;

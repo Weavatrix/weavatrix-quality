@@ -56,6 +56,44 @@ class BridgeSession {
           body = { program: program.id, preconditions: program.preconditions?.length ?? 0 };
           break;
         }
+        case "prepare_recording": {
+          this.#requireInitialized();
+          if (this.#driver) throw new Error("a program is already prepared");
+          const oracles = request.params.oracles as ProgramOracle[];
+          const config = request.params.config as BrowserConfig;
+          const fixtureValues = request.params.fixture_values;
+          const route = request.params.route;
+          const session = request.params.session;
+          const maxEvents = request.params.max_events;
+          if (!Array.isArray(oracles)) throw new Error("prepare_recording requires params.oracles");
+          if (typeof route !== "string" || !route.startsWith("/")) {
+            throw new Error("prepare_recording route must be root-relative");
+          }
+          if (typeof session !== "string" || !session.trim()) {
+            throw new Error("prepare_recording requires params.session");
+          }
+          if (!fixtureValues || typeof fixtureValues !== "object" || Array.isArray(fixtureValues)) {
+            throw new Error("prepare_recording requires params.fixture_values");
+          }
+          if (!Number.isInteger(maxEvents)) {
+            throw new Error("prepare_recording requires integer params.max_events");
+          }
+          const program: BrowserProgram = {
+            id: session,
+            obligations: [],
+            steps: [],
+            data: fixtureValues as Record<string, unknown>,
+            evidence_policy: defaultPolicy(),
+          };
+          this.#program = program;
+          this.#driver = await PlaywrightDriver.create(program, oracles, config);
+          const started = await this.#driver.startRecording(route, {
+            fixture_values: fixtureValues as Record<string, string>,
+            max_events: Number(maxEvents),
+          });
+          body = { session, initial: started.initial };
+          break;
+        }
         case "execute_step": {
           const { program, driver } = this.#requirePrepared();
           const index = request.params.index;
@@ -106,6 +144,19 @@ class BridgeSession {
             request.params.config as UiIntegrityConfig | undefined,
           );
           body = { snapshot: result.snapshot, limitations: result.limitations };
+          break;
+        }
+        case "poll_recording": {
+          const { driver } = this.#requirePrepared();
+          body = await driver.pollRecording();
+          break;
+        }
+        case "finish_recording": {
+          const { driver } = this.#requirePrepared();
+          const obligations = await driver.evaluateRecordedOracles();
+          const finished = await driver.finish();
+          this.#finished = true;
+          body = { obligations, ...finished };
           break;
         }
         case "finish": {

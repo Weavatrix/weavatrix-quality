@@ -73,6 +73,26 @@ export class WvqMcpClient {
         }, { signal })
     }
 
+    record({
+        route = '/', fixtureValues = {}, idleTimeoutMs = 3_000, maxEvents = 200,
+        headless, signal, timeoutMs,
+    } = {}) {
+        requireText('route', route)
+        requireBoundedInteger('idleTimeoutMs', idleTimeoutMs, 50, 60_000)
+        requireBoundedInteger('maxEvents', maxEvents, 1, 1_000)
+        if (headless !== undefined && typeof headless !== 'boolean') {
+            throw new TypeError('headless must be boolean')
+        }
+        const input = {
+            route,
+            fixture_values: requireStringMap('fixtureValues', fixtureValues),
+            idle_timeout_ms: idleTimeoutMs,
+            max_events: maxEvents,
+        }
+        if (headless !== undefined) input.headless = headless
+        return this.call('quality_test_record', input, { signal, timeoutMs })
+    }
+
     heal(programId, expectedProgramRevision, edits, {
         screenshot = true, trace = false, signal, timeoutMs,
     } = {}) {
@@ -105,6 +125,22 @@ function requireObject(name, value) {
         throw new TypeError(`${name} must be an object`)
     }
     return value
+}
+
+function requireStringMap(name, value) {
+    requireObject(name, value)
+    for (const [key, item] of Object.entries(value)) {
+        if (!key.trim() || typeof item !== 'string') {
+            throw new TypeError(`${name} must contain non-empty names and string values`)
+        }
+    }
+    return value
+}
+
+function requireBoundedInteger(name, value, minimum, maximum) {
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+        throw new TypeError(`${name} must be an integer between ${minimum} and ${maximum}`)
+    }
 }
 
 export { resolveBinary }

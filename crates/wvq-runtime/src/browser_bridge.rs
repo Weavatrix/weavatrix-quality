@@ -18,7 +18,7 @@ use crate::{Observation, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 1024 * 1024;
-const BRIDGE_FILES: [(&str, &str); 6] = [
+const BRIDGE_FILES: [(&str, &str); 7] = [
     (
         "main.js",
         include_str!("../../../js/playwright-runner/dist/main.js"),
@@ -38,6 +38,10 @@ const BRIDGE_FILES: [(&str, &str); 6] = [
     (
         "observe.js",
         include_str!("../../../js/playwright-runner/dist/observe.js"),
+    ),
+    (
+        "record.js",
+        include_str!("../../../js/playwright-runner/dist/record.js"),
     ),
     (
         "playwright.js",
@@ -223,6 +227,54 @@ pub struct BrowserProgramRun {
     pub failure: Option<String>,
 }
 
+/// Bounded inputs for one passive browser recording session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserRecordingRequest {
+    /// Stable session identity used only for evidence names.
+    pub session: String,
+    /// Same-origin root-relative route opened before natural interaction.
+    pub route: String,
+    /// Explicit safe values mapped to fixture names. Unmatched form values are never captured.
+    pub fixture_values: BTreeMap<String, String>,
+    /// End the session after this much inactivity.
+    pub idle_timeout: Duration,
+    /// Hard ceiling for page-originated semantic events.
+    pub max_events: u32,
+}
+
+/// One semantic page action and the exact observation after it settled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrowserRecordedEvent {
+    /// Typed action; XPath and arbitrary JavaScript are not representable.
+    pub action: TestAction,
+    /// Structured state after this action.
+    pub observation: Observation,
+}
+
+/// Result of evaluating one existing sealed oracle at the final recorded state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordedOracleOutcome {
+    /// Existing sealed obligation identity.
+    pub obligation: String,
+    /// `passed`, `contradicted`, or `condition_not_established`.
+    pub status: String,
+}
+
+/// A real passive Playwright session before novelty admission or promotion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BrowserRecording {
+    /// Initial blank-browser state, before the recorded navigation.
+    pub initial: Observation,
+    /// Ordered semantic events including the initial navigation.
+    pub events: Vec<BrowserRecordedEvent>,
+    /// Existing sealed predicates measured at the final state.
+    pub obligations: Vec<RecordedOracleOutcome>,
+    /// Redaction, budget, or replay limitations. Never raw form values.
+    pub limitations: Vec<String>,
+}
+
 /// Find repeated POST/PUT/PATCH/DELETE requests within one action span.
 ///
 /// Identical requests in different spans are separate user intents and are not
@@ -320,6 +372,140 @@ pub fn run_browser_program(
     oracles: &[ProgramOracle],
 ) -> Result<BrowserProgramRun, BrowserBridgeError> {
     run_browser_program_at(config, program, oracles, "unknown")
+}
+
+/// Record natural same-origin browser use through the bundled Playwright adapter.
+///
+/// The page can emit only typed semantic actions. Form values leave the page only
+/// when they exactly match an explicitly named fixture; unmatched values produce
+/// a limitation and are discarded. Existing sealed predicates are evaluated at
+/// the final state, but this function does not promote or persist anything.
+///
+/// # Errors
+///
+/// Returns an error for invalid bounds, bridge failures, cancellation, or malformed evidence.
+pub fn record_browser_session(
+    config: &BrowserRunConfig,
+    request: &BrowserRecordingRequest,
+    oracles: &[ProgramOracle],
+) -> Result<BrowserRecording, BrowserBridgeError> {
+    validate_config(config)?;
+    validate_recording_request(request, config.timeout)?;
+    let runner = materialize_bridge(&config.runtime_dir)?;
+    let mut bridge = BridgeProcess::spawn(config, &runner)?;
+    bridge.request("initialize", &json!({"schema_v": 1}))?;
+    let prepared = bridge.request(
+        "prepare_recording",
+        &json!({
+            "session": request.session,
+            "route": request.route,
+            "fixture_values": request.fixture_values,
+            "max_events": request.max_events,
+            "oracles": oracles,
+            "config": {
+                "base_url": config.base_url,
+                "browser": config.browser,
+                "headless": config.headless,
+                "timeout_ms": u64::try_from(config.timeout.as_millis()).unwrap_or(u64::MAX),
+                "evidence_dir": config.evidence_dir,
+                "viewport": config.viewport,
+            }
+        }),
+    )?;
+    let initial =
+        serde_json::from_value(prepared.get("initial").cloned().ok_or_else(|| {
+            BrowserBridgeError::Protocol("recorder omitted initial state".into())
+        })?)
+        .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    let mut events = Vec::new();
+    let mut limitations = Vec::new();
+    let mut last_event = Instant::now();
+    loop {
+        let body = bridge.request("poll_recording", &json!({}))?;
+        let mut polled: Vec<BrowserRecordedEvent> =
+            serde_json::from_value(body.get("events").cloned().unwrap_or_else(|| json!([])))
+                .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+        if !polled.is_empty() {
+            last_event = Instant::now();
+            events.append(&mut polled);
+        }
+        limitations.extend(
+            body.get("limitations")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(ToOwned::to_owned),
+        );
+        let done = body.get("done").and_then(Value::as_bool).unwrap_or(false);
+        if done || last_event.elapsed() >= request.idle_timeout {
+            break;
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+    let finished = bridge.request("finish_recording", &json!({}))?;
+    let obligations = serde_json::from_value(
+        finished
+            .get("obligations")
+            .cloned()
+            .unwrap_or_else(|| json!([])),
+    )
+    .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    bridge.close()?;
+    limitations.sort();
+    limitations.dedup();
+    Ok(BrowserRecording {
+        initial,
+        events,
+        obligations,
+        limitations,
+    })
+}
+
+fn validate_recording_request(
+    request: &BrowserRecordingRequest,
+    bridge_timeout: Duration,
+) -> Result<(), BrowserBridgeError> {
+    if request.session.trim().is_empty() || request.session.len() > 128 {
+        return Err(BrowserBridgeError::Config(
+            "recording session must contain 1..=128 characters".into(),
+        ));
+    }
+    if !request.route.starts_with('/') || request.route.starts_with("//") {
+        return Err(BrowserBridgeError::Config(
+            "recording route must be same-origin and root-relative".into(),
+        ));
+    }
+    if request.idle_timeout < Duration::from_millis(50)
+        || request.idle_timeout > Duration::from_secs(60)
+        || request.idle_timeout >= bridge_timeout
+    {
+        return Err(BrowserBridgeError::Config(
+            "recording idle timeout must be 50ms..=60s and shorter than the bridge deadline".into(),
+        ));
+    }
+    if !(1..=1_000).contains(&request.max_events) {
+        return Err(BrowserBridgeError::Config(
+            "recording max_events must be between 1 and 1000".into(),
+        ));
+    }
+    if request.fixture_values.len() > 256
+        || request
+            .fixture_values
+            .iter()
+            .any(|(key, value)| key.trim().is_empty() || key.len() > 128 || value.len() > 8 * 1024)
+        || request
+            .fixture_values
+            .iter()
+            .map(|(key, value)| key.len().saturating_add(value.len()))
+            .sum::<usize>()
+            > 64 * 1024
+    {
+        return Err(BrowserBridgeError::Config(
+            "recording fixture data exceeds its name, value, count, or 64 KiB bound".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Execute one validated program and bind its evidence to an exact revision.

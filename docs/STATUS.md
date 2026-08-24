@@ -37,7 +37,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | ProtectionSnapshot/Delta | ✅ | ✅ | ✅ default verdict axis; base replay stays explicit | ✅ base/head coverage replay |
 | Protection MCP/Studio | ✅ | ✅ | ✅ verdict axis + Studio summary; 🟡 opt-in profile/view | ✅ when measured coverage exists |
 | Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions + exact spans + sealed assertions + observations |
-| Manual record → promoted replay | ✅ | 🟡 | 🟡 preview/promotion | 🟡 replay yes, manual recorder no |
+| Manual record → promoted replay | ✅ | ✅ | ✅ CLI/MCP/Studio + explicit promotion | ✅ passive Chromium capture + novelty discard + replay preview |
 | Mutation | ✅ | ✅ model | ❌ producer | ❌ source mutation |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
@@ -162,10 +162,11 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 | optional model | `use_model: true` performs one planning call through the existing loopback-only persistent AI Cost Firewall; normal draft and verification use zero model tokens |
 | validate | Strictly decodes canonical `TestProgram` JSON, rejects candidate-owned oracle fields, unknown/duplicate obligations, XPath, unknown actions, and obligations without an executable sealed expected predicate |
 | preview | Executes actual Playwright (`chromium`, `firefox`, or `webkit`), checks repository revision before/after, imports observations/screenshots/trace into CAS, removes exact temporary evidence files, and records a passed/failed admission identity without registering the candidate |
+| record | Opens a visible Playwright browser by default, captures bounded semantic natural use, never exports unmatched form values, evaluates existing sealed predicates at the exact final state, computes new states/non-loop edges/API/obligation links, discards zero-contribution sessions, and replays useful `source: recorded` candidates through preview with zero model tokens |
 | promote | Revalidates the exact previewed program, current repository revision, change, and existing `OracleSeal`; only a passing preview atomically becomes CAS-backed program revision 1, and repeated promotion is idempotent |
 | reuse | `select` and `run` automatically load the latest promoted revision whose seal still matches; stale-seal programs are not executed, and a repository-configured program cannot silently shadow the same id |
 | heal | Accepts only semantic retargeting or typed deterministic waits, requires the caller's latest program revision and the same `OracleSeal`, runs real Playwright with the original assertions, and atomically appends a CAS-backed revision only on pass; failed repairs retain evidence but do not replace the active program |
-| transports | MCP: `quality_test_{draft,validate,preview,promote,heal}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote,heal}` |
+| transports | CLI: `wvq record`; MCP: `quality_test_{draft,validate,preview,promote,record,heal}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote,record,heal}` |
 
 Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
@@ -175,7 +176,7 @@ Current validation: 493 Rust tests pass with zero failures, and workspace Clippy
 
 - Package name: `wvq`; the JS API is a typed, no-shell boundary over Rust rather than a second policy implementation.
 - `npx wvq`, `npx wvq mcp`, and `npx wvq bench` select only the three fixed native programs. Direct `wvq-mcp` and `wvq-bench` bins are also present after installation.
-- `WvqClient` covers the CLI command bus; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, `preview`, `promote`, and `heal` helpers.
+- `WvqClient` covers the CLI command bus, including passive `record`; `WvqMcpClient` provides generic bounded calls plus typed authoring `draft`, `validate`, `preview`, `promote`, `record`, and `heal` helpers.
 - The package resolves bundled Windows/macOS/Linux x64/arm64 programs, verified platform packages, explicit binary overrides, or the local workspace binaries. It never falls back through a shell or recursively launches itself from `PATH`.
 - The tag workflow builds and smoke-tests all three programs on six platform runners, assembles the universal package, installs it into a clean prefix, exercises a real MCP call, publishes npm with provenance, validates/publishes official MCP metadata, verifies both registries, and then creates an immutable GitHub release.
 - `server.json` and npm `mcpName` are version-locked. The official MCP Registry publisher accepted the current metadata locally.
@@ -234,9 +235,8 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Close the remaining maturity gaps without adding another feature family:
 
-1. **Passive session recorder.** Capture bounded semantic sessions during natural app use, compute their exact obligation/API/coverage/BehaviorGraph contribution, discard redundant traces, and admit useful paths as reviewable promotion candidates.
-2. **Deterministic network replay and accessibility.** Reuse recorded network behavior for fast stable frontend regression and add cheap model-less accessibility evidence before autonomous fallback.
-3. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
-4. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
+1. **Deterministic network replay and accessibility.** Reuse recorded network behavior for fast stable frontend regression and add cheap model-less accessibility evidence before autonomous fallback.
+2. **Advanced producers.** Finish source mutation, project metamorphic adapters, and browser-feedback exploration before exposing more planner primitives.
+3. **Studio frontend and adoption.** Build the exception-first UI with measured React render profiling, then add `wvq init` / `wvq baseline` for an `OBSERVED` baseline that does not pretend to be an OpenSpec oracle.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

@@ -133,6 +133,7 @@ fn coverage_contribution_and_redundant_steps() {
     );
     assert_eq!(contrib.new_obligations, vec!["overflow-grouped".to_owned()]);
     assert_eq!(contrib.new_behavior_states, 1);
+    assert_eq!(contrib.new_behavior_edges, 1);
     assert_eq!(
         contrib.new_api_operations,
         vec!["GET /api/sankey".to_owned()]

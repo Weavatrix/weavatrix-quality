@@ -32,7 +32,7 @@ pub enum HostProfile {
     Recovery,
     /// Three-tool base/head protection continuity profile.
     Protection,
-    /// Three-tool Playwright `TestProgram` authoring profile.
+    /// Six-tool Playwright `TestProgram` authoring and passive-recording profile.
     Authoring,
 }
 

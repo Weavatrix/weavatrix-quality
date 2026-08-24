@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use wvq_command_bus::{
     Command, ContextCommand, DebtCommand, ExplainCommand, LiveService, ModelCommand, PlanCommand,
-    QualityService, RecoveryCommand, RunCommand, SelectCommand, SpecCommand, VerifyCommand,
-    dispatch,
+    QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand,
+    VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -43,6 +43,7 @@ Usage:
   wvq [--repo PATH] debt [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] select [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] recover [--change ID] [--base REF] [--head REF|WORKTREE]
+  wvq [--repo PATH] record [--change ID] [--base REF] [--head REF|WORKTREE] [--route /PATH] [--idle-ms N] [--max-events N] [--headless true|false] [--fixtures-json JSON]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID]
@@ -122,6 +123,27 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change, base, head }),
         [cmd] if cmd == "select" => Command::Select(SelectCommand { change, base, head }),
         [cmd] if cmd == "recover" => Command::Recovery(RecoveryCommand { change, base, head }),
+        [cmd] if cmd == "record" => Command::Record(RecordCommand {
+            change,
+            base,
+            head,
+            route: flags
+                .get("route")
+                .cloned()
+                .unwrap_or_else(|| "/".to_owned()),
+            fixture_values: parse_fixtures(flags.get("fixtures-json"))?,
+            idle_timeout_ms: parse_u64_flag(flags.get("idle-ms"), 3_000, "idle-ms")?,
+            max_events: u32::try_from(parse_u64_flag(
+                flags.get("max-events"),
+                200,
+                "max-events",
+            )?)
+            .map_err(|_| "invalid --max-events value".to_owned())?,
+            headless: flags
+                .get("headless")
+                .map(|value| parse_bool_flag(value, "headless"))
+                .transpose()?,
+        }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
             kind: required_flag(&flags, "kind")?,
@@ -175,6 +197,17 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
         [cmd] if matches!(cmd.as_str(), "debt" | "select" | "recover") => {
             Some(&["repo", "change", "base", "head"])
         }
+        [cmd] if cmd == "record" => Some(&[
+            "repo",
+            "change",
+            "base",
+            "head",
+            "route",
+            "idle-ms",
+            "max-events",
+            "headless",
+            "fixtures-json",
+        ]),
         [cmd] if matches!(cmd.as_str(), "verify" | "plan") => Some(&["repo", "change"]),
         [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
         [cmd] if cmd == "run" => {
@@ -193,6 +226,30 @@ fn parse_budget(raw: Option<&String>) -> Result<u64, String> {
             .parse()
             .map_err(|_| format!("invalid --token-budget {text}")),
     }
+}
+
+fn parse_u64_flag(raw: Option<&String>, fallback: u64, name: &str) -> Result<u64, String> {
+    raw.map_or(Ok(fallback), |text| {
+        text.parse().map_err(|_| format!("invalid --{name} {text}"))
+    })
+}
+
+fn parse_bool_flag(raw: &str, name: &str) -> Result<bool, String> {
+    match raw {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        value => Err(format!("invalid --{name} {value}; expected true or false")),
+    }
+}
+
+fn parse_fixtures(raw: Option<&String>) -> Result<BTreeMap<String, String>, String> {
+    raw.map_or_else(
+        || Ok(BTreeMap::new()),
+        |text| {
+            serde_json::from_str(text)
+                .map_err(|err| format!("invalid --fixtures-json object: {err}"))
+        },
+    )
 }
 
 /// Run a parsed request against any service.

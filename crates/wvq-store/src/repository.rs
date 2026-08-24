@@ -1240,6 +1240,23 @@ impl Store {
         Ok(inserted == 1)
     }
 
+    /// Whether a behavior state is already known without mutating the graph.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn has_behavior_state(&self, digest: &ContentHash) -> Result<bool, StoreError> {
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM behavior_states WHERE id = ?1",
+                [digest.as_str()],
+                |row| row.get(0),
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(count != 0)
+    }
+
     /// Persist `src --action--> dst`. Returns `true` only for a new edge.
     ///
     /// # Errors
@@ -1262,6 +1279,29 @@ impl Store {
         Ok(inserted == 1)
     }
 
+    /// Whether an exact semantic edge is already known without mutating the graph.
+    ///
+    /// # Errors
+    ///
+    /// SQL or hash failure.
+    pub fn has_behavior_edge(
+        &self,
+        src: &ContentHash,
+        dst: &ContentHash,
+        action: &str,
+    ) -> Result<bool, StoreError> {
+        let id = edge_id(src, dst, action)?;
+        let count: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM behavior_edges WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(count != 0)
+    }
+
     /// Record a manual QA session so it can be replayed.
     ///
     /// # Errors
@@ -1281,6 +1321,122 @@ impl Store {
             )
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         Ok(())
+    }
+
+    /// Persist one admitted passive session, its replay events, and contribution links.
+    ///
+    /// The canonical trace is stored in CAS. Callers should admit only useful
+    /// sessions; this method never decides novelty or oracle validity.
+    ///
+    /// # Errors
+    ///
+    /// CAS or SQL failure.
+    #[allow(clippy::too_many_arguments)]
+    pub fn put_recorded_session(
+        &self,
+        id: &str,
+        seed: Option<u64>,
+        fixture: Option<&str>,
+        repository_revision: &str,
+        preview_id: Option<&str>,
+        trace_body: &[u8],
+        events: &[(String, ContentHash)],
+        obligations: &[String],
+        api_operations: &[String],
+    ) -> Result<ContentHash, StoreError> {
+        if id.trim().is_empty() || repository_revision.trim().is_empty() {
+            return Err(StoreError::Invalid(
+                "recorded session requires id and repository revision".into(),
+            ));
+        }
+        let trace_hash = self.put_blob(trace_body)?;
+        let seed = seed.map(|value| i64::try_from(value).unwrap_or(i64::MAX));
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute(
+            "INSERT OR REPLACE INTO manual_sessions (
+                id, seed, fixture, repository_revision, trace_hash, preview_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                id,
+                seed,
+                fixture,
+                repository_revision,
+                trace_hash.as_str(),
+                preview_id
+            ],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute("DELETE FROM session_events WHERE session = ?1", [id])
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute(
+            "DELETE FROM manual_session_obligations WHERE session = ?1",
+            [id],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        tx.execute(
+            "DELETE FROM manual_session_api_operations WHERE session = ?1",
+            [id],
+        )
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        for (index, (action, state)) in events.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO session_events (session, seq, action, state_digest)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    id,
+                    i64::try_from(index).unwrap_or(i64::MAX),
+                    action,
+                    state.as_str()
+                ],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        for obligation in obligations {
+            tx.execute(
+                "INSERT INTO manual_session_obligations (session, obligation) VALUES (?1, ?2)",
+                params![id, obligation],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        for operation in api_operations {
+            tx.execute(
+                "INSERT INTO manual_session_api_operations (session, operation) VALUES (?1, ?2)",
+                params![id, operation],
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        tx.commit()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        Ok(trace_hash)
+    }
+
+    /// Whether any admitted session already links this sealed obligation.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn has_behavior_obligation(&self, obligation: &str) -> Result<bool, StoreError> {
+        exists_by_value(
+            &self.conn,
+            "SELECT COUNT(*) FROM manual_session_obligations WHERE obligation = ?1",
+            obligation,
+        )
+    }
+
+    /// Whether any admitted session already observed this normalized API operation.
+    ///
+    /// # Errors
+    ///
+    /// SQL failure.
+    pub fn has_behavior_api_operation(&self, operation: &str) -> Result<bool, StoreError> {
+        exists_by_value(
+            &self.conn,
+            "SELECT COUNT(*) FROM manual_session_api_operations WHERE operation = ?1",
+            operation,
+        )
     }
 
     /// Number of persisted behavior states.
@@ -1317,23 +1473,32 @@ impl Store {
     pub fn get_manual_session(&self, id: &str) -> Result<Option<StoredSession>, StoreError> {
         self.conn
             .query_row(
-                "SELECT seed, fixture FROM manual_sessions WHERE id = ?1",
+                "SELECT seed, fixture, repository_revision, trace_hash, preview_id
+                 FROM manual_sessions WHERE id = ?1",
                 [id],
                 |row| {
                     Ok((
                         row.get::<_, Option<i64>>(0)?,
                         row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
                     ))
                 },
             )
             .optional()
             .map_err(|err| StoreError::Sqlite(err.to_string()))?
-            .map(|(seed, fixture)| {
-                Ok(StoredSession {
-                    seed: seed.map(|value| u64::try_from(value).unwrap_or(0)),
-                    fixture,
-                })
-            })
+            .map(
+                |(seed, fixture, repository_revision, trace_hash, preview_id)| {
+                    Ok(StoredSession {
+                        seed: seed.map(|value| u64::try_from(value).unwrap_or(0)),
+                        fixture,
+                        repository_revision,
+                        trace_hash,
+                        preview_id,
+                    })
+                },
+            )
             .transpose()
     }
 
@@ -1525,8 +1690,8 @@ impl Store {
             ));
         }
         if let Some(existing) = preview.6 {
-            let revision = u32::try_from(existing)
-                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let revision =
+                u32::try_from(existing).map_err(|err| StoreError::Invalid(err.to_string()))?;
             tx.commit()
                 .map_err(|err| StoreError::Sqlite(err.to_string()))?;
             return Ok((revision, false));
@@ -1627,8 +1792,8 @@ impl Store {
             ));
         }
         if let Some(existing) = preview.6 {
-            let revision = u32::try_from(existing)
-                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let revision =
+                u32::try_from(existing).map_err(|err| StoreError::Invalid(err.to_string()))?;
             tx.commit()
                 .map_err(|err| StoreError::Sqlite(err.to_string()))?;
             return Ok((revision, false));
@@ -1651,8 +1816,8 @@ impl Store {
             .optional()
             .map_err(|err| StoreError::Sqlite(err.to_string()))?
             .ok_or_else(|| StoreError::Invalid("program has not been promoted".into()))?;
-        let latest_revision = u32::try_from(latest.0)
-            .map_err(|err| StoreError::Invalid(err.to_string()))?;
+        let latest_revision =
+            u32::try_from(latest.0).map_err(|err| StoreError::Invalid(err.to_string()))?;
         if latest_revision != expected_revision {
             return Err(StoreError::Invalid(format!(
                 "program revision changed: expected {expected_revision}, latest is {latest_revision}"
@@ -1725,8 +1890,8 @@ impl Store {
         let Some((seal, change_id, repository_revision, raw_hash, source, preview_id)) = row else {
             return Ok(None);
         };
-        let body_hash = ContentHash::new(raw_hash)
-            .map_err(|err| StoreError::Invalid(err.to_string()))?;
+        let body_hash =
+            ContentHash::new(raw_hash).map_err(|err| StoreError::Invalid(err.to_string()))?;
         let body = self.cas.get(&body_hash)?;
         Ok(Some((
             StoredProgramRevision {
@@ -1784,10 +1949,10 @@ impl Store {
         for row in rows {
             let (program, raw_revision, seal, repository_revision, raw_hash, source, preview_id) =
                 row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
-            let revision = u32::try_from(raw_revision)
-                .map_err(|err| StoreError::Invalid(err.to_string()))?;
-            let body_hash = ContentHash::new(raw_hash)
-                .map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let revision =
+                u32::try_from(raw_revision).map_err(|err| StoreError::Invalid(err.to_string()))?;
+            let body_hash =
+                ContentHash::new(raw_hash).map_err(|err| StoreError::Invalid(err.to_string()))?;
             let body = self.cas.get(&body_hash)?;
             out.push((
                 StoredProgramRevision {
@@ -2026,6 +2191,23 @@ pub struct StoredSession {
     pub seed: Option<u64>,
     /// Fixture name.
     pub fixture: Option<String>,
+    /// Exact source revision that was open during recording.
+    pub repository_revision: String,
+    /// Canonical `BehaviorTrace` CAS hash for replay/audit.
+    pub trace_hash: Option<String>,
+    /// Passing reviewable authoring preview, when one was produced.
+    pub preview_id: Option<String>,
+}
+
+fn exists_by_value(
+    conn: &rusqlite::Connection,
+    query: &str,
+    value: &str,
+) -> Result<bool, StoreError> {
+    let count: i64 = conn
+        .query_row(query, [value], |row| row.get(0))
+        .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+    Ok(count != 0)
 }
 
 fn edge_id(src: &ContentHash, dst: &ContentHash, action: &str) -> Result<String, StoreError> {

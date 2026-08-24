@@ -129,6 +129,7 @@ The `wvq` npm package is a typed JavaScript boundary around the same Rust implem
 ```sh
 npm install --save-dev wvq
 npx wvq --repo . plan --change current
+npx wvq --repo . record --change current --route /dashboard
 npx wvq mcp --repo .
 npx wvq bench --repo . --change current --base origin/main --head WORKTREE
 ```
@@ -153,6 +154,7 @@ const draft = await authoring.draft()
 const validated = await authoring.validate(candidateProgram)
 const preview = await authoring.preview(validated.program, { screenshot: true, trace: true })
 const promoted = await authoring.promote(preview.preview_id, validated.program)
+const recorded = await authoring.record({ route: '/dashboard', fixtureValues: { account: 'demo' } })
 const healed = await authoring.heal(promoted.program_id, promoted.program_revision, [
   { edit: 'insert_wait', after: 0, condition: { kind: 'url', route: '/ready' } },
 ])
@@ -298,19 +300,20 @@ wvq-mcp --repo . --profile authoring --change current --base HEAD --head WORKTRE
 npx wvq mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
 ```
 
-It exposes five high-level operations:
+It exposes six high-level operations:
 
 ```text
 quality_test_draft     complete sealed obligations + bounded changed-code/Weavatrix context
 quality_test_validate  strict TestProgram validation against the existing OracleSeal; no writes
 quality_test_preview   real Playwright run with observation/screenshot/trace handles; no test save
 quality_test_promote   persist only the exact passing same-revision preview under the existing seal
+quality_test_record    passive semantic session; discard duplicates and preview only useful replay candidates
 quality_test_heal      replay locator/wait-only repair; append a version only when the old oracle passes
 ```
 
-`quality_test_draft` normally uses zero model tokens and lets the calling agent produce the candidate. `use_model: true` explicitly requests one configured loopback planning call through the same persistent AI Cost Firewall. Candidate JSON cannot contain or replace oracle predicates, cannot use XPath, shell, JavaScript evaluation, filesystem writes, or unregistered cross-origin API operations. Screenshot capture defaults on for preview; trace capture is opt-in. Promotion revalidates the current program, change, repository revision, and `OracleSeal`, is idempotent for the same preview, and stores canonical JSON in CAS as program revision 1. Later `select` and `run` load the latest matching sealed revision automatically; a stale seal is never executed. Healing accepts only semantic retargeting and typed deterministic waits, uses optimistic revision concurrency, replays the unchanged assertions through Playwright, and writes a new version only after a pass. A failed replay returns evidence handles and leaves the active program unchanged.
+`quality_test_draft` normally uses zero model tokens and lets the calling agent produce the candidate. `use_model: true` explicitly requests one configured loopback planning call through the same persistent AI Cost Firewall. Candidate JSON cannot contain or replace oracle predicates, cannot use XPath, shell, JavaScript evaluation, filesystem writes, or unregistered cross-origin API operations. Screenshot capture defaults on for preview; trace capture is opt-in. `quality_test_record` opens a visible Playwright browser by default, captures natural click/select/fill/keyboard use as semantic targets, and finishes on inactivity or Ctrl+Shift+E. Raw form values never leave the page unless they exactly match an explicitly named replay fixture. Rust evaluates existing sealed predicates at the exact final state, measures new states, non-loop edges, API operations, and obligation links, discards a session that contributes none of them, and replays a useful `source: recorded` candidate through the same preview admission. It spends zero model tokens and still requires explicit promotion. Promotion revalidates the current program, change, repository revision, and `OracleSeal`, is idempotent for the same preview, and stores canonical JSON in CAS as program revision 1. Later `select` and `run` load the latest matching sealed revision automatically; a stale seal is never executed. Healing accepts only semantic retargeting and typed deterministic waits, uses optimistic revision concurrency, replays the unchanged assertions through Playwright, and writes a new version only after a pass. A failed replay returns evidence handles and leaves the active program unchanged.
 
-`qualityd` serves the exception-first Studio API over the same command bus. The corresponding authoring endpoints are `POST /api/v1/authoring/draft`, `/validate`, `/preview`, `/promote`, and `/heal`. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
+`qualityd` serves the exception-first Studio API over the same command bus. The corresponding authoring endpoints are `POST /api/v1/authoring/draft`, `/validate`, `/preview`, `/record`, `/promote`, and `/heal`. Its dashboard hides ordinary passing proof noise while drill-down keeps the full evidence trail.
 
 ## Defect hypotheses
 

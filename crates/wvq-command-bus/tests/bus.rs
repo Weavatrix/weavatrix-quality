@@ -1,5 +1,6 @@
 //! Command-bus tests. Transport adapters are tested in their own apps.
 
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -13,8 +14,8 @@ use wvq_command_bus::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
     EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
-    PlanCommand, QualityService, Reply, RunCommand, SelectCommand, SpecCommand, VerifyCommand,
-    dispatch, estimate_tokens,
+    PlanCommand, QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand,
+    VerifyCommand, dispatch, estimate_tokens,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -375,7 +376,18 @@ fn respond_browser_fixture(mut stream: std::net::TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let mut request = [0_u8; 4096];
     let _ = stream.read(&mut request);
-    let body = b"<!doctype html><html><body><h1>WVQ live browser</h1></body></html>";
+    let body = br"<!doctype html><html><body><h1>WVQ live browser</h1>
+        <button data-testid='open-details'>Open details</button><section role='status' hidden></section>
+        <script>setTimeout(() => {
+          document.querySelector('button').addEventListener('click', () => {
+            const status = document.querySelector('[role=status]');
+            status.hidden = false; status.textContent = 'Details open';
+          });
+          document.querySelector('button').click();
+          setTimeout(() => document.dispatchEvent(new KeyboardEvent('keydown', {
+            key:'E', ctrlKey:true, shiftKey:true, bubbles:true
+          })), 100);
+        }, 100);</script></body></html>";
     write!(
         stream,
         "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -1601,6 +1613,81 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
         .unwrap();
     assert_eq!(contradicted.verdict, "CONTRADICTED");
     assert!(contradicted.blocking);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn passive_recording_keeps_only_novel_sessions_as_passing_reviewable_programs() {
+    let _browser_guard = BrowserLock::acquire();
+    let server = BrowserFixtureServer::start();
+    let repo = live_browser_repo(&server.url());
+    let service = LiveService::new(&repo.0);
+    let command = RecordCommand {
+        change: "live-browser".into(),
+        base: "HEAD".into(),
+        head: "WORKTREE".into(),
+        route: "/".into(),
+        fixture_values: BTreeMap::new(),
+        idle_timeout_ms: 2_000,
+        max_events: 20,
+        headless: Some(true),
+    };
+    let first = service.record(&command).unwrap();
+    assert!(first.useful, "{first:#?}");
+    assert!(!first.discarded);
+    assert!(first.new_behavior_states >= 2);
+    assert!(first.new_behavior_edges >= 2);
+    assert_eq!(first.linked_obligations, ["heading-visible"]);
+    assert_eq!(first.runtime_llm_tokens, 0);
+    let candidate = first.candidate.as_ref().expect("recorded TestProgram");
+    assert_eq!(candidate["source"], "recorded");
+    assert!(
+        candidate["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|step| step["action"] == "activate")
+    );
+    let preview = first.preview.as_ref().expect("automatic replay preview");
+    assert!(preview.passed, "{:?}", preview.failure);
+    assert_eq!(preview.asserted, ["heading-visible"]);
+    let trace_handle = first.trace_handle.as_ref().expect("trace handle");
+    let evidence = service
+        .evidence(&EvidenceCommand {
+            handle: trace_handle.clone(),
+        })
+        .unwrap();
+    assert_eq!(evidence.kind, "behavior-trace");
+
+    let store = wvq_store::Store::open(&repo.0).unwrap();
+    let stored = store
+        .get_manual_session(&first.session_id)
+        .unwrap()
+        .expect("admitted session");
+    assert_eq!(stored.repository_revision, first.revision);
+    assert_eq!(
+        stored.preview_id.as_deref(),
+        Some(preview.preview_id.as_str())
+    );
+
+    let repeated = service.record(&command).unwrap();
+    assert!(!repeated.useful, "{repeated:#?}");
+    assert!(repeated.discarded);
+    assert_eq!(
+        repeated.discard_reason.as_deref(),
+        Some("no_new_behavior_or_protection")
+    );
+    assert!(repeated.candidate.is_none());
+    assert!(repeated.preview.is_none());
+    assert!(repeated.trace_handle.is_none());
+    assert!(
+        wvq_store::Store::open(&repo.0)
+            .unwrap()
+            .get_manual_session(&repeated.session_id)
+            .unwrap()
+            .is_none(),
+        "redundant sessions must not enter QA review or persistence"
+    );
 }
 
 #[test]

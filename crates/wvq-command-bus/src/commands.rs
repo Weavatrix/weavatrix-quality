@@ -1,5 +1,7 @@
 //! Transport-agnostic commands. MCP and CLI map onto these types.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use wvq_runtime::{Target, WaitCondition};
 
@@ -37,6 +39,18 @@ fn default_authoring_token_budget() -> u64 {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_record_route() -> String {
+    "/".to_owned()
+}
+
+fn default_record_idle_timeout_ms() -> u64 {
+    3_000
+}
+
+fn default_record_max_events() -> u32 {
+    200
 }
 
 /// Bounded context packet for an agent or CLI.
@@ -217,6 +231,36 @@ pub struct AuthorPreviewCommand {
     pub trace: bool,
 }
 
+/// Passively record natural app use and retain only new regression knowledge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Root-relative same-origin route opened for the session.
+    #[serde(default = "default_record_route")]
+    pub route: String,
+    /// Explicit safe replay fixtures. Unknown form values are redacted and not recorded.
+    #[serde(default)]
+    pub fixture_values: BTreeMap<String, String>,
+    /// Inactivity that ends a session without requiring a recorder-specific UI.
+    #[serde(default = "default_record_idle_timeout_ms")]
+    pub idle_timeout_ms: u64,
+    /// Hard semantic-event ceiling.
+    #[serde(default = "default_record_max_events")]
+    pub max_events: u32,
+    /// Override repository browser visibility. Defaults to a visible browser.
+    #[serde(default)]
+    pub headless: Option<bool>,
+}
+
 /// Promote one passing, same-revision preview into a persisted `TestProgram`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -331,6 +375,8 @@ pub enum Command {
     AuthorValidate(AuthorValidateCommand),
     /// [`AuthorPreviewCommand`].
     AuthorPreview(AuthorPreviewCommand),
+    /// [`RecordCommand`].
+    Record(RecordCommand),
     /// [`AuthorPromoteCommand`].
     AuthorPromote(AuthorPromoteCommand),
     /// [`AuthorHealCommand`].
@@ -362,6 +408,7 @@ impl Command {
             Self::AuthorDraft(_) => "author_draft",
             Self::AuthorValidate(_) => "author_validate",
             Self::AuthorPreview(_) => "author_preview",
+            Self::Record(_) => "record",
             Self::AuthorPromote(_) => "author_promote",
             Self::AuthorHeal(_) => "author_heal",
             Self::Changes(_) => "changes",

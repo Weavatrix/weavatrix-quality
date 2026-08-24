@@ -309,3 +309,36 @@ fn recovery_range_is_preserved_by_cli() {
     assert_eq!(command.base, "origin/main");
     assert_eq!(command.head, "HEAD");
 }
+
+#[test]
+fn passive_recording_is_a_first_class_cli_command() {
+    let parsed = parse_args(&argv(&[
+        "record",
+        "--change",
+        "sankey-others",
+        "--route",
+        "/dashboard",
+        "--headless",
+        "true",
+        "--fixtures-json",
+        r#"{"name":"Alice"}"#,
+    ]))
+    .unwrap();
+    let Command::Record(command) = parsed.command else {
+        panic!("expected record command");
+    };
+    assert_eq!(command.route, "/dashboard");
+    assert_eq!(command.headless, Some(true));
+    assert_eq!(
+        command.fixture_values.get("name").map(String::as_str),
+        Some("Alice")
+    );
+
+    let output = run_with(
+        &argv(&["record", "--change", "sankey-others"]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("recording-fake"));
+    assert!(output.stdout.contains("preview-recorded-fake"));
+}

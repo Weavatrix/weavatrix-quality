@@ -24,7 +24,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 11);
+    assert_eq!(store.schema_version().unwrap(), 12);
 }
 
 #[test]
@@ -319,6 +319,7 @@ fn behavior_states_and_edges_persist() {
     assert!(store.put_behavior_state(&digest, body).unwrap());
     assert!(!store.put_behavior_state(&digest, body).unwrap());
     assert_eq!(store.behavior_state_count().unwrap(), 1);
+    assert!(store.has_behavior_state(&digest).unwrap());
 
     let after = store
         .put_blob(br#"{"route":"/analytics/dashboard/42","modal":"others"}"#)
@@ -334,6 +335,11 @@ fn behavior_states_and_edges_persist() {
             .unwrap()
     );
     assert_eq!(store.behavior_edge_count().unwrap(), 1);
+    assert!(
+        store
+            .has_behavior_edge(&digest, &after, "activate")
+            .unwrap()
+    );
 
     store
         .put_manual_session("sess-1", Some(7), Some("admin-above-limit"))
@@ -344,6 +350,35 @@ fn behavior_states_and_edges_persist() {
         .expect("session");
     assert_eq!(session.seed, Some(7));
     assert_eq!(session.fixture.as_deref(), Some("admin-above-limit"));
+    assert_eq!(session.repository_revision, "");
+
+    let trace = br#"{"session_id":"sess-passive"}"#;
+    let trace_hash = store
+        .put_recorded_session(
+            "sess-passive",
+            Some(9),
+            Some("safe-fixture"),
+            "rev-recorded",
+            Some("preview-recorded"),
+            trace,
+            &[("{\"action\":\"activate\"}".into(), after.clone())],
+            &["details-visible".into()],
+            &["GET /api/details".into()],
+        )
+        .unwrap();
+    let passive = store
+        .get_manual_session("sess-passive")
+        .unwrap()
+        .expect("passive session");
+    assert_eq!(passive.repository_revision, "rev-recorded");
+    assert_eq!(passive.trace_hash.as_deref(), Some(trace_hash.as_str()));
+    assert_eq!(passive.preview_id.as_deref(), Some("preview-recorded"));
+    assert!(store.has_behavior_obligation("details-visible").unwrap());
+    assert!(
+        store
+            .has_behavior_api_operation("GET /api/details")
+            .unwrap()
+    );
 }
 
 #[test]
@@ -412,7 +447,10 @@ fn passing_authoring_preview_promotes_once_with_canonical_body() {
         .unwrap()
         .expect("promoted program");
     assert_eq!(record.source, "promoted");
-    assert_eq!(record.preview_id.as_deref(), Some("preview-generated-browser"));
+    assert_eq!(
+        record.preview_id.as_deref(),
+        Some("preview-generated-browser")
+    );
     assert_eq!(stored_body, body);
     let latest = store
         .latest_program_revisions_for_change("live-change")

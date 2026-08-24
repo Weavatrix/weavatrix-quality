@@ -2,9 +2,12 @@
 export const METHODS = [
     "initialize",
     "prepare",
+    "prepare_recording",
     "execute_step",
     "observe",
     "collect_ui",
+    "poll_recording",
+    "finish_recording",
     "finish",
     "cancel",
 ];

@@ -34,11 +34,12 @@ use wvq_proof::{
 };
 use wvq_runtime::{
     AxisDelta, BehaviorDelta, BehaviorState, BrowserAssertionStatus, BrowserProgramRun,
-    BrowserRunConfig, BrowserViewport, CaptureWhen, CoverageArtifact, DiffAxis, ExecutionResult,
-    ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest, ProgramOracle,
-    StructuredView, TestAction, TestProgram, TestStatus, UiCollectionConfig, behavior_delta,
-    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
-    parse_go_json, parse_junit, parse_lcov, run_browser_program, run_browser_program_at,
+    BrowserRecordingRequest, BrowserRunConfig, BrowserViewport, CaptureWhen, CoverageArtifact,
+    DiffAxis, ExecutionResult, ExecutorRegistry, ExecutorTarget, NormalizedTestRun, PrepareRequest,
+    ProgramOracle, Recorder, StructuredView, TestAction, TestProgram, TestStatus,
+    UiCollectionConfig, behavior_delta, default_limits, discover_executor_targets,
+    parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, promote,
+    record_browser_session, run_browser_program, run_browser_program_at,
 };
 use wvq_spec::{
     EvidenceKind, ObligationKind, OpenSpecChange, RequirementOp, RiskLevel, SpecError,
@@ -63,15 +64,15 @@ use wvq_ui::{
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, Command, ContextCommand,
-    DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand, RecoveryCommand,
-    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    DebtCommand, EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand, RecordCommand,
+    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
-    ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, RecoveryReply, Reply,
-    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
-    VerifyReply, bound_items, estimate_tokens,
+    ExplainReply, INLINE_LIMIT, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
+    Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply,
+    StatusReply, VerifyReply, bound_items, estimate_tokens,
 };
 
 /// CAS artifact kind holding the base/head UI-integrity ratchet for one run.
@@ -263,6 +264,29 @@ pub trait QualityService: Send + Sync {
         let _ = cancel;
         self.author_preview(cmd)
     }
+    /// Passively capture natural app use, discard redundant traces, and preview a useful replay.
+    ///
+    /// Promotion remains an explicit, same-seal operation; recording cannot mutate an oracle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] on invalid revision, browser, seal, or evidence.
+    fn record(&self, cmd: &RecordCommand) -> Result<RecordReply, BusError> {
+        self.record_controlled(cmd, Arc::new(AtomicBool::new(false)))
+    }
+    /// Passive recording with transport-owned cooperative cancellation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same failures as [`QualityService::record`].
+    fn record_controlled(
+        &self,
+        cmd: &RecordCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<RecordReply, BusError> {
+        let _ = cancel;
+        self.record(cmd)
+    }
     /// Persist a passing preview as revision 1 of a canonical program.
     ///
     /// # Errors
@@ -329,6 +353,9 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::AuthorDraft(cmd) => service.author_draft(&cmd).map(Reply::AuthorDraft),
         Command::AuthorValidate(cmd) => service.author_validate(&cmd).map(Reply::AuthorValidate),
         Command::AuthorPreview(cmd) => service.author_preview(&cmd).map(Reply::AuthorPreview),
+        Command::Record(cmd) => service
+            .record(&cmd)
+            .map(|reply| Reply::Record(Box::new(reply))),
         Command::AuthorPromote(cmd) => service.author_promote(&cmd).map(Reply::AuthorPromote),
         Command::AuthorHeal(cmd) => service.author_heal(&cmd).map(Reply::AuthorHeal),
         Command::Changes(cmd) => service.changes(&cmd).map(Reply::Changes),
@@ -705,6 +732,47 @@ impl QualityService for FakeService {
             },
             trace_handle: cmd.trace.then(|| "artifact-fake-author-trace".into()),
             program_persisted: false,
+        })
+    }
+
+    fn record_controlled(
+        &self,
+        cmd: &RecordCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<RecordReply, BusError> {
+        let _ = cancel;
+        Ok(RecordReply {
+            session_id: "recording-fake".into(),
+            change: cmd.change.clone(),
+            revision: "fake-revision".into(),
+            captured_events: 2,
+            useful: true,
+            discarded: false,
+            discard_reason: None,
+            new_behavior_states: 2,
+            new_behavior_edges: 1,
+            linked_obligations: vec!["others-visible".into()],
+            new_obligations: vec!["others-visible".into()],
+            api_operations: Vec::new(),
+            new_api_operations: Vec::new(),
+            limitations: Vec::new(),
+            candidate: Some(json!({"id": "recorded-fake"})),
+            preview: Some(AuthorPreviewReply {
+                preview_id: "preview-recorded-fake".into(),
+                change: cmd.change.clone(),
+                revision: "fake-revision".into(),
+                program_id: "recorded-fake".into(),
+                passed: true,
+                asserted: vec!["others-visible".into()],
+                contradicted: Vec::new(),
+                failure: None,
+                observation_handles: Vec::new(),
+                screenshot_handles: Vec::new(),
+                trace_handle: None,
+                program_persisted: false,
+            }),
+            trace_handle: Some("artifact-session-recording-fake-trace".into()),
+            runtime_llm_tokens: 0,
         })
     }
 
@@ -3763,6 +3831,307 @@ impl QualityService for LiveService {
             screenshot_handles: persisted.screenshot_handles,
             trace_handle: persisted.trace_handle,
             program_persisted: false,
+        })
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn record_controlled(
+        &self,
+        cmd: &RecordCommand,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<RecordReply, BusError> {
+        let compiled = self.compiled(&cmd.change)?;
+        let _range = self.revision_range(&cmd.base, &cmd.head)?;
+        let before = self.revision()?;
+        let policy = load_browser_policy(&self.repo, &compiled.obligations)?.ok_or_else(|| {
+            BusError::Runtime(
+                "passive recording requires a browser runtime in .weavatrix-quality/config.yaml"
+                    .into(),
+            )
+        })?;
+        let mut oracles = Vec::new();
+        for obligation in &compiled.obligations {
+            let Some(expected) = &obligation.expected else {
+                continue;
+            };
+            oracles.push(ProgramOracle {
+                obligation: obligation.id.clone(),
+                condition: obligation
+                    .condition
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+                expected: serde_json::to_value(expected)
+                    .map_err(|err| BusError::Runtime(err.to_string()))?,
+            });
+        }
+        let session_id = author_preview_token("recording")?;
+        let idle_timeout = Duration::from_millis(cmd.idle_timeout_ms);
+        let bridge_timeout = policy
+            .timeout
+            .max(idle_timeout.saturating_add(Duration::from_secs(15)))
+            .min(Duration::from_secs(120));
+        let evidence_dir = self
+            .repo
+            .join(".weavatrix-quality")
+            .join("recording-evidence")
+            .join(&session_id);
+        let recording = record_browser_session(
+            &BrowserRunConfig {
+                base_url: policy.base_url,
+                browser: policy.browser,
+                headless: cmd.headless.unwrap_or(false),
+                timeout: bridge_timeout,
+                module_root: policy.module_root,
+                runtime_dir: self
+                    .repo
+                    .join(".weavatrix-quality/runtime/playwright-runner"),
+                evidence_dir: evidence_dir.clone(),
+                viewport: None,
+                ui_integrity: None,
+                cancel: Arc::clone(&cancel),
+            },
+            &BrowserRecordingRequest {
+                session: session_id.clone(),
+                route: cmd.route.clone(),
+                fixture_values: cmd.fixture_values.clone(),
+                idle_timeout,
+                max_events: cmd.max_events,
+            },
+            &oracles,
+        )
+        .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let after = self.revision()?;
+        if before != after {
+            return Err(BusError::Ambiguous(format!(
+                "repository revision changed during passive recording: `{before}` -> `{after}`"
+            )));
+        }
+        let _ = std::fs::remove_dir(&evidence_dir);
+
+        let initial = BehaviorState::from_observation(&recording.initial).ok_or_else(|| {
+            BusError::Runtime("passive recorder initial observation omitted its route".into())
+        })?;
+        let mut recorder = Recorder::new(&session_id, None, None);
+        recorder.start(initial);
+        for (name, value) in &cmd.fixture_values {
+            recorder.link_fixture(name, Value::String(value.clone()));
+        }
+        for event in &recording.events {
+            let state = BehaviorState::from_observation(&event.observation).ok_or_else(|| {
+                BusError::Runtime("passive recorder event omitted its route".into())
+            })?;
+            recorder
+                .step(event.action.clone(), state)
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+        }
+        for outcome in &recording.obligations {
+            if outcome.status == "passed" {
+                recorder.link_obligation(
+                    wvq_domain::ObligationId::new(&outcome.obligation)
+                        .map_err(|err| BusError::Identity(err.to_string()))?,
+                );
+            }
+        }
+        let api_operations = recording
+            .events
+            .iter()
+            .flat_map(|event| &event.observation.network_requests)
+            .filter(|request| {
+                request
+                    .resource_type
+                    .as_deref()
+                    .is_some_and(|kind| matches!(kind, "fetch" | "xhr" | "websocket"))
+            })
+            .map(recorded_api_operation)
+            .collect::<BTreeSet<_>>();
+        for operation in &api_operations {
+            recorder.link_api(operation);
+        }
+        let trace = recorder
+            .finish()
+            .map_err(|err| BusError::Runtime(err.to_string()))?;
+        let store = self.store()?;
+        let mut new_behavior_states = 0_u64;
+        for digest in trace
+            .state_digests()
+            .map_err(|err| BusError::Runtime(err.to_string()))?
+        {
+            if !store
+                .has_behavior_state(&digest)
+                .map_err(|err| BusError::Store(err.to_string()))?
+            {
+                new_behavior_states = new_behavior_states.saturating_add(1);
+            }
+        }
+        let mut new_behavior_edges = 0_u64;
+        for edge in trace
+            .edges()
+            .map_err(|err| BusError::Runtime(err.to_string()))?
+            .into_iter()
+            .filter(|edge| edge.src != edge.dst)
+        {
+            let action = serde_json::to_string(&edge.action)
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            if !store
+                .has_behavior_edge(&edge.src, &edge.dst, &action)
+                .map_err(|err| BusError::Store(err.to_string()))?
+            {
+                new_behavior_edges = new_behavior_edges.saturating_add(1);
+            }
+        }
+        let linked_obligations = trace
+            .obligations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        let mut new_obligations = Vec::new();
+        for obligation in &linked_obligations {
+            if !store
+                .has_behavior_obligation(obligation)
+                .map_err(|err| BusError::Store(err.to_string()))?
+            {
+                new_obligations.push(obligation.clone());
+            }
+        }
+        let api_operations = api_operations.into_iter().collect::<Vec<_>>();
+        let mut new_api_operations = Vec::new();
+        for operation in &api_operations {
+            if !store
+                .has_behavior_api_operation(operation)
+                .map_err(|err| BusError::Store(err.to_string()))?
+            {
+                new_api_operations.push(operation.clone());
+            }
+        }
+        let useful = new_behavior_states != 0
+            || new_behavior_edges != 0
+            || !new_obligations.is_empty()
+            || !new_api_operations.is_empty();
+        if !useful {
+            return Ok(RecordReply {
+                session_id,
+                change: compiled.change,
+                revision: before.to_string(),
+                captured_events: u64::try_from(trace.events.len()).unwrap_or(u64::MAX),
+                useful: false,
+                discarded: true,
+                discard_reason: Some("no_new_behavior_or_protection".into()),
+                new_behavior_states: 0,
+                new_behavior_edges: 0,
+                linked_obligations,
+                new_obligations,
+                api_operations,
+                new_api_operations,
+                limitations: recording.limitations,
+                candidate: None,
+                preview: None,
+                trace_handle: None,
+                runtime_llm_tokens: 0,
+            });
+        }
+
+        let (candidate, preview) = if trace.obligations.is_empty() {
+            (None, None)
+        } else {
+            let program_id = ProgramId::new(format!(
+                "recorded-{}",
+                &sha256_hex(session_id.as_bytes())[..16]
+            ))
+            .map_err(|err| BusError::Identity(err.to_string()))?;
+            let program =
+                promote(&trace, program_id).map_err(|err| BusError::Runtime(err.to_string()))?;
+            let candidate =
+                serde_json::to_value(&program).map_err(|err| BusError::Runtime(err.to_string()))?;
+            let preview = self.author_preview_controlled(
+                &AuthorPreviewCommand {
+                    change: compiled.change.clone(),
+                    base: cmd.base.clone(),
+                    head: cmd.head.clone(),
+                    program: candidate.clone(),
+                    screenshot: false,
+                    trace: false,
+                },
+                Arc::clone(&cancel),
+            )?;
+            (Some(candidate), Some(preview))
+        };
+
+        let mut event_rows = Vec::new();
+        for event in &trace.events {
+            let action = serde_json::to_string(&event.action)
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            let digest = event
+                .after
+                .digest()
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            event_rows.push((action, digest));
+        }
+        for state in
+            std::iter::once(&trace.initial).chain(trace.events.iter().map(|event| &event.after))
+        {
+            let body = state
+                .canonical_json()
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            let digest = state
+                .digest()
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            store
+                .put_behavior_state(&digest, &body)
+                .map_err(|err| BusError::Store(err.to_string()))?;
+        }
+        for edge in trace
+            .edges()
+            .map_err(|err| BusError::Runtime(err.to_string()))?
+        {
+            let action = serde_json::to_string(&edge.action)
+                .map_err(|err| BusError::Runtime(err.to_string()))?;
+            store
+                .put_behavior_edge(&edge.src, &edge.dst, &action)
+                .map_err(|err| BusError::Store(err.to_string()))?;
+        }
+        let trace_body =
+            serde_json::to_vec(&trace).map_err(|err| BusError::Runtime(err.to_string()))?;
+        let preview_id = preview.as_ref().map(|preview| preview.preview_id.as_str());
+        store
+            .put_recorded_session(
+                &session_id,
+                trace.seed,
+                trace.fixture.as_deref(),
+                before.as_str(),
+                preview_id,
+                &trace_body,
+                &event_rows,
+                &linked_obligations,
+                &api_operations,
+            )
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        let trace_handle = format!("artifact-session-{session_id}-trace");
+        let trace_artifact =
+            ArtifactId::new(&trace_handle).map_err(|err| BusError::Identity(err.to_string()))?;
+        store
+            .put_artifact(&trace_artifact, "behavior-trace", &trace_body)
+            .map_err(|err| BusError::Store(err.to_string()))?;
+        Ok(RecordReply {
+            session_id,
+            change: compiled.change,
+            revision: before.to_string(),
+            captured_events: u64::try_from(trace.events.len()).unwrap_or(u64::MAX),
+            useful: true,
+            discarded: false,
+            discard_reason: None,
+            new_behavior_states,
+            new_behavior_edges,
+            linked_obligations,
+            new_obligations,
+            api_operations,
+            new_api_operations,
+            limitations: recording.limitations,
+            candidate,
+            preview,
+            trace_handle: Some(trace_handle),
+            runtime_llm_tokens: 0,
         })
     }
 
@@ -9025,6 +9394,29 @@ fn bounded_network_operation(operation: &str) -> String {
     )
     .trim_end()
     .to_owned()
+}
+
+fn recorded_api_operation(request: &wvq_runtime::NetworkRequestObservation) -> String {
+    let path = request
+        .url
+        .split_once("://")
+        .and_then(|(_, authority_and_path)| {
+            authority_and_path
+                .find('/')
+                .map(|at| &authority_and_path[at..])
+        })
+        .unwrap_or(&request.url)
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("/")
+        .chars()
+        .take(400)
+        .collect::<String>();
+    format!(
+        "{} {}",
+        request.method.chars().take(16).collect::<String>(),
+        if path.is_empty() { "/" } else { &path }
+    )
 }
 
 fn browser_evidence_kinds(
