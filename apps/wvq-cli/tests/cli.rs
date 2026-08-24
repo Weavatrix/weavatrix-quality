@@ -289,3 +289,23 @@ fn committed_pr_range_is_preserved_by_cli() {
     assert_eq!(command.base, "origin/main");
     assert_eq!(command.head, "HEAD");
 }
+
+#[test]
+fn recovery_range_is_preserved_by_cli() {
+    let parsed = parse_args(&argv(&[
+        "recover",
+        "--change",
+        "sankey-others",
+        "--base",
+        "origin/main",
+        "--head",
+        "HEAD",
+    ]))
+    .unwrap();
+    let Command::Recovery(command) = parsed.command else {
+        panic!("expected recovery command");
+    };
+    assert_eq!(command.change, "sankey-others");
+    assert_eq!(command.base, "origin/main");
+    assert_eq!(command.head, "HEAD");
+}

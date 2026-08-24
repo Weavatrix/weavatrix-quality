@@ -7,7 +7,8 @@ use std::path::PathBuf;
 
 use wvq_command_bus::{
     Command, ContextCommand, DebtCommand, ExplainCommand, LiveService, ModelCommand, PlanCommand,
-    QualityService, RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
+    QualityService, RecoveryCommand, RunCommand, SelectCommand, SpecCommand, VerifyCommand,
+    dispatch,
 };
 
 /// Parsed invocation.
@@ -41,6 +42,7 @@ Usage:
   wvq [--repo PATH] analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
   wvq [--repo PATH] debt [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] select [--change ID] [--base REF] [--head REF|WORKTREE]
+  wvq [--repo PATH] recover [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID]
@@ -119,6 +121,7 @@ pub fn parse_args(args: &[String]) -> Result<CliRequest, String> {
         }),
         [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change, base, head }),
         [cmd] if cmd == "select" => Command::Select(SelectCommand { change, base, head }),
+        [cmd] if cmd == "recover" => Command::Recovery(RecoveryCommand { change, base, head }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
             kind: required_flag(&flags, "kind")?,
@@ -169,7 +172,7 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             Some(&["repo", "change"])
         }
         [cmd] if cmd == "analyze" => Some(&["repo", "change", "purpose", "token-budget"]),
-        [cmd] if matches!(cmd.as_str(), "debt" | "select") => {
+        [cmd] if matches!(cmd.as_str(), "debt" | "select" | "recover") => {
             Some(&["repo", "change", "base", "head"])
         }
         [cmd] if matches!(cmd.as_str(), "verify" | "plan") => Some(&["repo", "change"]),

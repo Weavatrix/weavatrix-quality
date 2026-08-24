@@ -281,6 +281,21 @@ pub struct AuthorHealCommand {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangesCommand {}
 
+/// Build one bounded changed-intent recovery packet. Never seals a candidate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryCommand {
+    /// `OpenSpec` change identity.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// Working tree or checked-out clean head revision.
+    #[serde(default = "default_head")]
+    pub head: String,
+}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -322,6 +337,8 @@ pub enum Command {
     AuthorHeal(AuthorHealCommand),
     /// [`ChangesCommand`].
     Changes(ChangesCommand),
+    /// [`RecoveryCommand`].
+    Recovery(RecoveryCommand),
 }
 
 impl Command {
@@ -348,6 +365,7 @@ impl Command {
             Self::AuthorPromote(_) => "author_promote",
             Self::AuthorHeal(_) => "author_heal",
             Self::Changes(_) => "changes",
+            Self::Recovery(_) => "recovery",
         }
     }
 }

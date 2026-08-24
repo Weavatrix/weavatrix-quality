@@ -3,9 +3,25 @@
 use serde::Serialize;
 use serde_json::Value;
 use wvq_proof::ChangeQualityVerdict;
+use wvq_spec_recovery::{Questions, RecoveryPacket, ReviewSnapshot};
 
 /// Maximum UTF-8 bytes allowed inline in [`EvidenceReply`]. Larger stays a handle.
 pub const INLINE_LIMIT: usize = 4_096;
+
+/// Bounded recovery output shared by the ordinary CLI and other transports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RecoveryReply {
+    /// Revision-bound evidence packet prepared without a model.
+    pub packet: RecoveryPacket,
+    /// One candidate at a time, after deterministic checks.
+    pub review: ReviewSnapshot,
+    /// Narrow questions that remain for intent owners.
+    pub questions: Questions,
+    /// Proposed `OpenSpec` patch. Never presented as sealed.
+    pub proposed_patch: String,
+    /// Normal deterministic preparation spends no runtime model tokens.
+    pub runtime_llm_tokens: u64,
+}
 
 /// Approximate LLM tokens: four Unicode scalars per token, rounded up.
 #[must_use]
@@ -596,6 +612,9 @@ pub enum Reply {
     /// [`ChangesReply`].
     #[serde(rename = "changes")]
     Changes(ChangesReply),
+    /// [`RecoveryReply`].
+    #[serde(rename = "recovery")]
+    Recovery(Box<RecoveryReply>),
 }
 
 impl Reply {
