@@ -1,4 +1,9 @@
 //! Inherent FakeService methods for authoring and recording.
+#![allow(
+    clippy::needless_pass_by_value,
+    clippy::unnecessary_wraps,
+    clippy::unused_self
+)]
 
 #[allow(clippy::wildcard_imports)]
 use super::super::access::*;

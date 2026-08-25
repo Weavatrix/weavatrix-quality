@@ -122,4 +122,4 @@ P1 (do not skip into closed-loop Autopilot):
 - [ ] Gap classification + cheapest-evidence planner
 - [ ] Observe-only calibration on real PRs
 
-The command-bus 300-line file split is still the local hygiene gate before bench/gap analysis work in `wvq-command-bus`.
+The command-bus 300-line file split is done (`service/` ≤300, Clippy `-D warnings` green). Bench and gap analysis in `wvq-command-bus` are no longer blocked on file size.

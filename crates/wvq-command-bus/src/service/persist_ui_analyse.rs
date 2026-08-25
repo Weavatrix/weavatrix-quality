@@ -1,8 +1,7 @@
 //! Extracted command-bus helper.
 
 use super::access::*;
-
-use super::persist_browser::{MAX_UI_ARTIFACT_BYTES, MAX_UI_REPLY_FINDINGS};
+use super::persist_browser::MAX_UI_ARTIFACT_BYTES;
 use super::persist_run::put_run_artifact;
 
 pub(in crate::service) struct CollectedUi {

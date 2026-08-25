@@ -1,4 +1,5 @@
 //! Filesystem-backed live service inherent helpers.
+#![allow(clippy::needless_pass_by_value)]
 
 use std::sync::Mutex;
 

@@ -46,6 +46,7 @@ fn record(executor: &str) -> ExecutorRecord {
 
 mod analytics;
 mod artifacts;
+mod artifacts_graph;
 mod paths;
 mod surface;
 mod policy;

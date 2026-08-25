@@ -1,9 +1,10 @@
 //! Extracted command-bus helper.
 
+//! Extracted command-bus helper.
+
 use super::access::*;
-use super::persist_browser::{MAX_UI_ARTIFACT_BYTES, MAX_UI_REPLY_FINDINGS};
-use super::persist_run::put_run_artifact;
-use super::persist_ui_analyse::{CollectedUi, analyse_ui_snapshots, put_bounded_ui_artifact};
+use super::persist_browser::MAX_UI_REPLY_FINDINGS;
+use super::persist_ui_analyse::{analyse_ui_snapshots, put_bounded_ui_artifact};
 
 pub(in crate::service) fn ui_delta_document(delta: &UiIntegrityDelta) -> Value {
     let state = if delta.blocks() {

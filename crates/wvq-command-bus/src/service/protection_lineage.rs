@@ -1,7 +1,6 @@
 //! Extracted command-bus helper.
 
 use super::access::*;
-use super::protection_graph_extra::graph_singleton_path;
 
 pub(in crate::service) fn protection_test_changes(
     base: &ProtectionSnapshot,

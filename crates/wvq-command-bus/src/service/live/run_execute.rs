@@ -178,7 +178,7 @@ impl LiveService {
         let base_browser_replay = browser.as_ref().and_then(|policy| {
             (!browser_runs.is_empty()).then(|| {
                 self.replay_base_browser_programs(
-                    &range,
+                    range,
                     &compiled.change,
                     policy,
                     &browser_runs,
