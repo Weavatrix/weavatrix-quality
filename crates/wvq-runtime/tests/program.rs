@@ -47,9 +47,55 @@ fn unknown_action_is_rejected() {
         "id": "p1",
         "source": "authored",
         "obligations": ["others-visible"],
-        "steps": [{ "action": "hover", "target": { "test_id": "x" } }]
+        "steps": [{ "action": "browser_magic", "target": { "test_id": "x" } }]
     }"#;
     let err = TestProgram::from_json(raw).unwrap_err();
+    assert!(matches!(err, ProgramError::Malformed(_)));
+}
+
+#[test]
+fn hover_scroll_and_drag_are_first_class_actions() {
+    let program = TestProgram::from_json(
+        r#"{
+        "schema_v": 1,
+        "id": "pointer-actions",
+        "source": "authored",
+        "obligations": ["menu-open"],
+        "steps": [
+            { "action": "hover", "target": { "role": "button", "accessible_name": "File" } },
+            { "action": "scroll", "target": { "test_id": "footer" } },
+            {
+                "action": "drag",
+                "target": { "test_id": "chip" },
+                "to": { "test_id": "tray" }
+            },
+            { "action": "assert", "obligation": "menu-open" }
+        ]
+    }"#,
+    )
+    .unwrap();
+    assert!(matches!(program.steps[0], TestAction::Hover { .. }));
+    assert!(matches!(program.steps[1], TestAction::Scroll { .. }));
+    assert!(matches!(program.steps[2], TestAction::Drag { .. }));
+    assert_eq!(program.steps[0].kind(), "hover");
+    assert_eq!(
+        program.steps[0].semantic_target().unwrap().accessible_name.as_deref(),
+        Some("File")
+    );
+}
+
+#[test]
+fn drag_without_a_drop_target_is_rejected() {
+    let err = TestProgram::from_json(
+        r#"{
+        "schema_v": 1,
+        "id": "p1",
+        "source": "authored",
+        "obligations": ["moved"],
+        "steps": [{ "action": "drag", "target": { "test_id": "chip" } }]
+    }"#,
+    )
+    .unwrap_err();
     assert!(matches!(err, ProgramError::Malformed(_)));
 }
 

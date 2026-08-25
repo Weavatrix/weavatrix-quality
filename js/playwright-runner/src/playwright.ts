@@ -383,6 +383,18 @@ export class PlaywrightDriver implements Driver {
     await this.#locator(target).click();
   }
 
+  async hover(target: Target): Promise<void> {
+    await this.#locator(target).hover();
+  }
+
+  async scroll(target: Target): Promise<void> {
+    await this.#locator(target).scrollIntoViewIfNeeded();
+  }
+
+  async drag(target: Target, to: Target): Promise<void> {
+    await this.#locator(target).dragTo(this.#locator(to));
+  }
+
   async fill(target: Target, value: string): Promise<void> {
     await this.#locator(target).fill(this.#resolveScalar(value));
   }

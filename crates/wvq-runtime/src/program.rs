@@ -336,6 +336,23 @@ pub enum TestAction {
         /// Input fixture name.
         input: String,
     },
+    /// Pointer hover. Does not activate.
+    Hover {
+        /// Semantic target.
+        target: Target,
+    },
+    /// Bring a target into view. Does not activate.
+    Scroll {
+        /// Semantic target.
+        target: Target,
+    },
+    /// Drag `target` onto `to`. Both identities are semantic.
+    Drag {
+        /// Source.
+        target: Target,
+        /// Drop target.
+        to: Target,
+    },
     /// Assert a sealed obligation.
     Assert {
         /// Obligation id.
@@ -352,9 +369,15 @@ impl TestAction {
             Self::Activate { target }
             | Self::Fill { target, .. }
             | Self::Select { target, .. }
+            | Self::Hover { target }
+            | Self::Scroll { target }
             | Self::Wait {
                 condition: WaitCondition::Visible { target },
             } => target.validate(),
+            Self::Drag { target, to } => {
+                target.validate()?;
+                to.validate()
+            }
             Self::Press { target, key } => {
                 if key.is_empty() {
                     return Err(ProgramError::Invalid("press key must be non-empty".into()));
@@ -392,6 +415,9 @@ impl TestAction {
             Self::SetFeatureFlag { .. } => "set_feature_flag",
             Self::InjectFault { .. } => "inject_fault",
             Self::ApiCall { .. } => "api_call",
+            Self::Hover { .. } => "hover",
+            Self::Scroll { .. } => "scroll",
+            Self::Drag { .. } => "drag",
             Self::Assert { .. } => "assert",
         }
     }
@@ -403,6 +429,9 @@ impl TestAction {
             Self::Activate { target }
             | Self::Fill { target, .. }
             | Self::Select { target, .. }
+            | Self::Hover { target }
+            | Self::Scroll { target }
+            | Self::Drag { target, .. }
             | Self::Wait {
                 condition: WaitCondition::Visible { target },
             } => Some(target),

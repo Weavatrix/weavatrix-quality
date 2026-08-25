@@ -48,6 +48,16 @@ export type TestAction = {
     operation: string;
     input: string;
 } | {
+    action: "hover";
+    target: Target;
+} | {
+    action: "scroll";
+    target: Target;
+} | {
+    action: "drag";
+    target: Target;
+    to: Target;
+} | {
     action: "assert";
     obligation: string;
 };
@@ -61,6 +71,9 @@ export type Driver = {
     setFeatureFlag(key: string, value: string): Promise<void>;
     injectFault(fault: string): Promise<void>;
     apiCall(operation: string, input: string): Promise<void>;
+    hover(target: Target): Promise<void>;
+    scroll(target: Target): Promise<void>;
+    drag(target: Target, to: Target): Promise<void>;
     assert(obligation: string): Promise<void>;
 };
 /** Semantic target the IR named for this action, if any. */

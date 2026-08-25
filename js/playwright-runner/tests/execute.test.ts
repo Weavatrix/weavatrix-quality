@@ -14,9 +14,13 @@ test("every TestProgram action reaches a real driver method", async () => {
     async setFeatureFlag() { calls.push("set_feature_flag"); },
     async injectFault() { calls.push("inject_fault"); },
     async apiCall() { calls.push("api_call"); },
+    async hover() { calls.push("hover"); },
+    async scroll() { calls.push("scroll"); },
+    async drag() { calls.push("drag"); },
     async assert() { calls.push("assert"); },
   };
   const target = { role: "button", accessible_name: "Save" };
+  const tray = { test_id: "tray" };
   const actions = [
     { action: "navigate", route: "/" },
     { action: "activate", target },
@@ -27,6 +31,9 @@ test("every TestProgram action reaches a real driver method", async () => {
     { action: "set_feature_flag", key: "flag", value: "on" },
     { action: "inject_fault", fault: "offline" },
     { action: "api_call", operation: "load", input: "fixture" },
+    { action: "hover", target },
+    { action: "scroll", target },
+    { action: "drag", target, to: tray },
     { action: "assert", obligation: "saved" },
   ];
   for (const action of actions) await executeStep(driver, action);

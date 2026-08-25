@@ -167,13 +167,18 @@ fn retarget_step(program: &mut TestProgram, step: usize, target: &Target) -> Res
         }
         | TestAction::Select {
             target: current, ..
+        }
+        | TestAction::Hover { target: current }
+        | TestAction::Scroll { target: current }
+        | TestAction::Drag {
+            target: current, ..
         } => {
             *current = recover_target(current, target)?;
             Ok(())
         }
         TestAction::Assert { .. } => Err(HealError::AssertionChanged),
         _ => Err(HealError::Invalid(
-            "heal can only retarget activate/fill/select".into(),
+            "heal can only retarget activate/fill/select/hover/scroll/drag".into(),
         )),
     }
 }

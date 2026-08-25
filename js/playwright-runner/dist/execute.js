@@ -5,6 +5,9 @@ export function actionTarget(action) {
         case "activate":
         case "fill":
         case "select":
+        case "hover":
+        case "scroll":
+        case "drag":
             return action.target;
         case "press":
             return action.target;
@@ -55,6 +58,19 @@ export async function executeStep(driver, action) {
             requireText("API operation", action.operation);
             requireText("API input", action.input);
             await driver.apiCall(action.operation, action.input);
+            return;
+        case "hover":
+            requireTarget("hover", action.target);
+            await driver.hover(action.target);
+            return;
+        case "scroll":
+            requireTarget("scroll", action.target);
+            await driver.scroll(action.target);
+            return;
+        case "drag":
+            requireTarget("drag", action.target);
+            requireTarget("drag drop", action.to);
+            await driver.drag(action.target, action.to);
             return;
         case "assert":
             requireText("assert obligation", action.obligation);

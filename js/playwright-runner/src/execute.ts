@@ -24,6 +24,9 @@ export type TestAction =
   | { action: "set_feature_flag"; key: string; value: string }
   | { action: "inject_fault"; fault: string }
   | { action: "api_call"; operation: string; input: string }
+  | { action: "hover"; target: Target }
+  | { action: "scroll"; target: Target }
+  | { action: "drag"; target: Target; to: Target }
   | { action: "assert"; obligation: string };
 
 export type Driver = {
@@ -36,6 +39,9 @@ export type Driver = {
   setFeatureFlag(key: string, value: string): Promise<void>;
   injectFault(fault: string): Promise<void>;
   apiCall(operation: string, input: string): Promise<void>;
+  hover(target: Target): Promise<void>;
+  scroll(target: Target): Promise<void>;
+  drag(target: Target, to: Target): Promise<void>;
   assert(obligation: string): Promise<void>;
 };
 
@@ -45,6 +51,9 @@ export function actionTarget(action: TestAction): Target | undefined {
     case "activate":
     case "fill":
     case "select":
+    case "hover":
+    case "scroll":
+    case "drag":
       return action.target;
     case "press":
       return action.target;
@@ -94,6 +103,19 @@ export async function executeStep(driver: Driver, action: TestAction): Promise<v
       requireText("API operation", action.operation);
       requireText("API input", action.input);
       await driver.apiCall(action.operation, action.input);
+      return;
+    case "hover":
+      requireTarget("hover", action.target);
+      await driver.hover(action.target);
+      return;
+    case "scroll":
+      requireTarget("scroll", action.target);
+      await driver.scroll(action.target);
+      return;
+    case "drag":
+      requireTarget("drag", action.target);
+      requireTarget("drag drop", action.to);
+      await driver.drag(action.target, action.to);
       return;
     case "assert":
       requireText("assert obligation", action.obligation);

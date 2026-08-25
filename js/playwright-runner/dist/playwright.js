@@ -182,6 +182,15 @@ export class PlaywrightDriver {
     async activate(target) {
         await this.#locator(target).click();
     }
+    async hover(target) {
+        await this.#locator(target).hover();
+    }
+    async scroll(target) {
+        await this.#locator(target).scrollIntoViewIfNeeded();
+    }
+    async drag(target, to) {
+        await this.#locator(target).dragTo(this.#locator(to));
+    }
     async fill(target, value) {
         await this.#locator(target).fill(this.#resolveScalar(value));
     }

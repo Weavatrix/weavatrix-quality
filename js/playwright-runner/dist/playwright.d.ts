@@ -167,6 +167,9 @@ export declare class PlaywrightDriver implements Driver {
     evaluateRecordedOracles(): Promise<RecordedOracleResult[]>;
     navigate(route: string): Promise<void>;
     activate(target: Target): Promise<void>;
+    hover(target: Target): Promise<void>;
+    scroll(target: Target): Promise<void>;
+    drag(target: Target, to: Target): Promise<void>;
     fill(target: Target, value: string): Promise<void>;
     select(target: Target, value: string): Promise<void>;
     press(key: string, target?: Target): Promise<void>;
