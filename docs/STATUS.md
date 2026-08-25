@@ -24,6 +24,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Exact case-level proof binding | ✅ | ✅ | ✅ | ✅ Cargo/Playwright; ✅ unambiguous single-case JUnit/Go; 🟡 aggregate coverage |
 | Runner-specific file filtering | ✅ | ✅ | ✅ | ✅ Vitest/Jest/Bun/Playwright; generic npm widens |
 | Executor registry | ✅ | ✅ | ✅ | ✅ Cargo/npm/Vitest/Storybook/Jest/Bun/Go/Playwright |
+| Process-tree kill | ✅ | ✅ | ✅ deadline/cancel/output | ✅ Unix process group + Windows job object |
 | Impacted Storybook/Vitest | ✅ | ✅ | ✅ | ✅ official addon + Playwright Chromium + JUnit/LCOV |
 | Runner normalization | ✅ | ✅ | ✅ | ✅ Cargo/JUnit/Go/browser |
 | SQLite/CAS | ✅ | ✅ | ✅ | ✅ |
@@ -167,6 +168,8 @@ Detection is roughly two orders of magnitude cheaper than collection, so the cos
 The sealed behavioural test passes. The change introduces an overlay over the Export button. The base revision had no occlusion. Head has deterministic geometry and hit-test evidence, WVQ stores the artifacts, identifies the new regression, `quality_explain` names the exact target, occluder, route, viewport, and probe counts, and composite `quality_verify` returns `BLOCKED` with `verdict` still `PROVEN` and zero runtime model tokens.
 
 That runs against real Chromium and two real revisions through the product path. Four further variants run against the same base: a duplicate `Save` in one dialog scope, horizontal overflow at 767 px, a clipped critical label reported with its measurements, and the two cases that must stay clean — repeated `Delete` buttons in separate row scopes, and a declared tooltip overlap.
+
+Bounded runner and Playwright-bridge spawns sit in a Unix process group or a Windows job object. Deadline, cancel, and output-cap kills terminate Vitest workers and Chromium descendants, not only the parent `Child`. A Node grandchild that keeps writing after the parent is killed is the regression test.
 
 Browser tests now take a cross-process lock. Cargo runs each integration-test file as its own process, so the previous in-process mutex left several binaries launching Chromium at once; that, plus a 30-second fixture deadline, is what made browser tests fail intermittently under `cargo test --workspace`. The fixtures now allow the full 120-second bridge budget.
 

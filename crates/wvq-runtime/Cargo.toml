@@ -13,6 +13,7 @@ keywords = ["weavatrix", "quality", "junit"]
 categories = ["development-tools"]
 
 [dependencies]
+process-wrap = { workspace = true }
 quick-xml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

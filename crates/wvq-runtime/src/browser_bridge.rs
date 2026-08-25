@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use wvq_domain::ObligationId;
 
+use crate::process::{TreeChild, spawn_tree};
 use crate::{Observation, Target, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
@@ -1052,7 +1053,7 @@ fn validated_evidence_path(root: &Path, raw: &str) -> Result<PathBuf, BrowserBri
 }
 
 struct BridgeProcess {
-    child: Child,
+    child: TreeChild,
     stdin: Option<ChildStdin>,
     replies: mpsc::Receiver<Result<String, String>>,
     stderr: Arc<Mutex<Vec<u8>>>,
@@ -1063,24 +1064,25 @@ struct BridgeProcess {
 
 impl BridgeProcess {
     fn spawn(config: &BrowserRunConfig, runner: &Path) -> Result<Self, BrowserBridgeError> {
-        let mut child = Command::new(if cfg!(windows) { "node.exe" } else { "node" })
+        let mut command = Command::new(if cfg!(windows) { "node.exe" } else { "node" });
+        command
             .arg(runner)
             .current_dir(&config.module_root)
             .env("WVQ_PLAYWRIGHT_MODULE_ROOT", &config.module_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let mut child = spawn_tree(command)?;
         let stdin = child
-            .stdin
+            .stdin()
             .take()
             .ok_or_else(|| BrowserBridgeError::Protocol("child stdin was not piped".into()))?;
         let stdout = child
-            .stdout
+            .stdout()
             .take()
             .ok_or_else(|| BrowserBridgeError::Protocol("child stdout was not piped".into()))?;
         let stderr_pipe = child
-            .stderr
+            .stderr()
             .take()
             .ok_or_else(|| BrowserBridgeError::Protocol("child stderr was not piped".into()))?;
         let (sender, replies) = mpsc::sync_channel(4);

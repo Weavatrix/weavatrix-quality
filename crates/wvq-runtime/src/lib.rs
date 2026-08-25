@@ -51,7 +51,7 @@ pub use normalize::{
     ArtifactDescriptor, CoverageArtifact, FileCoverage, LineRange, NormalizedTestRun, RuntimeError,
     TestCaseResult, TestStatus,
 };
-pub use process::ProcessLimits;
+pub use process::{ProcessLimits, run_bounded};
 pub use program::{
     ApiOperation, CaptureWhen, EvidencePolicy, FaultSpec, NetworkRequestObservation, Observation,
     ProgramError, ProgramSource, Target, TestAction, TestProgram, WaitCondition,

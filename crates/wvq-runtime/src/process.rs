@@ -1,6 +1,9 @@
 //! Bounded process spawn: deadline, output cap, cancel. No shell.
+//!
+//! Timeout and cancel kill the process *tree*: Unix process group, Windows job
+//! object. `Child::kill` on the parent is not enough for Vitest or Chromium.
 
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,7 +11,26 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use process_wrap::std::{ChildWrapper, CommandWrap};
+#[cfg(windows)]
+use process_wrap::std::JobObject;
+#[cfg(unix)]
+use process_wrap::std::ProcessGroup;
+
 use crate::normalize::RuntimeError;
+
+/// Spawned command whose kill covers descendants.
+pub(crate) type TreeChild = Box<dyn ChildWrapper>;
+
+/// Spawn `command` in a Unix process group or a Windows job object.
+pub(crate) fn spawn_tree(command: Command) -> io::Result<TreeChild> {
+    let mut wrap = CommandWrap::from(command);
+    #[cfg(unix)]
+    wrap.wrap(ProcessGroup::leader());
+    #[cfg(windows)]
+    wrap.wrap(JobObject);
+    wrap.spawn()
+}
 
 /// Caps applied to every registered spawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,16 +73,16 @@ pub fn run_bounded(
     if cancel.load(Ordering::SeqCst) {
         return Err(RuntimeError::Cancelled);
     }
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| RuntimeError::Spawn(err.to_string()))?;
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
+        .stderr(Stdio::piped());
+    let mut child = spawn_tree(command).map_err(|err| RuntimeError::Spawn(err.to_string()))?;
+    let stdout = child.stdout().take();
+    let stderr = child.stderr().take();
     let (tx, rx) = mpsc::channel::<StreamChunk>();
     let mut readers = 0_u8;
     if stdout.is_some() {
@@ -73,7 +95,7 @@ pub fn run_bounded(
     } else {
         drop(tx);
     }
-    collect_child(&mut child, &rx, limits, cancel, readers)
+    collect_child(child.as_mut(), &rx, limits, cancel, readers)
 }
 
 enum StreamChunk {
@@ -112,7 +134,7 @@ where
 }
 
 fn collect_child(
-    child: &mut std::process::Child,
+    child: &mut dyn ChildWrapper,
     rx: &mpsc::Receiver<StreamChunk>,
     limits: &ProcessLimits,
     cancel: &AtomicBool,
@@ -167,7 +189,7 @@ fn append_capped(
     other: &[u8],
     chunk: &[u8],
     limits: &ProcessLimits,
-    child: &mut std::process::Child,
+    child: &mut dyn ChildWrapper,
 ) -> Result<(), RuntimeError> {
     let used = dest.len().saturating_add(other.len()).saturating_add(chunk.len());
     if used > limits.max_output_bytes {
