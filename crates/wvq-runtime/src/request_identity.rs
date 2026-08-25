@@ -209,6 +209,12 @@ fn canonical_json(value: &Value) -> Value {
     }
 }
 
+/// SHA-256 hex of raw bytes. Used for request bodies and visual surfaces.
+#[must_use]
+pub fn bytes_digest(bytes: &[u8]) -> String {
+    sha256_hex(bytes)
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()

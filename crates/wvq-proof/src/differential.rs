@@ -132,8 +132,8 @@ pub struct DeltaTriangle {
     pub reading: TriangleReading,
     /// First structured behavior axis, when behavior moved.
     pub first_behavior_axis: Option<String>,
-    /// Whether pixel handles were compared (only if structured matched).
-    pub pixel_compared: bool,
+    /// Whether both sides had a visual digest and structured axes matched.
+    pub visual_compared: bool,
     /// Unexpected cells become findings. Expected change / refactor do not.
     pub findings: Vec<QualityFinding>,
 }
@@ -273,7 +273,7 @@ pub fn join_triangle(
                     .first()
                     .map(|item| item.axis.as_str().to_owned())
             }),
-        pixel_compared: behavior.pixel_compared,
+        visual_compared: behavior.visual_compared,
         findings: if code.measured {
             unexpected_findings(reading, program_id)
         } else {

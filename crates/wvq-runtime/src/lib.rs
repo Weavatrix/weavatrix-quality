@@ -58,5 +58,6 @@ pub use program::{
     filter_observation,
 };
 pub use request_identity::{
-    GraphqlIdentity, RequestIdentity, canonical_json_digest, identify_request, request_path,
+    GraphqlIdentity, RequestIdentity, bytes_digest, canonical_json_digest, identify_request,
+    request_path,
 };

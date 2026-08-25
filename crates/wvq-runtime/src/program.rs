@@ -600,6 +600,12 @@ pub struct Observation {
     /// CAS handle. Absent unless the evidence policy allows it.
     #[serde(default)]
     pub screenshot_handle: Option<String>,
+    /// SHA-256 of the captured visual surface. Never a perceptual score.
+    #[serde(default)]
+    pub visual_digest: Option<String>,
+    /// Which bytes `visual_digest` covers. Currently `screenshot_png`.
+    #[serde(default)]
+    pub visual_surface: Option<String>,
 }
 
 /// Apply [`EvidencePolicy`] to a raw observation.
@@ -611,6 +617,8 @@ pub fn filter_observation(
 ) -> Observation {
     if !policy.allow_screenshot(failed) {
         observation.screenshot_handle = None;
+        observation.visual_digest = None;
+        observation.visual_surface = None;
     }
     if matches!(policy.network, CaptureWhen::Never)
         || (matches!(policy.network, CaptureWhen::OnFailure) && !failed)

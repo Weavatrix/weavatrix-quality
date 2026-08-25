@@ -893,8 +893,13 @@ fn observe_bridge(
         .and_then(Value::as_str)
         .map(|path| validated_evidence_path(evidence_dir, path))
         .transpose()?;
-    let observation = serde_json::from_value(body)
+    let mut observation: Observation = serde_json::from_value(body)
         .map_err(|err| BrowserBridgeError::Protocol(err.to_string()))?;
+    if let Some(path) = &screenshot {
+        let bytes = std::fs::read(path)?;
+        observation.visual_digest = Some(crate::bytes_digest(&bytes));
+        observation.visual_surface = Some("screenshot_png".into());
+    }
     Ok((observation, screenshot))
 }
 

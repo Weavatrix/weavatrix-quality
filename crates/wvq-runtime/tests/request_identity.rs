@@ -119,6 +119,15 @@ fn empty_bodies_are_identified_without_a_digest() {
 }
 
 #[test]
+fn screenshot_png_digest_names_its_surface() {
+    let left = wvq_runtime::bytes_digest(b"\x89PNG-fake-a");
+    let right = wvq_runtime::bytes_digest(b"\x89PNG-fake-b");
+    assert_eq!(left.len(), 64);
+    assert_ne!(left, right);
+    assert!(!left.contains("PNG"));
+}
+
+#[test]
 fn canonical_digest_never_embeds_the_source_json() {
     let value = json!({"token":"secret-value","email":"qa@example.com"});
     let digest = canonical_json_digest(&value);

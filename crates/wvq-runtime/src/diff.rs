@@ -1,4 +1,4 @@
-//! Base/head replay and structured-before-pixel `BehaviorDelta`.
+//! Base/head replay and structured-before-visual-digest `BehaviorDelta`.
 
 use std::collections::BTreeSet;
 
@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::behavior::{BehaviorState, ReplayHost, replay_program};
 use crate::program::{Observation, ProgramError, TestProgram};
 
-/// Comparison axes, in the spec-mandated order. Pixel is last.
+/// Comparison axes, in the spec-mandated order. Visual digest is last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffAxis {
@@ -27,15 +27,19 @@ pub enum DiffAxis {
     Storage,
     /// Viewport / geometry.
     Geometry,
-    /// Screenshot handle. Compared only when structured axes match.
-    Pixel,
+    /// SHA-256 of a named visual surface. Not a perceptual pixel kernel.
+    ///
+    /// Wire token is `visual_digest`. The old `pixel` token is accepted when
+    /// reading stored artefacts so a renamed axis does not look like a new one.
+    #[serde(alias = "pixel")]
+    VisualDigest,
 }
 
 impl DiffAxis {
-    /// Pixel is not a structured axis.
+    /// The visual digest is not a structured axis.
     #[must_use]
     pub fn is_structured(&self) -> bool {
-        *self != Self::Pixel
+        *self != Self::VisualDigest
     }
 
     /// Wire token.
@@ -50,7 +54,7 @@ impl DiffAxis {
             Self::Console => "console",
             Self::Storage => "storage",
             Self::Geometry => "geometry",
-            Self::Pixel => "pixel",
+            Self::VisualDigest => "visual_digest",
         }
     }
 }
@@ -69,12 +73,13 @@ pub struct AxisDelta {
 /// Structured observation delta. Not a quality percentage.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BehaviorDelta {
-    /// Changed axes, structured first. Pixel appears only if no structured change.
+    /// Changed axes, structured first. Visual digest appears only if no structured change.
     pub axes: Vec<AxisDelta>,
     /// First structured change, if any.
     pub first_structured: Option<DiffAxis>,
-    /// True only when structured axes matched and pixel handles were compared.
-    pub pixel_compared: bool,
+    /// True only when structured axes matched and both sides had a visual digest.
+    #[serde(alias = "pixel_compared")]
+    pub visual_compared: bool,
 }
 
 impl BehaviorDelta {
@@ -104,8 +109,10 @@ pub struct StructuredView {
     pub storage: Vec<String>,
     /// Viewport.
     pub viewport: Option<String>,
-    /// Screenshot handle.
-    pub screenshot_handle: Option<String>,
+    /// SHA-256 of [`Self::visual_surface`]. Absent when no visual bytes were captured.
+    pub visual_digest: Option<String>,
+    /// Which bytes `visual_digest` covers (`screenshot_png` today).
+    pub visual_surface: Option<String>,
 }
 
 impl StructuredView {
@@ -140,7 +147,8 @@ impl StructuredView {
                 .map(|(key, value)| format!("{key}={value}"))
                 .collect(),
             viewport: observation.viewport.clone(),
-            screenshot_handle: observation.screenshot_handle.clone(),
+            visual_digest: observation.visual_digest.clone(),
+            visual_surface: observation.visual_surface.clone(),
         };
         view.storage.sort();
         if let Some(state) = state {
@@ -190,7 +198,7 @@ fn url_identity(url: &str) -> &str {
         .map_or("/", |index| &after_scheme[index..])
 }
 
-/// Compare base vs head. Structured axes always run before pixel.
+/// Compare base vs head. Structured axes always run before the visual digest.
 #[must_use]
 pub fn behavior_delta(base: &StructuredView, head: &StructuredView) -> BehaviorDelta {
     let mut changed = Vec::new();
@@ -246,20 +254,32 @@ pub fn behavior_delta(base: &StructuredView, head: &StructuredView) -> BehaviorD
         .iter()
         .map(|item| item.axis)
         .find(DiffAxis::is_structured);
-    let mut pixel_compared = false;
-    if first_structured.is_none() {
-        pixel_compared = true;
-        push_opt(
-            &mut changed,
-            DiffAxis::Pixel,
-            base.screenshot_handle.as_ref(),
-            head.screenshot_handle.as_ref(),
-        );
+    let mut visual_compared = false;
+    if first_structured.is_none()
+        && let (Some(left), Some(right)) =
+            (base.visual_digest.as_ref(), head.visual_digest.as_ref())
+    {
+        visual_compared = true;
+        if left != right {
+            changed.push(AxisDelta {
+                axis: DiffAxis::VisualDigest,
+                base: format!(
+                    "{}:{}",
+                    base.visual_surface.as_deref().unwrap_or("screenshot_png"),
+                    left
+                ),
+                head: format!(
+                    "{}:{}",
+                    head.visual_surface.as_deref().unwrap_or("screenshot_png"),
+                    right
+                ),
+            });
+        }
     }
     BehaviorDelta {
         axes: changed,
         first_structured,
-        pixel_compared,
+        visual_compared,
     }
 }
 

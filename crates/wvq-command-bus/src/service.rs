@@ -8854,7 +8854,8 @@ fn persist_delta_triangle(
                         "code_nodes": program_code.intersecting_nodes,
                         "code_unmeasured_reason": program_code.unmeasured_reason,
                         "first_behavior_axis": triangle.first_behavior_axis,
-                        "pixel_compared": triangle.pixel_compared,
+                        "visual_compared": triangle.visual_compared,
+                        "pixel_compared": triangle.visual_compared,
                         "changed_axes": delta.axes.iter().map(|axis| axis.axis.as_str()).collect::<Vec<_>>(),
                         "base_observations": base_handles,
                         "head_observations": head_handles,
@@ -8991,8 +8992,12 @@ fn paired_observation_delta(
         }
     }
     if first_structured.is_some() {
-        axes.remove(&DiffAxis::Pixel);
+        axes.remove(&DiffAxis::VisualDigest);
     }
+    let visual_compared = first_structured.is_none()
+        && base.iter().zip(head).any(|(base_obs, head_obs)| {
+            base_obs.visual_digest.is_some() && head_obs.visual_digest.is_some()
+        });
     BehaviorDelta {
         axes: axes
             .into_iter()
@@ -9003,7 +9008,7 @@ fn paired_observation_delta(
             })
             .collect(),
         first_structured,
-        pixel_compared: first_structured.is_none(),
+        visual_compared,
     }
 }
 

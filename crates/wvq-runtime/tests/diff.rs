@@ -1,4 +1,4 @@
-//! Task 20: same `TestProgram` on base/head; structured axes before pixel.
+//! Task 20: same `TestProgram` on base/head; structured axes before visual digest.
 
 use std::collections::BTreeMap;
 
@@ -55,10 +55,11 @@ fn state(route: &str) -> wvq_runtime::BehaviorState {
     }
 }
 
-fn view(route: &str, shot: Option<&str>) -> StructuredView {
+fn view(route: &str, digest: Option<&str>) -> StructuredView {
     let obs = Observation {
         route: Some(route.into()),
-        screenshot_handle: shot.map(ToOwned::to_owned),
+        visual_digest: digest.map(ToOwned::to_owned),
+        visual_surface: digest.map(|_| "screenshot_png".into()),
         ..Observation::default()
     };
     StructuredView::from_replay(&obs, None)
@@ -82,23 +83,70 @@ fn same_program_replays_on_base_and_head() {
 }
 
 #[test]
-fn structured_route_change_skips_pixel() {
-    let base = view("/sankey", Some("cas:base"));
-    let head = view("/sankey-v2", Some("cas:head"));
+fn structured_route_change_skips_visual_digest() {
+    let base = view("/sankey", Some("aaa"));
+    let head = view("/sankey-v2", Some("bbb"));
     let delta = behavior_delta(&base, &head);
     assert_eq!(delta.first_structured, Some(DiffAxis::Route));
-    assert!(!delta.pixel_compared);
-    assert!(delta.axes.iter().all(|item| item.axis != DiffAxis::Pixel));
+    assert!(!delta.visual_compared);
+    assert!(
+        delta
+            .axes
+            .iter()
+            .all(|item| item.axis != DiffAxis::VisualDigest)
+    );
 }
 
 #[test]
-fn pixel_compared_only_when_structured_matches() {
-    let base = view("/sankey", Some("cas:base"));
-    let head = view("/sankey", Some("cas:head"));
+fn visual_digest_is_compared_only_when_structured_matches() {
+    let base = view("/sankey", Some("aaa"));
+    let head = view("/sankey", Some("bbb"));
     let delta = behavior_delta(&base, &head);
-    assert!(delta.pixel_compared);
+    assert!(delta.visual_compared);
     assert_eq!(delta.first_structured, None);
-    assert_eq!(delta.axes[0].axis, DiffAxis::Pixel);
+    assert_eq!(delta.axes[0].axis, DiffAxis::VisualDigest);
+    assert!(delta.axes[0].base.starts_with("screenshot_png:"));
+}
+
+#[test]
+fn identical_visual_bytes_are_not_a_change_even_if_handles_would_differ() {
+    let mut base = view("/sankey", Some("same-digest"));
+    let mut head = view("/sankey", Some("same-digest"));
+    base.visual_surface = Some("screenshot_png".into());
+    head.visual_surface = Some("screenshot_png".into());
+    let delta = behavior_delta(&base, &head);
+    assert!(delta.visual_compared);
+    assert!(!delta.changed());
+}
+
+#[test]
+fn stored_pixel_token_still_reads_as_visual_digest() {
+    let axis: DiffAxis = serde_json::from_str("\"pixel\"").unwrap();
+    assert_eq!(axis, DiffAxis::VisualDigest);
+    assert_eq!(
+        serde_json::to_string(&DiffAxis::VisualDigest).unwrap(),
+        "\"visual_digest\""
+    );
+}
+
+#[test]
+fn screenshot_handles_without_a_digest_are_not_visual_evidence() {
+    let base = Observation {
+        route: Some("/sankey".into()),
+        screenshot_handle: Some("cas:base".into()),
+        ..Observation::default()
+    };
+    let head = Observation {
+        route: Some("/sankey".into()),
+        screenshot_handle: Some("cas:head".into()),
+        ..Observation::default()
+    };
+    let delta = behavior_delta(
+        &StructuredView::from_replay(&base, None),
+        &StructuredView::from_replay(&head, None),
+    );
+    assert!(!delta.visual_compared);
+    assert!(!delta.changed());
 }
 
 #[test]

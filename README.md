@@ -36,7 +36,7 @@ The canonical development checklist is implemented, but its items have different
 - an explicit loopback model call goes through the persistent AI Cost Firewall; normal verification never calls a model.
 - agents can author a typed Playwright-backed `TestProgram` from changed-code and sealed-intent context, validate it without writes, preview it through the real browser with screenshot/trace handles, and explicitly promote only that exact passing preview.
 - every Playwright run turns route, accessibility digest, viewport, semantic action, sealed obligation, and observed API metadata into persistent BehaviorGraph states/edges and a bounded contribution artifact.
-- every normal browser run replays the exact same head-selected `TestProgram` on the merge base, compares structured observations before pixels, and feeds the live Spec x Code x Behavior Delta Triangle into `quality_verify` with zero model tokens.
+- every normal browser run replays the exact same head-selected `TestProgram` on the merge base, compares structured observations before a named visual digest, and feeds the live Spec x Code x Behavior Delta Triangle into `quality_verify` with zero model tokens.
 - the spec axis of that triangle is authorized per program against the exact requirements and scenarios that changed between base and head, so editing one requirement never excuses behavior drift in a program bound to a different one.
 - mutation-enabled scenarios run concrete changed-line TS/JS or Go source edits in an isolated Git worktree and attach exact per-obligation killed/survived evidence to the ordinary Proof.
 

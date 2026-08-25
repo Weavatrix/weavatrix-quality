@@ -171,8 +171,12 @@ fn screenshot_only_when_policy_allows() {
         screenshot: CaptureWhen::Never,
         ..wvq_runtime::EvidencePolicy::default()
     };
+    raw.visual_digest = Some("deadbeef".into());
+    raw.visual_surface = Some("screenshot_png".into());
     let filtered = filter_observation(raw.clone(), &policy, true);
     assert!(filtered.screenshot_handle.is_none());
+    assert!(filtered.visual_digest.is_none());
+    assert!(filtered.visual_surface.is_none());
 
     let policy = wvq_runtime::EvidencePolicy {
         screenshot: CaptureWhen::OnFailure,
@@ -181,8 +185,11 @@ fn screenshot_only_when_policy_allows() {
     raw.screenshot_handle = Some("cas:shot".into());
     let on_pass = filter_observation(raw.clone(), &policy, false);
     assert!(on_pass.screenshot_handle.is_none());
+    assert!(on_pass.visual_digest.is_none());
     let on_fail = filter_observation(raw, &policy, true);
     assert_eq!(on_fail.screenshot_handle.as_deref(), Some("cas:shot"));
+    assert_eq!(on_fail.visual_digest.as_deref(), Some("deadbeef"));
+    assert_eq!(on_fail.visual_surface.as_deref(), Some("screenshot_png"));
 }
 
 #[test]
