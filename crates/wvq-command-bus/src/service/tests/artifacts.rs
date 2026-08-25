@@ -171,6 +171,36 @@ use wvq_proof::scoped_code_delta;
     }
 
     #[test]
+    fn a_test_file_binding_does_not_create_a_production_code_flow() {
+        let graph = json!({
+            "nodes": [
+                {
+                    "id": "symbol:src/widget.test.ts#renders",
+                    "span": {"file": "src/widget.test.ts", "start_line": 1, "end_line": 1}
+                },
+                {
+                    "id": "symbol:src/widget.ts#Widget",
+                    "span": {"file": "src/widget.ts", "start_line": 1, "end_line": 1}
+                }
+            ]
+        });
+        let bindings = [TestBinding {
+            path: "src/widget.test.ts".into(),
+            runner: None,
+            suite: None,
+            case: None,
+            obligations: BTreeSet::from(["export-usable".into()]),
+            cost: 100,
+            flake_penalty: 0,
+        }];
+        let flows = declared_code_flows("rev-head", &bindings, &graph);
+        assert!(
+            flows.is_empty(),
+            "test nodes must not become production flows: {flows:?}"
+        );
+    }
+
+    #[test]
     fn live_graph_diff_and_coverage_build_revision_bound_protection() {
         let diff = json!({
             "counts": {

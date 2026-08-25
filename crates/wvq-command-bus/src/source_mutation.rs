@@ -13,8 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use wvq_proof::{
-    MutantEcosystem, MutantStatus, MutationSummary, SourceMutant, plan_go_source_mutants,
-    plan_ts_js_source_mutants,
+    MutantEcosystem, MutantStatus, MutationSummary, SourceMutant, obligations_owning_path,
+    plan_go_source_mutants, plan_ts_js_source_mutants, surfaces_from_declared_paths,
 };
 use wvq_runtime::{
     ExecutorId, ExecutorRegistry, PrepareRequest, ProcessLimits, TestStatus,
@@ -427,12 +427,23 @@ pub(crate) fn execute_source_mutation(
         });
     }
 
+    let surfaces = surfaces_from_declared_paths(
+        &request
+            .bindings
+            .iter()
+            .map(|binding| (binding.path.clone(), binding.obligations.clone()))
+            .collect::<Vec<_>>(),
+    );
     let applicable_obligations = planned
         .iter()
         .flat_map(|mutant| {
-            request
-                .policy
-                .obligations_for(mutant.ecosystem, &mutant.operator)
+            obligations_owning_path(
+                &surfaces,
+                &mutant.path,
+                &request
+                    .policy
+                    .obligations_for(mutant.ecosystem, &mutant.operator),
+            )
         })
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -456,10 +467,13 @@ pub(crate) fn execute_source_mutation(
         let mutated = mutant.apply(&original).map_err(|error| error.to_string())?;
         std::fs::write(workspace.path.join(&mutant.path), mutated)
             .map_err(|error| format!("cannot write isolated mutant {}: {error}", mutant.id))?;
-        for obligation in request
-            .policy
-            .obligations_for(mutant.ecosystem, &mutant.operator)
-        {
+        for obligation in obligations_owning_path(
+            &surfaces,
+            &mutant.path,
+            &request
+                .policy
+                .obligations_for(mutant.ecosystem, &mutant.operator),
+        ) {
             if mutation_started.elapsed() >= MAX_MUTATION_WALL_TIME {
                 wall_limit_reached = true;
                 break;

@@ -6,6 +6,7 @@ use wvq_domain::{CheckId, FindingState, ObligationId, QualityFinding, Severity, 
 use wvq_runtime::BehaviorDelta;
 use wvq_spec::{OpenSpecChange, SpecChangeScope, TestObligation};
 
+use crate::code_surface::surface_from_flows;
 use crate::protection::FlowProtection;
 
 /// Whether `OpenSpec` intent changed on this change folder.
@@ -187,9 +188,10 @@ pub fn scoped_spec_delta(
     }
 }
 
-/// Code axis for one program: obligation → protected flow → changed nodes.
+/// Code axis for one program: obligation → implementation surface → changed nodes.
 ///
-/// No matching flow is unmeasured. An empty intersection is a measured `false`.
+/// Test/spec nodes are not production evidence. No implementation mapping is
+/// unmeasured. An empty intersection is a measured `false`.
 #[must_use]
 pub fn scoped_code_delta(
     program_obligations: &[ObligationId],
@@ -199,23 +201,14 @@ pub fn scoped_code_delta(
     if program_obligations.is_empty() {
         return CodeDelta::unmeasured("program asserts no obligation");
     }
-    let wanted: BTreeSet<&str> = program_obligations
-        .iter()
-        .map(ObligationId::as_str)
-        .collect();
     let mut protected = BTreeSet::new();
     let mut mapped = false;
-    for flow in flows {
-        let covers = flow
-            .proven_obligations
-            .iter()
-            .any(|obligation| wanted.contains(obligation.as_str()));
-        if !covers {
-            continue;
+    for obligation in program_obligations {
+        let surface = surface_from_flows(obligation.as_str(), flows);
+        if surface.has_implementation_mapping() {
+            mapped = true;
+            protected.extend(surface.implementation_nodes);
         }
-        mapped = true;
-        protected.insert(flow.flow.clone());
-        protected.extend(flow.covered_nodes.iter().cloned());
     }
     if !mapped {
         return CodeDelta::unmeasured(

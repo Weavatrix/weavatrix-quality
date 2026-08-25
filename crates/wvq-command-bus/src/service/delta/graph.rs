@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use wvq_proof::FlowProtection;
+use wvq_proof::{FlowProtection, is_test_source_path};
 use wvq_runtime::{AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta};
 
 use super::super::{
@@ -70,6 +70,9 @@ pub(in crate::service) fn declared_code_flows(
         let Some(file) = graph_node_file(node) else {
             continue;
         };
+        if is_test_source_path(&file) {
+            continue;
+        }
         let Some(obligations) = by_path.get(&file) else {
             continue;
         };
