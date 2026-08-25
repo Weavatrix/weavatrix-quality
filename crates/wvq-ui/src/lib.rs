@@ -25,6 +25,8 @@ mod ratchet;
 mod responsive;
 mod snapshot;
 mod spatial;
+mod visual;
+mod visual_pixels;
 
 pub use detect::{DetectionOutput, detect};
 pub use finding::{UiCheck, UiEvidence, UiIntegrityFinding, sort_findings};
@@ -45,6 +47,10 @@ pub use snapshot::{
     SnapshotIndex, UiNode, UiNodeId, UiStateKey, Viewport,
 };
 pub use spatial::{CandidatePairs, MAX_CANDIDATE_PAIRS, overlapping_pairs};
+pub use visual::{
+    MAX_VISUAL_REGIONS, VisualRegion, VisualRegionDiff, VisualRegionKind, region_visual_diff,
+};
+pub use visual_pixels::{MAX_CROP_PIXELS, PixelFrame, encode_rgba_png};
 
 use thiserror::Error;
 
