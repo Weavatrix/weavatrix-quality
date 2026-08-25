@@ -191,4 +191,28 @@ impl FakeService {
             created: true,
         })
     }
+
+    pub(in crate::service) fn ingest_journal(
+        &self,
+        cmd: &IngestJournalCommand,
+    ) -> Result<IngestJournalReply, BusError> {
+        let journal = ContinuousJournal::from_json(&cmd.journal)
+            .map_err(|err| BusError::InvalidInput(err.to_string()))?;
+        Ok(IngestJournalReply {
+            session_id: journal.session_id,
+            change: cmd.change.clone(),
+            revision: "fake-revision".into(),
+            captured_events: u64::try_from(journal.events.len()).unwrap_or(u64::MAX),
+            useful: true,
+            discarded: false,
+            discard_reason: None,
+            new_behavior_states: 1,
+            new_behavior_edges: 1,
+            observed_only: true,
+            seal_eligible: false,
+            trace_handle: Some("artifact-session-journal-fake-trace".into()),
+            journal_handle: Some("artifact-session-journal-fake-journal".into()),
+            runtime_llm_tokens: 0,
+        })
+    }
 }

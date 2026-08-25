@@ -24,6 +24,7 @@ mod promote;
 mod record;
 mod record_capture;
 mod record_persist;
+mod ingest_journal;
 mod run;
 mod run_types;
 mod run_prepare;
@@ -183,5 +184,8 @@ impl QualityService for LiveService {
     }
     fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError> {
         LiveService::init(self, cmd)
+    }
+    fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError> {
+        LiveService::ingest_journal(self, cmd)
     }
 }

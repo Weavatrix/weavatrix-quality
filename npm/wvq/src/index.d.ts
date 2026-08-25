@@ -421,6 +421,23 @@ export interface RecordReply {
     runtime_llm_tokens: 0
 }
 
+export interface IngestJournalReply {
+    session_id: string
+    change: string
+    revision: string
+    captured_events: number
+    useful: boolean
+    discarded: boolean
+    discard_reason: string | null
+    new_behavior_states: number
+    new_behavior_edges: number
+    observed_only: true
+    seal_eligible: false
+    trace_handle: string | null
+    journal_handle: string | null
+    runtime_llm_tokens: 0
+}
+
 export interface AuthorPromoteReply {
     change: string
     revision: string
@@ -476,6 +493,7 @@ export class WvqClient {
         maxEvents?: number
         headless?: boolean
     }): Promise<RecordReply>
+    ingestJournal(options?: RangeOptions & { file?: string; journal?: string }): Promise<IngestJournalReply>
     status(options?: CallOptions): Promise<StatusReply>
     verify(options?: { change?: string; observeOnly?: boolean; signal?: AbortSignal }): Promise<VerifyReply>
     explain(id: string, options?: CallOptions): Promise<ExplainReply>

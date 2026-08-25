@@ -7,14 +7,14 @@ use super::BusError;
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
     AuthorValidateCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
-    ExplainCommand, InitCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand,
-    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    ExplainCommand, InitCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
+    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
-    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply, ModelReply,
-    PlanReply, RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply,
-    SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
+    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply,
+    IngestJournalReply, ModelReply, PlanReply, RecordReply, RecoveryReply, Reply, RunReply,
+    SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
 };
 
 /// Shared facade for every host.
@@ -229,6 +229,14 @@ pub trait QualityService: Send + Sync {
     /// Returns [`BusError::InvalidInput`] when a policy already exists and
     /// `force` is false, or when the repository path is not a directory.
     fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError>;
+    /// Admit a continuous observation journal as `OBSERVED_ONLY` graph evidence.
+    ///
+    /// Never previews, promotes, or seals. Unknown schema and illegal actions fail closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when the journal is malformed or the repository revision is ambiguous.
+    fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -266,6 +274,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
             .recovery(&cmd)
             .map(|reply| Reply::Recovery(Box::new(reply))),
         Command::Init(cmd) => service.init(&cmd).map(Reply::Init),
+        Command::IngestJournal(cmd) => service.ingest_journal(&cmd).map(Reply::IngestJournal),
     }
 }
 

@@ -37,7 +37,11 @@ test('typed client maps methods to bounded native argv', async () => {
         repo: 'C:/repo',
         invoke: async (binary, args) => {
             calls.push({ binary, args })
-            const command = args[2] === 'spec' ? `spec_${args[3]}` : args[2]
+            const command = args[2] === 'spec'
+                ? `spec_${args[3]}`
+                : args[2] === 'ingest-journal'
+                    ? 'ingest_journal'
+                    : args[2]
             return { command, body: { ok: true } }
         },
         binary: 'wvq-test',
@@ -71,6 +75,16 @@ test('typed client maps methods to bounded native argv', async () => {
             '--max-events', '200', '--fixtures-json', '{"name":"Alice"}', '--headless', 'true',
         ],
     }])
+    assert.deepEqual(await client.ingestJournal({
+        change: 'live', journal: '{"schema_v":1}',
+    }), { ok: true })
+    assert.deepEqual(calls[3], {
+        binary: 'wvq-test',
+        args: [
+            '--repo', 'C:/repo', 'ingest-journal', '--change', 'live', '--base', 'HEAD',
+            '--head', 'WORKTREE', '--journal', '{"schema_v":1}',
+        ],
+    })
 })
 
 test('client rejects unknown enum values before starting native code', async () => {

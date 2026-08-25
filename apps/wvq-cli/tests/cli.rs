@@ -398,3 +398,60 @@ fn passive_recording_is_a_first_class_cli_command() {
     assert!(output.stdout.contains("recording-fake"));
     assert!(output.stdout.contains("preview-recorded-fake"));
 }
+
+const CONTINUOUS_JOURNAL: &str = r#"{
+    "schema_v": 1,
+    "source": "continuous",
+    "observed_only": true,
+    "session_id": "staging-checkout",
+    "initial": { "route": "/checkout" },
+    "events": [
+        {
+            "action": { "action": "activate", "target": { "test_id": "pay" } },
+            "after": { "route": "/checkout/done" }
+        }
+    ]
+}"#;
+
+#[test]
+fn ingest_journal_is_a_first_class_cli_command_and_never_seals() {
+    let parsed = parse_args(&argv(&[
+        "ingest-journal",
+        "--change",
+        "sankey-others",
+        "--journal",
+        CONTINUOUS_JOURNAL,
+    ]))
+    .unwrap();
+    let Command::IngestJournal(command) = parsed.command else {
+        panic!("expected ingest-journal command");
+    };
+    assert_eq!(command.change, "sankey-others");
+    assert!(command.journal.contains("staging-checkout"));
+
+    let output = run_with(
+        &argv(&[
+            "ingest-journal",
+            "--change",
+            "sankey-others",
+            "--journal",
+            CONTINUOUS_JOURNAL,
+        ]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"observed_only\": true"));
+    assert!(output.stdout.contains("\"seal_eligible\": false"));
+    assert!(!output.stdout.contains("preview-recorded-fake"));
+}
+
+#[test]
+fn ingest_journal_refuses_a_seal_claim() {
+    let raw = CONTINUOUS_JOURNAL.replace("\"observed_only\": true", "\"observed_only\": false");
+    let output = run_with(
+        &argv(&["ingest-journal", "--journal", &raw]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 1, "{}", output.stdout);
+    assert!(output.stderr.contains("observed_only"), "{}", output.stderr);
+}

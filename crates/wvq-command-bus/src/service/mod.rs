@@ -19,6 +19,9 @@ pub(in crate::service) const APPLICATION_SURFACE_GRAPH_KIND: &str = "application
 pub(in crate::service) const SURFACE_EVIDENCE_MATRIX_KIND: &str = "surface-evidence-matrix";
 /// CAS artifact kind for the read-only cheapest-evidence plan.
 pub(in crate::service) const CHEAPEST_EVIDENCE_PLAN_KIND: &str = "cheapest-evidence-plan";
+/// CAS artifact kind for an admitted continuous observation journal.
+pub(in crate::service) const CONTINUOUS_OBSERVATION_JOURNAL_KIND: &str =
+    "continuous-observation-journal";
 
 mod authoring;
 mod recovery;

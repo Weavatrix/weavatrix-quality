@@ -6,6 +6,7 @@ mod behavior;
 mod browser_bridge;
 mod browser_protocol;
 mod cargotest;
+mod continuous_journal;
 mod diff;
 mod discovery;
 mod executor;
@@ -23,6 +24,10 @@ pub use behavior::{
     BehaviorEdge, BehaviorState, BehaviorTrace, CoverageContribution, GraphMemory, RecordedEvent,
     Recorder, ReplayHost, coverage_contribution, promote, replay_program, replay_trace,
     semantic_target,
+};
+pub use continuous_journal::{
+    CONTINUOUS_JOURNAL_SCHEMA_V, ContinuousJournal, ContinuousJournalEvent,
+    ContinuousJournalSource, MAX_CONTINUOUS_JOURNAL_BYTES, MAX_CONTINUOUS_JOURNAL_EVENTS,
 };
 pub use browser_bridge::{
     ActionSpan, BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError,

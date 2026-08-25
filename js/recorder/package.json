@@ -1,0 +1,22 @@
+{
+  "name": "@wvq/recorder",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Optional continuous observation journal for Weavatrix Quality. No AI. Cannot seal.",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

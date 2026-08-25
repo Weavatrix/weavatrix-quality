@@ -692,6 +692,42 @@ pub struct InitReply {
     pub runtime_llm_tokens: u64,
 }
 
+/// Result of admitting a continuous observation journal.
+///
+/// Always `observed_only`. Never a candidate, preview, or seal.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IngestJournalReply {
+    /// Journal session identity.
+    pub session_id: String,
+    /// Resolved `OpenSpec` change.
+    pub change: String,
+    /// Exact repository/Weavatrix revision at ingest.
+    pub revision: String,
+    /// Semantic events admitted, excluding the initial state.
+    pub captured_events: u64,
+    /// True when new behavior states or edges were stored.
+    pub useful: bool,
+    /// True when the journal was valid but added no graph novelty.
+    pub discarded: bool,
+    /// Stable reason when discarded.
+    pub discard_reason: Option<String>,
+    /// Behavior states absent before this journal.
+    pub new_behavior_states: u64,
+    /// Non-loop behavior edges absent before this journal.
+    pub new_behavior_edges: u64,
+    /// Always true. Implementation evidence cannot establish intent.
+    pub observed_only: bool,
+    /// Always false. `OBSERVED_ONLY` cannot become a normative seal.
+    pub seal_eligible: bool,
+    /// CAS-backed canonical `BehaviorTrace` when admitted.
+    pub trace_handle: Option<String>,
+    /// CAS-backed journal document when admitted.
+    pub journal_handle: Option<String>,
+    /// Ingest never spends model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -763,6 +799,9 @@ pub enum Reply {
     /// [`InitReply`].
     #[serde(rename = "init")]
     Init(InitReply),
+    /// [`IngestJournalReply`].
+    #[serde(rename = "ingest_journal")]
+    IngestJournal(IngestJournalReply),
 }
 
 impl Reply {

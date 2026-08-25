@@ -212,4 +212,7 @@ impl QualityService for FakeService {
             runtime_llm_tokens: 0,
         })
     }
+    fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError> {
+        FakeService::ingest_journal(self, cmd)
+    }
 }

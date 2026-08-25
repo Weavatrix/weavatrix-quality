@@ -80,6 +80,26 @@ export class WvqClient {
         return this.#call('record', args, signal)
     }
 
+    ingestJournal({
+        change = 'current', base = 'HEAD', head = 'WORKTREE', file, journal, signal,
+    } = {}) {
+        if ((file && journal) || (!file && !journal)) {
+            throw new TypeError('ingestJournal requires exactly one of file or journal')
+        }
+        const args = [
+            'ingest-journal', '--change', requireText('change', change),
+            '--base', requireText('base', base), '--head', requireText('head', head),
+        ]
+        if (file) args.push('--file', requireText('file', file))
+        if (journal) {
+            if (typeof journal !== 'string' || journal.trim() === '') {
+                throw new TypeError('journal must be non-empty JSON')
+            }
+            args.push('--journal', journal)
+        }
+        return this.#call('ingest_journal', args, signal)
+    }
+
     status({ signal } = {}) {
         return this.#call('status', ['status'], signal)
     }

@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, LiveService, ModelCommand,
-    PlanCommand, QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand,
-    SpecCommand, VerifyCommand, dispatch,
+    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, IngestJournalCommand,
+    LiveService, ModelCommand, PlanCommand, QualityService, RecordCommand, RecoveryCommand,
+    RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -45,6 +45,7 @@ Usage:
   wvq [--repo PATH] select [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] recover [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] record [--change ID] [--base REF] [--head REF|WORKTREE] [--route /PATH] [--idle-ms N] [--max-events N] [--headless true|false] [--fixtures-json JSON]
+  wvq [--repo PATH] ingest-journal --file PATH [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID] [--observe-only true|false]
@@ -132,22 +133,12 @@ fn parse_command(
         [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change, base, head }),
         [cmd] if cmd == "select" => Command::Select(SelectCommand { change, base, head }),
         [cmd] if cmd == "recover" => Command::Recovery(RecoveryCommand { change, base, head }),
-        [cmd] if cmd == "record" => Command::Record(RecordCommand {
+        [cmd] if cmd == "record" => parse_record_command(change, base, head, flags)?,
+        [cmd] if cmd == "ingest-journal" => Command::IngestJournal(IngestJournalCommand {
             change,
             base,
             head,
-            route: flags
-                .get("route")
-                .cloned()
-                .unwrap_or_else(|| "/".to_owned()),
-            fixture_values: parse_fixtures(flags.get("fixtures-json"))?,
-            idle_timeout_ms: parse_u64_flag(flags.get("idle-ms"), 3_000, "idle-ms")?,
-            max_events: u32::try_from(parse_u64_flag(flags.get("max-events"), 200, "max-events")?)
-                .map_err(|_| "invalid --max-events value".to_owned())?,
-            headless: flags
-                .get("headless")
-                .map(|value| parse_bool_flag(value, "headless"))
-                .transpose()?,
+            journal: read_journal_flag(flags.get("file"), flags.get("journal"))?,
         }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
@@ -199,6 +190,31 @@ fn parse_command(
     Ok(command)
 }
 
+fn parse_record_command(
+    change: String,
+    base: String,
+    head: String,
+    flags: &BTreeMap<String, String>,
+) -> Result<Command, String> {
+    Ok(Command::Record(RecordCommand {
+        change,
+        base,
+        head,
+        route: flags
+            .get("route")
+            .cloned()
+            .unwrap_or_else(|| "/".to_owned()),
+        fixture_values: parse_fixtures(flags.get("fixtures-json"))?,
+        idle_timeout_ms: parse_u64_flag(flags.get("idle-ms"), 3_000, "idle-ms")?,
+        max_events: u32::try_from(parse_u64_flag(flags.get("max-events"), 200, "max-events")?)
+            .map_err(|_| "invalid --max-events value".to_owned())?,
+        headless: flags
+            .get("headless")
+            .map(|value| parse_bool_flag(value, "headless"))
+            .transpose()?,
+    }))
+}
+
 fn required_flag(flags: &BTreeMap<String, String>, name: &str) -> Result<String, String> {
     flags
         .get(name)
@@ -227,6 +243,9 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             "headless",
             "fixtures-json",
         ]),
+        [cmd] if cmd == "ingest-journal" => {
+            Some(&["repo", "change", "base", "head", "file", "journal"])
+        }
         [cmd] if cmd == "verify" => Some(&["repo", "change", "observe-only"]),
         [cmd] if cmd == "plan" => Some(&["repo", "change"]),
         [cmd] if cmd == "init" => Some(&["repo", "force"]),
@@ -271,6 +290,27 @@ fn parse_fixtures(raw: Option<&String>) -> Result<BTreeMap<String, String>, Stri
                 .map_err(|err| format!("invalid --fixtures-json object: {err}"))
         },
     )
+}
+
+fn read_journal_flag(file: Option<&String>, journal: Option<&String>) -> Result<String, String> {
+    match (file, journal) {
+        (Some(_), Some(_)) => Err("pass exactly one of --file or --journal".into()),
+        (None, None) => Err("flag --file is required".into()),
+        (None, Some(body)) => {
+            if body.len() > 1_048_576 {
+                return Err("continuous journal exceeds 1MiB".into());
+            }
+            Ok(body.clone())
+        }
+        (Some(path), None) => {
+            let metadata = std::fs::metadata(path)
+                .map_err(|err| format!("cannot read journal {path}: {err}"))?;
+            if metadata.len() > 1_048_576 {
+                return Err("continuous journal exceeds 1MiB".into());
+            }
+            std::fs::read_to_string(path).map_err(|err| format!("cannot read journal {path}: {err}"))
+        }
+    }
 }
 
 /// Run a parsed request against any service.

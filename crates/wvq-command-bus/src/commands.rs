@@ -361,6 +361,25 @@ pub struct InitCommand {
     pub force: bool,
 }
 
+/// Admit a continuous observation journal as `OBSERVED_ONLY` `BehaviorGraph` evidence.
+///
+/// Never previews, promotes, or seals. The journal body is JSON, not a path.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IngestJournalCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Canonical journal JSON produced by `@wvq/recorder`.
+    pub journal: String,
+}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -408,6 +427,8 @@ pub enum Command {
     Recovery(RecoveryCommand),
     /// [`InitCommand`].
     Init(InitCommand),
+    /// [`IngestJournalCommand`].
+    IngestJournal(IngestJournalCommand),
 }
 
 impl Command {
@@ -437,6 +458,7 @@ impl Command {
             Self::Changes(_) => "changes",
             Self::Recovery(_) => "recovery",
             Self::Init(_) => "init",
+            Self::IngestJournal(_) => "ingest_journal",
         }
     }
 }

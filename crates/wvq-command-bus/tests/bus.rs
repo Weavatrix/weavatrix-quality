@@ -15,7 +15,7 @@ use wvq_command_bus::{
     AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
     EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
     PlanCommand, QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch, estimate_tokens,
+    VerifyCommand, dispatch, estimate_tokens, IngestJournalCommand,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -2009,6 +2009,51 @@ fn authoring_refuses_candidate_owned_oracle_fields() {
         error.to_string().contains("unknown field `expected`"),
         "{error}"
     );
+}
+
+#[test]
+fn live_ingest_journal_fills_behavior_graph_without_a_seal() {
+    let repo = live_runner_repo();
+    let service = LiveService::new(&repo.0);
+    let journal = r#"{
+        "schema_v": 1,
+        "source": "continuous",
+        "observed_only": true,
+        "session_id": "staging-add",
+        "initial": { "route": "/add" },
+        "events": [
+            {
+                "action": { "action": "activate", "target": { "test_id": "sum" } },
+                "after": { "route": "/add/done" }
+            }
+        ]
+    }"#;
+    let reply = service
+        .ingest_journal(&IngestJournalCommand {
+            change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            journal: journal.into(),
+        })
+        .unwrap();
+    assert!(reply.observed_only);
+    assert!(!reply.seal_eligible);
+    assert!(reply.useful);
+    assert!(reply.new_behavior_states >= 1);
+    assert_eq!(reply.runtime_llm_tokens, 0);
+    assert!(reply.trace_handle.is_some());
+    assert!(reply.journal_handle.is_some());
+
+    let again = service
+        .ingest_journal(&IngestJournalCommand {
+            change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            journal: journal.into(),
+        })
+        .unwrap();
+    assert!(again.discarded);
+    assert_eq!(again.discard_reason.as_deref(), Some("no_new_behavior"));
 }
 
 #[test]

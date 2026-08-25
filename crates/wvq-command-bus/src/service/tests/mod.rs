@@ -55,3 +55,4 @@ mod surface_plan;
 mod policy;
 mod protection;
 mod init;
+mod ingest_journal;
