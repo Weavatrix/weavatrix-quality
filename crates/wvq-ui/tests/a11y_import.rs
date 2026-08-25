@@ -1,5 +1,7 @@
 //! Axe/Storybook JSON becomes ordinary ratchet findings. HTML never lands.
 
+use std::collections::BTreeSet;
+
 use serde_json::json;
 use wvq_domain::Severity;
 use wvq_ui::{
@@ -110,7 +112,7 @@ fn a_new_imported_error_blocks_and_an_existing_one_does_not() {
         findings: findings.clone(),
         ..UiIntegritySnapshot::default()
     };
-    let fresh = ratchet(&empty, &head, &Default::default(), &policy);
+    let fresh = ratchet(&empty, &head, &BTreeSet::new(), &policy);
     assert!(fresh.blocks());
     assert_eq!(fresh.new.len(), 1);
 
@@ -120,7 +122,7 @@ fn a_new_imported_error_blocks_and_an_existing_one_does_not() {
         findings,
         ..UiIntegritySnapshot::default()
     };
-    let legacy = ratchet(&base, &head, &Default::default(), &policy);
+    let legacy = ratchet(&base, &head, &BTreeSet::new(), &policy);
     assert!(!legacy.blocks());
     assert_eq!(legacy.existing.len(), 1);
 }

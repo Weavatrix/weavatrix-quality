@@ -45,10 +45,10 @@ pub fn import_a11y_violations(
             "axe-core"
         });
     let mut violations = parsed.violations;
-    if let Some(results) = parsed.results {
-        if violations.is_empty() {
-            violations = results.violations;
-        }
+    if let Some(results) = parsed.results
+        && violations.is_empty()
+    {
+        violations = results.violations;
     }
     let truncated = violations.len() > MAX_A11Y_IMPORT_VIOLATIONS;
     violations.truncate(MAX_A11Y_IMPORT_VIOLATIONS);
