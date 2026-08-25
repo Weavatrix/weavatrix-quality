@@ -1,13 +1,13 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-26
-Session: P1 — gap classification + cheapest-evidence planner
+Session: P1 — observe-only calibration (Stage A)
 
 ## Now
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-`ApplicationSurfaceGraph` is a live run artifact (`application-surface-graph`) and a read-only MCP/Studio projection (`protected` / `partial` / `unmeasured`). The Surface Evidence Matrix (`surface-evidence-matrix`) is one row per named surface with `intent | runtime | test | proof | protection | UI | a11y | mutation` cells of `present` / `absent` / `unmeasured`. The cheapest-evidence plan (`cheapest-evidence-plan`) classifies only measured-absent cells and ranks producers: existing test adaptation (1), recorded session (2), Storybook flow (3), browser explore (5), AI `TestProgram` (10). Unmeasured is not a gap. Intent cannot be established by a test producer. Mutation has no generation producer on this list. The plan does not generate evidence, preview a program, or call a model. None of these views is a gate: `quality_verify` still composes from the existing axes. Unknown schema versions fail closed. Studio copies the matrix and the plan onto the change summary.
+Stage A observe-only calibration is wired: `calibrate_observe_only` scores labelled PRs against WVQ would-block / would-not-block / unmeasured, and `wvq verify --observe-only true` still reports `blocking` while exiting 0. Unmeasured cases are not true negatives. Precision and recall use integer counts over measured cases only. The report never becomes a gate. This is not Coverage Autopilot generation and not Stage B/C promotion.
 
 ### Maturity matrix
 
@@ -53,6 +53,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 | Application Surface Graph | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live run persist; not a gate |
 | Surface Evidence Matrix | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate |
 | Cheapest-evidence plan | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate; no generation |
+| Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 labelled corpus tests; no 30–50 live PR campaign |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
 | Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
 | Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
@@ -286,9 +287,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **Observe-only calibration on real PRs.** Coverage Autopilot closed-loop generation still waits. The cheapest-evidence plan is now a read-only ranked producer list, not a generator and not a gate.
-2. **Bounded failure evidence** is already a library + bridge path (`failure_reel`); keep it diagnostic-only and never a verdict source.
-3. **Then breadth.** Continuous recorder package, extended cassette, Studio frontend, `wvq baseline` with `OBSERVED_ONLY`, and remaining first-class browser actions (upload/download/popup/tab). `wvq init` and hover/scroll/drag are already on `main`.
-4. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
+1. **Then breadth.** Continuous recorder package, extended cassette, Studio frontend, `wvq baseline` with `OBSERVED_ONLY`, and remaining first-class browser actions (upload/download/popup/tab). `wvq init` and hover/scroll/drag are already on `main`. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
+2. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

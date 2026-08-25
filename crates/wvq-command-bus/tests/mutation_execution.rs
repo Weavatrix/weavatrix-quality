@@ -247,6 +247,7 @@ fn a_surviving_real_source_mutant_weakens_an_otherwise_green_proof() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "limit-change".into(),
         })
         .unwrap();
@@ -287,6 +288,7 @@ fn an_exact_test_that_detects_the_real_mutant_keeps_the_proof_proven() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "limit-change".into(),
         })
         .unwrap();

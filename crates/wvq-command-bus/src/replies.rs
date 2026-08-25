@@ -298,13 +298,20 @@ pub struct VerifyReply {
     pub surface_evidence: SurfaceEvidenceMatrixView,
     /// Read-only cheapest-evidence plan. Never a gate.
     pub evidence_plan: CheapestEvidencePlanView,
+    /// Stage A: the composite facts are unchanged, but CI must not fail.
+    pub observe_only: bool,
 }
 
 impl VerifyReply {
     /// Process exit code: `0` clean, `2` blocking, `1` otherwise.
+    /// Observe-only Stage A always returns `0`.
     #[must_use]
     pub fn exit_code(&self) -> i32 {
-        self.quality.exit_code()
+        if self.observe_only {
+            0
+        } else {
+            self.quality.exit_code()
+        }
     }
 }
 

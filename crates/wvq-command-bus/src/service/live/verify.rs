@@ -202,6 +202,7 @@ impl LiveService {
             }
             None => CheapestEvidencePlanView::absent(),
         };
+        reply.observe_only = cmd.observe_only;
         Ok(reply)
     }
 }

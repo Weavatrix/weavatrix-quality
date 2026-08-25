@@ -4,6 +4,7 @@
 
 mod assemble;
 mod budget;
+mod calibration;
 mod change_verdict;
 mod code_surface;
 mod differential;
@@ -23,6 +24,10 @@ pub use assemble::{AssemblyInput, ExecutionEvidence, Proof, ProofAssembly, assem
 pub use budget::{
     AI_BUDGET_EXHAUSTED, AiBudget, AiCall, AiCallKind, AiCostFirewall, AiUsage, BudgetExhausted,
     BudgetLimit, TokenRatio,
+};
+pub use calibration::{
+    CalibrationCase, CalibrationReport, MAX_CALIBRATION_CASES, QaOutcome, WvqObservation,
+    calibrate_observe_only,
 };
 pub use code_surface::{
     CodeSurfaceEvidence, CodeSurfaceEvidenceKind, ObligationCodeSurface, is_test_source_path,

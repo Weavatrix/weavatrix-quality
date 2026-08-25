@@ -84,8 +84,12 @@ export class WvqClient {
         return this.#call('status', ['status'], signal)
     }
 
-    verify({ change = 'current', signal } = {}) {
-        return this.#call('verify', ['verify', '--change', requireText('change', change)], signal)
+    verify({ change = 'current', observeOnly = false, signal } = {}) {
+        const args = ['verify', '--change', requireText('change', change)]
+        if (observeOnly) {
+            args.push('--observe-only', 'true')
+        }
+        return this.#call('verify', args, signal)
     }
 
     explain(id, { signal } = {}) {

@@ -591,6 +591,7 @@ fn an_overlay_that_blocks_export_blocks_the_change_end_to_end() {
     // The behavioural oracle still holds: Export is visible.
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -739,6 +740,7 @@ fn adaptive_search_blocks_a_regression_that_default_desktop_width_misses() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -773,6 +775,7 @@ fn one_intent_that_emits_the_same_mutation_twice_blocks_the_change() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -812,6 +815,7 @@ fn semantic_drift_blocks_the_default_verdict_without_an_opt_in_view() {
     // No ui_integrity_view or other opt-in comparison is called here.
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -870,6 +874,7 @@ fn changing_one_requirement_does_not_authorize_another_programs_behavior() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -907,6 +912,7 @@ fn a_theme_file_does_not_satisfy_the_checkout_code_axis() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -943,6 +949,7 @@ fn losing_a_required_accessible_name_blocks_the_default_verdict() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "checkout-ui".into(),
         })
         .unwrap();
@@ -1029,6 +1036,7 @@ fn impacted_story_runs_in_real_storybook_vitest_browser_mode() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "storybook-button".into(),
         })
         .unwrap();

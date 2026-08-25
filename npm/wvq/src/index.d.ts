@@ -227,6 +227,8 @@ export interface VerifyReply {
     surface_evidence: SurfaceEvidenceMatrixView
     /** Read-only cheapest-evidence plan. Never a gate. */
     evidence_plan: CheapestEvidencePlanView
+    /** Stage A: facts unchanged, process exit stays 0. */
+    observe_only: boolean
 }
 
 export interface SurfaceEvidenceRow {
@@ -475,7 +477,7 @@ export class WvqClient {
         headless?: boolean
     }): Promise<RecordReply>
     status(options?: CallOptions): Promise<StatusReply>
-    verify(options?: { change?: string; signal?: AbortSignal }): Promise<VerifyReply>
+    verify(options?: { change?: string; observeOnly?: boolean; signal?: AbortSignal }): Promise<VerifyReply>
     explain(id: string, options?: CallOptions): Promise<ExplainReply>
     plan(options?: { change?: string; signal?: AbortSignal }): Promise<PlanReply>
     model(options: { change?: string; kind: ModelKind; prompt: string; signal?: AbortSignal }): Promise<ModelReply>

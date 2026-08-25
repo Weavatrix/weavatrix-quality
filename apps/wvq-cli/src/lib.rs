@@ -47,7 +47,7 @@ Usage:
   wvq [--repo PATH] record [--change ID] [--base REF] [--head REF|WORKTREE] [--route /PATH] [--idle-ms N] [--max-events N] [--headless true|false] [--fixtures-json JSON]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
-  wvq [--repo PATH] verify [--change ID]
+  wvq [--repo PATH] verify [--change ID] [--observe-only true|false]
   wvq [--repo PATH] explain <id>
   wvq [--repo PATH] plan [--change ID]
   wvq [--repo PATH] status
@@ -167,7 +167,14 @@ fn parse_command(
             base,
             head,
         }),
-        [cmd] if cmd == "verify" => Command::Verify(VerifyCommand { change }),
+        [cmd] if cmd == "verify" => Command::Verify(VerifyCommand {
+            change,
+            observe_only: flags
+                .get("observe-only")
+                .map(|value| parse_bool_flag(value, "observe-only"))
+                .transpose()?
+                .unwrap_or(false),
+        }),
         [cmd] if cmd == "init" => Command::Init(InitCommand {
             force: flags
                 .get("force")
@@ -220,7 +227,8 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             "headless",
             "fixtures-json",
         ]),
-        [cmd] if matches!(cmd.as_str(), "verify" | "plan") => Some(&["repo", "change"]),
+        [cmd] if cmd == "verify" => Some(&["repo", "change", "observe-only"]),
+        [cmd] if cmd == "plan" => Some(&["repo", "change"]),
         [cmd] if cmd == "init" => Some(&["repo", "force"]),
         [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
         [cmd] if cmd == "run" => {

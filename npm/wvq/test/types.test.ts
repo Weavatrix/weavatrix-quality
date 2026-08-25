@@ -54,6 +54,7 @@ verified.surface_evidence.surfaces satisfies Array<{
     protection: 'present' | 'absent' | 'unmeasured'
 }>
 verified.evidence_plan.present satisfies boolean
+verified.observe_only satisfies boolean
 verified.evidence_plan.gaps satisfies Array<{
     surface: string
     column: 'intent' | 'runtime' | 'test' | 'proof' | 'protection' | 'ui' | 'a11y' | 'mutation'

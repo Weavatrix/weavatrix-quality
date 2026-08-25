@@ -349,6 +349,7 @@ impl Studio {
 
     fn summary(&self, change: &str) -> HttpResponse {
         let verify = match self.service.verify(&VerifyCommand {
+            observe_only: false,
             change: change.to_owned(),
         }) {
             Ok(reply) => reply,
@@ -419,6 +420,7 @@ impl Studio {
         };
         for change in changes {
             let Ok(verify) = self.service.verify(&VerifyCommand {
+                observe_only: false,
                 change: change.clone(),
             }) else {
                 continue;

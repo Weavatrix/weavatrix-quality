@@ -262,6 +262,26 @@ fn block_verdict_returns_nonzero() {
 }
 
 #[test]
+fn observe_only_verify_never_fails_ci() {
+    let fake = FakeService::default();
+    fake.set_verdict("CONTRADICTED");
+    let output = run_with(
+        &argv(&[
+            "verify",
+            "--change",
+            "sankey-others",
+            "--observe-only",
+            "true",
+        ]),
+        &fake,
+    );
+    assert_eq!(output.code, 0, "Stage A observe-only must not fail CI");
+    assert!(output.stdout.contains("CONTRADICTED"), "{}", output.stdout);
+    assert!(output.stdout.contains("\"observe_only\": true"), "{}", output.stdout);
+    assert!(output.stdout.contains("\"blocking\": true"), "{}", output.stdout);
+}
+
+#[test]
 fn proven_verify_is_zero() {
     let fake = FakeService::default();
     fake.set_verdict("PROVEN");

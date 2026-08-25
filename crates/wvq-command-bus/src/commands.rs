@@ -109,6 +109,18 @@ pub struct VerifyCommand {
     /// Change id, or `current`.
     #[serde(default = "default_change")]
     pub change: String,
+    /// Stage A: report the composite verdict but never fail CI.
+    #[serde(default)]
+    pub observe_only: bool,
+}
+
+impl Default for VerifyCommand {
+    fn default() -> Self {
+        Self {
+            change: default_change(),
+            observe_only: false,
+        }
+    }
 }
 
 /// Explain one finding, proof, selection, or obligation.

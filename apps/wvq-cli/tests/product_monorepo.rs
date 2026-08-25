@@ -654,6 +654,7 @@ fn committed_monorepo_preserves_protection_through_a_healthy_refactor() {
     assert!(!view.report().blocking, "{:?}", view.findings);
     let verified = live
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("healthy refactor verdict");
@@ -739,6 +740,7 @@ fn committed_monorepo_blocks_the_same_measured_loss_in_cli_mcp_and_qualityd() {
 
     let direct = LiveService::new(&fixture.repo.0)
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("direct verdict");
@@ -769,6 +771,7 @@ fn committed_monorepo_reports_a_deleted_sole_protector_as_protect_003() {
     );
     let verified = live
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("deleted-protector verdict");
@@ -837,6 +840,7 @@ fn committed_monorepo_replaces_an_expectation_only_after_one_exact_approval() {
     assert_eq!(stale.status, 201, "{}", stale.body);
     let still_pending = live
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("stale approval stays pending");
@@ -860,6 +864,7 @@ fn committed_monorepo_replaces_an_expectation_only_after_one_exact_approval() {
     assert_eq!(developer.status, 201, "{}", developer.body);
     assert_eq!(
         live.verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("developer approval cannot seal intent")
@@ -888,6 +893,7 @@ fn committed_monorepo_replaces_an_expectation_only_after_one_exact_approval() {
 
     let direct = live
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "viewer-delete".into(),
         })
         .expect("exact approval unlocks the composite verdict");

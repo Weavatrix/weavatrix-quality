@@ -548,6 +548,7 @@ fn contradicted_verify_is_blocking() {
     let reply = dispatch(
         &fake,
         Command::Verify(VerifyCommand {
+            observe_only: false,
             change: "sankey-others".into(),
         }),
     )
@@ -566,6 +567,7 @@ fn proven_verify_is_zero_exit() {
     fake.set_verdict("PROVEN");
     let reply = fake
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "sankey-others".into(),
         })
         .unwrap();
@@ -615,6 +617,7 @@ fn live_verify_without_runtime_is_unproven_not_failed() {
     let service = LiveService::new(fixture_repo());
     let reply = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "sankey-others".into(),
         })
         .unwrap();
@@ -965,6 +968,7 @@ fn a_healthy_live_change_composes_to_pass() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-add".into(),
         })
         .unwrap();
@@ -1070,6 +1074,7 @@ fn a_lost_protection_net_blocks_even_though_the_suite_is_green() {
     // from stored evidence without replaying anything.
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-js".into(),
         })
         .unwrap();
@@ -1130,6 +1135,7 @@ fn head_coverage_without_a_base_snapshot_is_not_enough_evidence() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-js".into(),
         })
         .unwrap();
@@ -1343,6 +1349,7 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
 
     let verified = reopened
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-add".into(),
         })
         .unwrap();
@@ -1446,6 +1453,7 @@ fn a_green_suite_without_an_obligation_binding_is_not_proof() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-add".into(),
         })
         .unwrap();
@@ -1479,6 +1487,7 @@ fn a_green_file_does_not_prove_a_test_case_that_never_executed() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-add".into(),
         })
         .unwrap();
@@ -1507,6 +1516,7 @@ fn a_passing_bound_case_does_not_hide_a_failed_runner_invocation() {
 
     let verified = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-add".into(),
         })
         .unwrap();
@@ -1582,6 +1592,7 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
     assert_eq!(behavior["state_count"], run.behavior_state_count);
     let proven = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-browser".into(),
         })
         .unwrap();
@@ -1633,6 +1644,7 @@ fn live_browser_program_proves_and_contradicts_the_sealed_oracle() {
     );
     let contradicted = service
         .verify(&VerifyCommand {
+            observe_only: false,
             change: "live-browser".into(),
         })
         .unwrap();

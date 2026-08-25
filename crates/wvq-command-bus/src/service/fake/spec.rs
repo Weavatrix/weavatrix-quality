@@ -143,6 +143,7 @@ impl FakeService {
         reply.application_surface = application_surface;
         reply.surface_evidence = surface_evidence;
         reply.evidence_plan = evidence_plan;
+        reply.observe_only = cmd.observe_only;
         Ok(reply)
     }
 
