@@ -404,6 +404,7 @@ fn config(base_url: &str) -> String {
          browser:\n  base_url: {base_url}\n  engine: chromium\n  headless: true\n  \
          timeout_ms: 120000\n  module_root: node_modules/playwright\n  programs:\n    \
          - .weavatrix-quality/programs/checkout.json\n\n\
+         test_bindings:\n  - path: src/app.ts\n    obligations:\n      - export-usable\n\n\
          ui_integrity:\n  enabled: true\n  max_nodes: 2000\n  geometry_tolerance_px: 1\n  \
          occlusion_failure_ratio: 0.5\n  allowed_overlaps:\n    - top:\n        role: tooltip\n      \
          bottom:\n        role: button\n      reason: tooltips intentionally cover their trigger\n"
@@ -878,6 +879,46 @@ fn changing_one_requirement_does_not_authorize_another_programs_behavior() {
         vec!["unintended_behavior_drift"]
     );
     assert_eq!(verified.state, "BLOCKED");
+}
+
+#[test]
+fn a_theme_file_does_not_satisfy_the_checkout_code_axis() {
+    let _guard = BrowserLock::acquire();
+    let base_server = PageServer::start(semantic_page("ready"));
+    let head_server = PageServer::start(semantic_page("delayed"));
+    let repo = checkout_repo(&base_server.url());
+    switch_to_head(&repo.0, &head_server.url());
+    std::fs::write(
+        repo.0.join("src/theme.ts"),
+        "export function palette() { return 'high-contrast'; }\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+
+    service
+        .run(&RunCommand {
+            change: "checkout-ui".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            scope: "all".into(),
+            evidence_policy: "standard".into(),
+        })
+        .unwrap();
+
+    let verified = service
+        .verify(&VerifyCommand {
+            change: "checkout-ui".into(),
+        })
+        .unwrap();
+    assert!(!verified.quality.delta_triangle.code_changed);
+    assert_ne!(verified.quality.delta_triangle.state.as_str(), "unmeasured");
+    assert_eq!(
+        verified.quality.delta_triangle.readings,
+        vec!["environment_nondeterminism"]
+    );
+    assert!(verified.quality.blocking_reasons.iter().all(|reason| {
+        reason.axis != "delta_triangle" || !reason.detail.contains("WVQ-BEHAV-001")
+    }));
 }
 
 #[test]

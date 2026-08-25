@@ -1,8 +1,11 @@
 ﻿//! Task 20: Delta Triangle is evidence; unexpected cells become findings.
 
+use std::collections::BTreeSet;
+
 use wvq_domain::{FindingState, ObligationId, RequirementId, ScenarioId, Severity};
 use wvq_proof::{
-    CodeDelta, SpecDelta, TriangleReading, classify_triangle, join_triangle, scoped_spec_delta,
+    CodeDelta, FlowProtection, SpecDelta, TriangleReading, classify_triangle, join_triangle,
+    scoped_code_delta, scoped_spec_delta,
 };
 use wvq_runtime::{Observation, StructuredView, behavior_delta};
 use wvq_spec::{ObligationKind, RiskLevel, SpecChangeScope, TestObligation};
@@ -28,6 +31,19 @@ fn delta_with_route_change() -> wvq_runtime::BehaviorDelta {
 fn stable() -> wvq_runtime::BehaviorDelta {
     let view = StructuredView::from_replay(&Observation::default(), None);
     behavior_delta(&view, &view)
+}
+
+fn flow(flow: &str, obligations: &[&str], nodes: &[&str]) -> FlowProtection {
+    FlowProtection {
+        flow: flow.into(),
+        revision: "rev-head".into(),
+        tests: vec!["protector.spec".into()],
+        sessions: Vec::new(),
+        covered_nodes: nodes.iter().map(|item| (*item).to_string()).collect(),
+        covered_branches: Vec::new(),
+        proven_obligations: obligations.iter().map(|item| (*item).to_string()).collect(),
+        proofs: Vec::new(),
+    }
 }
 
 fn obligation(id: &str, requirement: &str, scenario: &str) -> TestObligation {
@@ -129,7 +145,7 @@ fn matrix_matches_spec_table() {
 fn unexpected_drift_is_an_explicit_finding() {
     let triangle = join_triangle(
         &SpecDelta::change_wide(false),
-        CodeDelta { changed: true },
+        &CodeDelta::change_wide(true),
         &delta_with_route_change(),
         "sankey-others-replay",
     );
@@ -147,14 +163,14 @@ fn unexpected_drift_is_an_explicit_finding() {
 fn expected_change_and_refactor_are_not_findings() {
     let expected = join_triangle(
         &SpecDelta::change_wide(true),
-        CodeDelta { changed: true },
+        &CodeDelta::change_wide(true),
         &delta_with_route_change(),
         "p",
     );
     assert!(expected.findings.is_empty());
     let refactor = join_triangle(
         &SpecDelta::change_wide(false),
-        CodeDelta { changed: true },
+        &CodeDelta::change_wide(true),
         &stable(),
         "p",
     );
@@ -166,11 +182,104 @@ fn expected_change_and_refactor_are_not_findings() {
 fn incomplete_implementation_is_a_warning_finding() {
     let triangle = join_triangle(
         &SpecDelta::change_wide(true),
-        CodeDelta { changed: true },
+        &CodeDelta::change_wide(true),
         &stable(),
         "p",
     );
     assert_eq!(triangle.reading, TriangleReading::IncompleteImplementation);
     assert_eq!(triangle.findings[0].check.as_str(), "WVQ-BEHAV-002");
     assert_eq!(triangle.findings[0].severity, Severity::Warn);
+}
+
+#[test]
+fn a_theme_node_does_not_satisfy_a_checkout_program() {
+    let checkout = [ObligationId::new("export-usable").unwrap()];
+    let flows = [flow(
+        "symbol:src/app.ts#statusLabel",
+        &["export-usable"],
+        &["symbol:src/app.ts#statusLabel"],
+    )];
+    let changed = BTreeSet::from(["symbol:src/theme.ts#palette".into()]);
+
+    let delta = scoped_code_delta(&checkout, &flows, &changed);
+
+    assert!(delta.measured);
+    assert!(!delta.changed);
+    assert!(delta.intersecting_nodes.is_empty());
+    assert!(delta.unmeasured_reason.is_none());
+}
+
+#[test]
+fn matching_protected_nodes_are_a_measured_code_delta() {
+    let checkout = [ObligationId::new("export-usable").unwrap()];
+    let flows = [flow(
+        "symbol:src/app.ts#statusLabel",
+        &["export-usable"],
+        &[
+            "symbol:src/app.ts#statusLabel",
+            "symbol:src/app.ts#exportLabel",
+        ],
+    )];
+    let changed = BTreeSet::from([
+        "symbol:src/app.ts#statusLabel".into(),
+        "symbol:src/theme.ts#palette".into(),
+    ]);
+
+    let delta = scoped_code_delta(&checkout, &flows, &changed);
+
+    assert!(delta.measured);
+    assert!(delta.changed);
+    assert_eq!(delta.intersecting_nodes, ["symbol:src/app.ts#statusLabel"]);
+}
+
+#[test]
+fn missing_flow_mapping_is_unmeasured_never_a_borrowed_true() {
+    let checkout = [ObligationId::new("export-usable").unwrap()];
+    let flows = [flow(
+        "symbol:src/theme.ts#palette",
+        &["theme-visible"],
+        &["symbol:src/theme.ts#palette"],
+    )];
+    let changed = BTreeSet::from(["symbol:src/theme.ts#palette".into()]);
+
+    let delta = scoped_code_delta(&checkout, &flows, &changed);
+
+    assert!(!delta.measured);
+    assert!(!delta.changed);
+    assert_eq!(
+        delta.unmeasured_reason.as_deref(),
+        Some("no protected flow maps these obligations to Weavatrix nodes")
+    );
+}
+
+#[test]
+fn a_program_that_asserts_no_obligation_cannot_claim_a_code_delta() {
+    let flows = [flow(
+        "symbol:src/app.ts#statusLabel",
+        &["export-usable"],
+        &["symbol:src/app.ts#statusLabel"],
+    )];
+    let changed = BTreeSet::from(["symbol:src/app.ts#statusLabel".into()]);
+
+    let delta = scoped_code_delta(&[], &flows, &changed);
+
+    assert!(!delta.measured);
+    assert!(!delta.changed);
+    assert_eq!(
+        delta.unmeasured_reason.as_deref(),
+        Some("program asserts no obligation")
+    );
+}
+
+#[test]
+fn unmeasured_code_does_not_emit_behavior_drift_findings() {
+    let triangle = join_triangle(
+        &SpecDelta::change_wide(false),
+        &CodeDelta::unmeasured("no protected flow maps these obligations to Weavatrix nodes"),
+        &delta_with_route_change(),
+        "checkout-ui",
+    );
+    assert!(!triangle.axes.code);
+    assert!(triangle.axes.behavior);
+    assert!(triangle.findings.is_empty());
 }

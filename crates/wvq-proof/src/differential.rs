@@ -1,8 +1,12 @@
 //! Delta Triangle: Spec × Code × Behavior is evidence, not a quality percentage.
 
+use std::collections::BTreeSet;
+
 use wvq_domain::{CheckId, FindingState, ObligationId, QualityFinding, Severity, SubjectRef};
 use wvq_runtime::BehaviorDelta;
 use wvq_spec::{OpenSpecChange, SpecChangeScope, TestObligation};
+
+use crate::protection::FlowProtection;
 
 /// Whether `OpenSpec` intent changed on this change folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,11 +32,46 @@ impl SpecDelta {
     }
 }
 
-/// Whether Weavatrix-reported code changed. WVQ does not own the graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether Weavatrix-reported code changed *for this program*.
+///
+/// A repository-wide `graph_diff` is not enough: the code axis is the
+/// intersection of the program's obligations, the flows that proved them, and
+/// the Weavatrix nodes that actually changed. Missing mapping is `unmeasured`,
+/// never a borrowed global `true`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeDelta {
-    /// Impacted nodes/files on base ∪ head ∪ removed.
+    /// Measured nonempty intersection of protected nodes and changed nodes.
     pub changed: bool,
+    /// False when the intersection cannot be computed.
+    pub measured: bool,
+    /// Nodes in the intersection, sorted.
+    pub intersecting_nodes: Vec<String>,
+    /// Why the intersection was not measured.
+    pub unmeasured_reason: Option<String>,
+}
+
+impl CodeDelta {
+    /// Compatibility constructor for tests that already know the code axis.
+    #[must_use]
+    pub fn change_wide(changed: bool) -> Self {
+        Self {
+            changed,
+            measured: true,
+            intersecting_nodes: Vec::new(),
+            unmeasured_reason: None,
+        }
+    }
+
+    /// Honest gap: the program has a code surface but no measurable mapping.
+    #[must_use]
+    pub fn unmeasured(reason: impl Into<String>) -> Self {
+        Self {
+            changed: false,
+            measured: false,
+            intersecting_nodes: Vec::new(),
+            unmeasured_reason: Some(reason.into()),
+        }
+    }
 }
 
 /// Spec-§5 reading of the three-axis table.
@@ -148,6 +187,50 @@ pub fn scoped_spec_delta(
     }
 }
 
+/// Code axis for one program: obligation → protected flow → changed nodes.
+///
+/// No matching flow is unmeasured. An empty intersection is a measured `false`.
+#[must_use]
+pub fn scoped_code_delta(
+    program_obligations: &[ObligationId],
+    flows: &[FlowProtection],
+    changed_nodes: &BTreeSet<String>,
+) -> CodeDelta {
+    if program_obligations.is_empty() {
+        return CodeDelta::unmeasured("program asserts no obligation");
+    }
+    let wanted: BTreeSet<&str> = program_obligations
+        .iter()
+        .map(ObligationId::as_str)
+        .collect();
+    let mut protected = BTreeSet::new();
+    let mut mapped = false;
+    for flow in flows {
+        let covers = flow
+            .proven_obligations
+            .iter()
+            .any(|obligation| wanted.contains(obligation.as_str()));
+        if !covers {
+            continue;
+        }
+        mapped = true;
+        protected.insert(flow.flow.clone());
+        protected.extend(flow.covered_nodes.iter().cloned());
+    }
+    if !mapped {
+        return CodeDelta::unmeasured(
+            "no protected flow maps these obligations to Weavatrix nodes",
+        );
+    }
+    let intersecting: Vec<String> = protected.intersection(changed_nodes).cloned().collect();
+    CodeDelta {
+        changed: !intersecting.is_empty(),
+        measured: true,
+        intersecting_nodes: intersecting,
+        unmeasured_reason: None,
+    }
+}
+
 /// Classify the three booleans. The table is evidence, never a collapsed %.
 #[must_use]
 pub fn classify_triangle(spec: bool, code: bool, behavior: bool) -> TriangleReading {
@@ -167,15 +250,16 @@ pub fn classify_triangle(spec: bool, code: bool, behavior: bool) -> TriangleRead
 #[must_use]
 pub fn join_triangle(
     spec: &SpecDelta,
-    code: CodeDelta,
+    code: &CodeDelta,
     behavior: &BehaviorDelta,
     program_id: &str,
 ) -> DeltaTriangle {
-    let reading = classify_triangle(spec.changed, code.changed, behavior.changed());
+    let code_changed = code.measured && code.changed;
+    let reading = classify_triangle(spec.changed, code_changed, behavior.changed());
     DeltaTriangle {
         axes: TriangleAxes {
             spec: spec.changed,
-            code: code.changed,
+            code: code_changed,
             behavior: behavior.changed(),
         },
         reading,
@@ -190,7 +274,11 @@ pub fn join_triangle(
                     .map(|item| item.axis.as_str().to_owned())
             }),
         pixel_compared: behavior.pixel_compared,
-        findings: unexpected_findings(reading, program_id),
+        findings: if code.measured {
+            unexpected_findings(reading, program_id)
+        } else {
+            Vec::new()
+        },
     }
 }
 

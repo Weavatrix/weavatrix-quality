@@ -22,7 +22,7 @@ use wvq_intelligence::{
 };
 use wvq_proof::{
     AiAxis, AiBudget, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, AxisState,
-    ChangeQualityVerdict, CodeDelta, DebtAxis, DebtItem, DeltaContext, DeltaFindingRef,
+    ChangeQualityVerdict, DebtAxis, DebtItem, DeltaContext, DeltaFindingRef,
     DeltaTriangleAxis, ExecutionEvidence, FailureEvidence, FlakeClass, FlowProtection, FlowView,
     HealEdit, Limitation, LocalModelConfig, LocalModelRequest, OracleReplacementReview,
     ProofOutcome, ProofVerdict, ProtectionAxis, ProtectionCheckInput, ProtectionDelta,
@@ -30,7 +30,7 @@ use wvq_proof::{
     StabilityAxis, TestChange, TestLineageView, TimingBucket, UiFindingRef, UiIntegrityAxis,
     VerdictInputs, apply_heal, assemble, call_local_model, compose,
     debt_rule_blocks, fingerprint_id, gate_protection, join_triangle, protection_delta,
-    scoped_spec_delta, snapshot_with_executed_tests, summarise, triage,
+    scoped_code_delta, scoped_spec_delta, snapshot_with_executed_tests, summarise, triage,
 };
 use wvq_runtime::{
     AxisDelta, BehaviorDelta, BehaviorState, BrowserAssertionStatus, BrowserProgramRun,
@@ -3095,6 +3095,36 @@ impl QualityService for LiveService {
             }
             Self::persist_ui_delta_with_handles(&store, &run_id, &base_ui, &delta, &mut handles)?;
         }
+        persist_dynamic_coverage_history(&store, &run_id, &before, &protection_graph, &records)?;
+        let mut code_flows = Vec::new();
+        if let Some(protection) = live_protection_snapshot(
+            &self.repo,
+            &before,
+            &protection_graph,
+            &records,
+            &live_selection.bindings,
+        )? {
+            code_flows.extend(protection.flows.iter().cloned());
+            put_json_run_artifact(
+                &store,
+                &run_id,
+                &format!("artifact-{}-protection", run_id.as_str()),
+                "protection-snapshot",
+                &protection,
+                &mut handles,
+            )?;
+        }
+        let bound_files = live_selection
+            .bindings
+            .iter()
+            .map(|binding| binding.path.clone())
+            .collect::<Vec<_>>();
+        let bound_graph = protection_graph_for_files(&self.repo, &before, &bound_files)?;
+        code_flows.extend(declared_code_flows(
+            before.as_str(),
+            &live_selection.bindings,
+            &bound_graph,
+        ));
         if let Some(base_replay) = base_browser_replay {
             persist_delta_triangle(
                 &store,
@@ -3102,6 +3132,7 @@ impl QualityService for LiveService {
                 &compiled,
                 &changed,
                 &graph_diff,
+                &code_flows,
                 &browser_runs,
                 base_replay,
                 &cmd.evidence_policy,
@@ -3120,23 +3151,6 @@ impl QualityService for LiveService {
             &test_analytics.bytes,
             &mut handles,
         )?;
-        persist_dynamic_coverage_history(&store, &run_id, &before, &protection_graph, &records)?;
-        if let Some(protection) = live_protection_snapshot(
-            &self.repo,
-            &before,
-            &protection_graph,
-            &records,
-            &live_selection.bindings,
-        )? {
-            put_json_run_artifact(
-                &store,
-                &run_id,
-                &format!("artifact-{}-protection", run_id.as_str()),
-                "protection-snapshot",
-                &protection,
-                &mut handles,
-            )?;
-        }
         let summary = execution_summary(
             &run_id,
             &compiled.change,
@@ -6109,16 +6123,23 @@ fn delta_triangle_axis(
     };
     if !matches!(
         document.get("schema_v").and_then(Value::as_u64),
-        Some(1 | 2)
+        Some(1..=3)
     ) {
         return Err(BusError::Store(
             "unknown delta-triangle schema version".into(),
         ));
     }
-    let unmeasured_programs = values_at(&document, "/unmeasured_programs")
+    let mut unmeasured_programs = values_at(&document, "/unmeasured_programs")
         .iter()
         .filter_map(|value| value.as_str().map(ToOwned::to_owned))
         .collect::<Vec<_>>();
+    unmeasured_programs.extend(
+        values_at(&document, "/code_unmeasured_programs")
+            .iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned)),
+    );
+    unmeasured_programs.sort();
+    unmeasured_programs.dedup();
     let mut findings = Vec::new();
     for value in values_at(&document, "/findings") {
         let severity = match value.get("severity").and_then(Value::as_str) {
@@ -8703,19 +8724,22 @@ fn persist_delta_triangle(
     compiled: &Compiled,
     changed: &ChangedFiles,
     graph_diff: &Value,
+    code_flows: &[FlowProtection],
     head_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
     base_replay: Result<BaseBrowserReplay, BusError>,
     run_evidence_policy: &str,
     handles: &mut Vec<String>,
 ) -> Result<(), BusError> {
     let openspec_path_changed = changed.changes_openspec_change(&compiled.change);
-    let code_changed = graph_diff_has_code_delta(graph_diff)?;
+    let changed_nodes = graph_diff_changed_nodes(graph_diff)?;
     let mut spec_changed = false;
+    let mut code_changed = false;
     let mut measured_programs = 0_u64;
     let mut changed_programs = Vec::new();
     let mut readings = Vec::new();
     let mut findings = Vec::new();
     let mut unmeasured_programs = Vec::new();
+    let mut code_unmeasured_programs = Vec::new();
     let mut program_deltas = Vec::new();
     let mut base_revision = None;
     let mut replay_limitation = None;
@@ -8792,19 +8816,23 @@ fn persist_delta_triangle(
                         &configured.program.obligations,
                     );
                     spec_changed |= program_spec.changed;
-                    let triangle = join_triangle(
-                        &program_spec,
-                        CodeDelta {
-                            changed: code_changed,
-                        },
-                        &delta,
-                        &program,
+                    let program_code = scoped_code_delta(
+                        &configured.program.obligations,
+                        code_flows,
+                        &changed_nodes,
                     );
+                    if !program_code.measured {
+                        code_unmeasured_programs.push(program.clone());
+                    }
+                    code_changed |= program_code.measured && program_code.changed;
+                    let triangle = join_triangle(&program_spec, &program_code, &delta, &program);
                     measured_programs = measured_programs.saturating_add(1);
                     if delta.changed() {
                         changed_programs.push(program.clone());
                     }
-                    readings.push(triangle.reading.as_str().to_owned());
+                    if program_code.measured {
+                        readings.push(triangle.reading.as_str().to_owned());
+                    }
                     for finding in &triangle.findings {
                         findings.push(json!({
                             "check": finding.check.as_str(),
@@ -8816,11 +8844,15 @@ fn persist_delta_triangle(
                     program_deltas.push(json!({
                         "program": program,
                         "measured": true,
-                        "reading": triangle.reading.as_str(),
+                        "reading": program_code.measured.then_some(triangle.reading.as_str()),
                         "behavior_changed": delta.changed(),
                         "spec_authorized": program_spec.changed,
                         "authorized_obligations": program_spec.authorized_obligations,
                         "unauthorized_obligations": program_spec.unauthorized_obligations,
+                        "code_measured": program_code.measured,
+                        "code_changed": program_code.measured && program_code.changed,
+                        "code_nodes": program_code.intersecting_nodes,
+                        "code_unmeasured_reason": program_code.unmeasured_reason,
                         "first_behavior_axis": triangle.first_behavior_axis,
                         "pixel_compared": triangle.pixel_compared,
                         "changed_axes": delta.axes.iter().map(|axis| axis.axis.as_str()).collect::<Vec<_>>(),
@@ -8835,13 +8867,15 @@ fn persist_delta_triangle(
     changed_programs.dedup();
     unmeasured_programs.sort();
     unmeasured_programs.dedup();
+    code_unmeasured_programs.sort();
+    code_unmeasured_programs.dedup();
     readings.sort();
     let has_blocking = findings
         .iter()
         .any(|finding| finding.get("severity").and_then(Value::as_str) == Some("error"));
     let state = if has_blocking {
         "blocking"
-    } else if !unmeasured_programs.is_empty() {
+    } else if !unmeasured_programs.is_empty() || !code_unmeasured_programs.is_empty() {
         "unmeasured"
     } else if findings.is_empty() {
         "clean"
@@ -8849,7 +8883,7 @@ fn persist_delta_triangle(
         "warnings"
     };
     let document = json!({
-        "schema_v": 2,
+        "schema_v": 3,
         "state": state,
         "spec_changed": spec_changed,
         "code_changed": code_changed,
@@ -8859,6 +8893,7 @@ fn persist_delta_triangle(
         "readings": readings,
         "findings": findings,
         "unmeasured_programs": unmeasured_programs,
+        "code_unmeasured_programs": code_unmeasured_programs,
         "base_revision": base_revision,
         "replay_limitation": replay_limitation,
         "programs": program_deltas,
@@ -8972,21 +9007,112 @@ fn paired_observation_delta(
     }
 }
 
-fn graph_diff_has_code_delta(diff: &Value) -> Result<bool, BusError> {
+fn graph_diff_changed_nodes(diff: &Value) -> Result<BTreeSet<String>, BusError> {
     ensure_complete_diff(diff)?;
-    Ok([
-        "nodes_added",
-        "nodes_removed",
-        "nodes_changed",
-        "edges_added",
-        "edges_removed",
-    ]
-    .into_iter()
-    .any(|count| {
-        diff.pointer(&format!("/counts/{count}"))
-            .and_then(Value::as_u64)
-            .is_some_and(|value| value > 0)
-    }))
+    let mut nodes = BTreeSet::new();
+    for node in values_at(diff, "/nodes/added") {
+        if let Some(id) = graph_node_id(node) {
+            nodes.insert(id);
+        }
+    }
+    for node in values_at(diff, "/nodes/removed") {
+        if let Some(id) = graph_node_id(node) {
+            nodes.insert(id);
+        }
+    }
+    for changed in values_at(diff, "/nodes/changed") {
+        if let Some(id) = changed.get("before").and_then(graph_node_id) {
+            nodes.insert(id);
+        }
+        if let Some(id) = changed.get("after").and_then(graph_node_id) {
+            nodes.insert(id);
+        }
+        if let Some(id) = graph_node_id(changed) {
+            nodes.insert(id);
+        }
+    }
+    for edge in values_at(diff, "/edges/added")
+        .iter()
+        .chain(values_at(diff, "/edges/removed"))
+    {
+        if let Some(source) = edge.get("source").and_then(Value::as_str)
+            && !source.is_empty()
+        {
+            nodes.insert(source.to_owned());
+        }
+        if let Some(target) = edge.get("target").and_then(Value::as_str)
+            && !target.is_empty()
+        {
+            nodes.insert(target.to_owned());
+        }
+    }
+    Ok(nodes)
+}
+
+fn declared_code_flows(
+    revision: &str,
+    bindings: &[TestBinding],
+    graph: &Value,
+) -> Vec<FlowProtection> {
+    let mut by_path = BTreeMap::<String, BTreeSet<String>>::new();
+    for binding in bindings {
+        by_path
+            .entry(normalize_path(&binding.path))
+            .or_default()
+            .extend(binding.obligations.iter().cloned());
+    }
+    let mut flows = BTreeMap::<String, FlowProtection>::new();
+    for node in values_at(graph, "/nodes") {
+        let Some(file) = graph_node_file(node) else {
+            continue;
+        };
+        let Some(obligations) = by_path.get(&file) else {
+            continue;
+        };
+        let Some(node_id) = graph_node_id(node) else {
+            continue;
+        };
+        let flow = flows
+            .entry(node_id.clone())
+            .or_insert_with(|| FlowProtection {
+                flow: node_id.clone(),
+                revision: revision.to_owned(),
+                tests: Vec::new(),
+                sessions: Vec::new(),
+                covered_nodes: vec![node_id.clone()],
+                covered_branches: Vec::new(),
+                proven_obligations: Vec::new(),
+                proofs: Vec::new(),
+            });
+        for obligation in obligations {
+            if !flow.proven_obligations.contains(obligation) {
+                flow.proven_obligations.push(obligation.clone());
+            }
+        }
+        for binding in bindings
+            .iter()
+            .filter(|binding| normalize_path(&binding.path) == file)
+        {
+            if !flow.tests.contains(&binding.path) {
+                flow.tests.push(binding.path.clone());
+            }
+        }
+    }
+    let mut flows = flows.into_values().collect::<Vec<_>>();
+    for flow in &mut flows {
+        flow.proven_obligations.sort();
+        flow.proven_obligations.dedup();
+        flow.tests.sort();
+        flow.tests.dedup();
+    }
+    flows
+}
+
+fn graph_node_file(node: &Value) -> Option<String> {
+    node.pointer("/span/file")
+        .and_then(Value::as_str)
+        .or_else(|| graph_node_source_path(node))
+        .map(normalize_path)
 }
 
 fn severity_token(severity: Severity) -> &'static str {
@@ -12144,6 +12270,94 @@ mod tests {
         attach_normalized_artifacts(&root.0, &root.0, started, &mut record);
 
         assert!(record.artifacts.is_empty());
+    }
+
+    #[test]
+    fn graph_diff_collects_changed_node_ids_not_counts() {
+        let diff = json!({
+            "counts": {
+                "nodes_added": 1,
+                "nodes_removed": 1,
+                "nodes_changed": 1,
+                "edges_added": 1,
+                "edges_removed": 1
+            },
+            "nodes": {
+                "added": [{"id": "symbol:src/app.ts#statusLabel"}],
+                "removed": [{"id": "symbol:src/app.ts#oldLabel"}],
+                "changed": [{
+                    "before": {"id": "symbol:src/theme.ts#oldPalette"},
+                    "after": {"id": "symbol:src/theme.ts#palette"}
+                }]
+            },
+            "edges": {
+                "added": [{"source": "symbol:src/app.ts#statusLabel", "target": "symbol:caller"}],
+                "removed": [{"source": "symbol:src/app.ts#oldLabel", "target": "symbol:dead"}]
+            }
+        });
+        let nodes = graph_diff_changed_nodes(&diff).unwrap();
+        assert_eq!(
+            nodes,
+            BTreeSet::from([
+                "symbol:src/app.ts#statusLabel".into(),
+                "symbol:src/app.ts#oldLabel".into(),
+                "symbol:src/theme.ts#oldPalette".into(),
+                "symbol:src/theme.ts#palette".into(),
+                "symbol:caller".into(),
+                "symbol:dead".into(),
+            ])
+        );
+    }
+
+    #[test]
+    fn declared_bindings_map_only_the_owned_source_file() {
+        let graph = json!({
+            "nodes": [
+                {
+                    "id": "symbol:src/app.ts#statusLabel",
+                    "span": {"file": "src/app.ts", "start_line": 1, "end_line": 1}
+                },
+                {
+                    "id": "symbol:src/theme.ts#palette",
+                    "span": {"file": "src/theme.ts", "start_line": 1, "end_line": 1}
+                }
+            ]
+        });
+        let bindings = [TestBinding {
+            path: "src/app.ts".into(),
+            runner: None,
+            suite: None,
+            case: None,
+            obligations: BTreeSet::from(["export-usable".into()]),
+            cost: 100,
+            flake_penalty: 0,
+        }];
+        let flows = declared_code_flows("rev-head", &bindings, &graph);
+        assert_eq!(flows.len(), 1);
+        assert_eq!(flows[0].flow, "symbol:src/app.ts#statusLabel");
+        assert_eq!(flows[0].proven_obligations, ["export-usable"]);
+        assert_eq!(flows[0].covered_nodes, ["symbol:src/app.ts#statusLabel"]);
+
+        let checkout = [wvq_domain::ObligationId::new("export-usable").unwrap()];
+        let changed = graph_diff_changed_nodes(&json!({
+            "counts": {
+                "nodes_added": 1,
+                "nodes_removed": 0,
+                "nodes_changed": 0,
+                "edges_added": 0,
+                "edges_removed": 0
+            },
+            "nodes": {
+                "added": [{"id": "symbol:src/theme.ts#palette"}],
+                "removed": [],
+                "changed": []
+            },
+            "edges": {"added": [], "removed": []}
+        }))
+        .unwrap();
+        let delta = scoped_code_delta(&checkout, &flows, &changed);
+        assert!(delta.measured);
+        assert!(!delta.changed);
     }
 
     #[test]

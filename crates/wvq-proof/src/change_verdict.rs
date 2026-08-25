@@ -300,7 +300,7 @@ pub struct DeltaTriangleAxis {
     pub state: AxisState,
     /// Whether the change modified its own `OpenSpec` authority.
     pub spec_changed: bool,
-    /// Whether Weavatrix measured a changed code node or edge.
+    /// Whether any program had a measured intersection with changed Weavatrix nodes.
     pub code_changed: bool,
     /// Whether any paired program produced a structured behavior delta.
     pub behavior_changed: bool,
