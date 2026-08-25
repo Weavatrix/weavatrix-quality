@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-25
-Session: split command-bus policy/recovery/authoring
+Session: split command-bus policy/tests/delta trees
 
 ## Now
 
@@ -278,7 +278,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **Finish splitting `crates/wvq-command-bus/src/service/`.** The facade is a directory: `delta.rs`, `policy.rs`, `recovery.rs`, `authoring.rs`. Run execution, protection, verify axes, selection, and the in-file test module still live in `mod.rs`.
+1. **Finish splitting `crates/wvq-command-bus/src/service/` to files of at most 300 lines.** `policy/`, `delta/`, and `tests/` already meet that. `authoring.rs` (~498), `recovery.rs` (~327), and `mod.rs` (~9.5k: LiveService, verify, protection, persist) do not. Bench and gap analysis wait until that rule holds.
 2. **Bounded failure evidence.** On a Playwright failure, assemble a diagnostic reel — frame before the action, the highlighted semantic target, frame after, and the assertion or geometric cause — behind a CAS handle. Diagnostic only: it must never become a verdict source and must not run on the green path.
 3. **Snapshot reach.** Shadow DOM, same-origin iframes, the effective clip chain, and responsive sentinels.
 4. **Application Surface Graph → Coverage Autopilot.**
