@@ -50,3 +50,30 @@ jobs:
           node npm/dist/wvq/bin/wvq.mjs bench --help
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # Full suite stays Linux. Path, process-tree, and worktree code also has to
+  # run where Job Objects and non-POSIX paths exist. This job is deliberately
+  # small: no Playwright, no workspace test, no Clippy.
+  smoke:
+    name: Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install Rust 1.89
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup default 1.89.0
+      - name: Process tree and executor limits
+        run: cargo test -p wvq-runtime --locked --test process --test executor_registry
+      - name: Path canonicalization
+        run: cargo test -p wvq-command-bus --locked --lib paths
+      - name: Native programs compile
+        run: cargo build -p wvq-cli -p wvq-mcp --locked
