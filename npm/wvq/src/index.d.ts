@@ -223,6 +223,27 @@ export interface VerifyReply {
     quality: ChangeQualityVerdict
     /** Read-only surface projection. Never a gate. */
     application_surface: ApplicationSurfaceView
+    /** Read-only evidence matrix. Never a gate. */
+    surface_evidence: SurfaceEvidenceMatrixView
+}
+
+export interface SurfaceEvidenceRow {
+    surface: string
+    kind: string
+    intent: 'present' | 'absent' | 'unmeasured'
+    runtime: 'present' | 'absent' | 'unmeasured'
+    test: 'present' | 'absent' | 'unmeasured'
+    proof: 'present' | 'absent' | 'unmeasured'
+    protection: 'present' | 'absent' | 'unmeasured'
+    ui: 'present' | 'absent' | 'unmeasured'
+    a11y: 'present' | 'absent' | 'unmeasured'
+    mutation: 'present' | 'absent' | 'unmeasured'
+}
+
+export interface SurfaceEvidenceMatrixView {
+    present: boolean
+    truncated: boolean
+    surfaces: SurfaceEvidenceRow[]
 }
 
 export interface ExplainReply {

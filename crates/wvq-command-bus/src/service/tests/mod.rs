@@ -50,6 +50,7 @@ mod artifacts_graph;
 mod paths;
 mod surface;
 mod surface_persist;
+mod surface_matrix;
 mod policy;
 mod protection;
 mod init;

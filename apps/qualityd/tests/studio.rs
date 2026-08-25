@@ -8,7 +8,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use qualityd::{HttpRequest, HttpResponse, Studio, serve};
 use serde_json::Value;
-use wvq_command_bus::{FakeService, ProofSummary, QualityService};
+use wvq_command_bus::{
+    ApplicationSurfaceKind, EvidenceCell, FakeService, ProofSummary, QualityService,
+    SurfaceEvidenceRow,
+};
 use wvq_proof::{FlowView, ProtectionView, TestLineageView};
 use wvq_spec_recovery::RecoveryDesk;
 use wvq_store::Store;
@@ -323,6 +326,36 @@ fn the_dashboard_projects_application_surfaces_without_gating() {
     assert_eq!(surfaces["protected"][0], "endpoint:POST /pay");
     assert_eq!(surfaces["partial"][0], "route:/checkout");
     assert_eq!(surfaces["unmeasured"][0], "endpoint:GET /idle");
+}
+
+#[test]
+fn the_dashboard_projects_the_surface_evidence_matrix_without_gating() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("PROVEN");
+    fake.set_surface_evidence(wvq_command_bus::SurfaceEvidenceMatrixView {
+        present: true,
+        truncated: false,
+        surfaces: vec![SurfaceEvidenceRow {
+            surface: "endpoint:POST /pay".into(),
+            kind: ApplicationSurfaceKind::Endpoint,
+            intent: EvidenceCell::Present,
+            runtime: EvidenceCell::Unmeasured,
+            test: EvidenceCell::Present,
+            proof: EvidenceCell::Unmeasured,
+            protection: EvidenceCell::Present,
+            ui: EvidenceCell::Unmeasured,
+            a11y: EvidenceCell::Unmeasured,
+            mutation: EvidenceCell::Absent,
+        }],
+    });
+    let studio = studio_with(&fake);
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["blocking"], false);
+    let row = &body["surface_evidence"]["surfaces"][0];
+    assert_eq!(row["surface"], "endpoint:POST /pay");
+    assert_eq!(row["intent"], "present");
+    assert_eq!(row["mutation"], "absent");
+    assert_eq!(row["runtime"], "unmeasured");
 }
 
 #[test]

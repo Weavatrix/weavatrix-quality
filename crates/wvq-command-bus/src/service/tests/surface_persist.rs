@@ -214,4 +214,5 @@ fn an_absent_surface_view_does_not_block_verify() {
     let reply = verify_from_token("surface-change", "PROVEN");
     assert!(!reply.blocking);
     assert!(!reply.application_surface.present);
+    assert!(!reply.surface_evidence.present);
 }

@@ -60,7 +60,7 @@ pub(in crate::service) use crate::replies::{
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
     ExplainReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
     RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
-    VerifyReply, ApplicationSurfaceView,
+    VerifyReply, ApplicationSurfaceView, SurfaceEvidenceMatrixView,
 };
 pub(in crate::service) use crate::source_mutation::{
     MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest, execute_source_mutation,
@@ -77,5 +77,5 @@ pub(in crate::service) use super::types::*;
 pub(in crate::service) use super::validate::*;
 pub(in crate::service) use super::{
     APPLICATION_SURFACE_GRAPH_KIND, DELTA_TRIANGLE_KIND, MUTATION_RESULTS_KIND,
-    ORACLE_REPLACEMENT_KIND, UI_INTEGRITY_DELTA_KIND,
+    ORACLE_REPLACEMENT_KIND, SURFACE_EVIDENCE_MATRIX_KIND, UI_INTEGRITY_DELTA_KIND,
 };

@@ -15,6 +15,8 @@ pub(in crate::service) const DELTA_TRIANGLE_KIND: &str = "delta-triangle";
 pub(in crate::service) const ORACLE_REPLACEMENT_KIND: &str = "oracle-replacement-proposal";
 /// CAS artifact kind for the read-only Application Surface Graph projection.
 pub(in crate::service) const APPLICATION_SURFACE_GRAPH_KIND: &str = "application-surface-graph";
+/// CAS artifact kind for the read-only Surface Evidence Matrix.
+pub(in crate::service) const SURFACE_EVIDENCE_MATRIX_KIND: &str = "surface-evidence-matrix";
 
 mod authoring;
 mod recovery;
@@ -44,6 +46,7 @@ mod persist_ui_analyse;
 mod persist_behavior;
 mod persist_evidence;
 mod persist_surface;
+mod persist_matrix;
 mod impact;
 mod protection_snapshot;
 mod protection_coverage;
@@ -87,6 +90,8 @@ pub(in crate::service) use selection_build::*;
 pub(in crate::service) use selection_audit::*;
 #[cfg(test)]
 pub(in crate::service) use execute::*;
+#[cfg(test)]
+pub(in crate::service) use persist_matrix::*;
 #[cfg(test)]
 pub(in crate::service) use persist_surface::*;
 #[cfg(test)]

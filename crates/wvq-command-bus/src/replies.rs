@@ -227,6 +227,28 @@ impl ApplicationSurfaceView {
     }
 }
 
+/// Read-only Surface Evidence Matrix for MCP and Studio.
+///
+/// Each cell is `present`, `absent`, or `unmeasured`. A missing artifact is
+/// [`Self::absent`], not a table of empty absents. This view is never a gate.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct SurfaceEvidenceMatrixView {
+    /// False when the run never stored a matrix.
+    pub present: bool,
+    /// True when the surface graph or a binding reach was truncated.
+    pub truncated: bool,
+    /// One row per named production surface.
+    pub surfaces: Vec<wvq_intelligence::SurfaceEvidenceRow>,
+}
+
+impl SurfaceEvidenceMatrixView {
+    /// No artifact. Missing evidence is not an empty matrix.
+    #[must_use]
+    pub fn absent() -> Self {
+        Self::default()
+    }
+}
+
 /// Multi-axis verdict. Not a quality percentage.
 ///
 /// `verdict` stays the combined [`wvq_proof::ProofVerdict`] token so existing
@@ -249,6 +271,8 @@ pub struct VerifyReply {
     pub quality: ChangeQualityVerdict,
     /// Read-only Application Surface Graph projection. Never a gate.
     pub application_surface: ApplicationSurfaceView,
+    /// Read-only Surface Evidence Matrix. Never a gate.
+    pub surface_evidence: SurfaceEvidenceMatrixView,
 }
 
 impl VerifyReply {

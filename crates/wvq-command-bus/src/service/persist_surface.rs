@@ -180,7 +180,7 @@ fn parse_document(value: &Value) -> Result<ApplicationSurfaceDocument, BusError>
     })
 }
 
-fn coverage_from_records(
+pub(in crate::service) fn coverage_from_records(
     graph: &Value,
     records: &[ExecutorRecord],
 ) -> Result<Vec<NodeCoverage>, BusError> {

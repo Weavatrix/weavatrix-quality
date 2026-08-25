@@ -118,7 +118,7 @@ P0 soundness (done in library / bridge):
 P1 (do not skip into closed-loop Autopilot):
 
 - [x] Wire `ApplicationSurfaceGraph` as a read-only MCP/Studio artifact
-- [ ] Surface Evidence Matrix
+- [x] Surface Evidence Matrix
 - [ ] Gap classification + cheapest-evidence planner
 - [ ] Observe-only calibration on real PRs
 

@@ -15,6 +15,7 @@ mod hypothesis;
 mod impact_union;
 mod risk;
 mod selection;
+mod surface_evidence;
 mod surface_graph;
 mod surface_reach;
 mod test_lineage;
@@ -27,6 +28,10 @@ pub use checks::{
 };
 pub use coverage_autopilot::{
     CoverageAutopilot, SurfaceCoverage, SurfaceCoverageState, coverage_autopilot,
+};
+pub use surface_evidence::{
+    EvidenceCell, MeasuredColumn, SurfaceEvidenceColumns, SurfaceEvidenceMatrix,
+    SurfaceEvidenceRow, surface_evidence_matrix, surfaces_touching_nodes,
 };
 pub use surface_graph::{
     ApplicationSurface, ApplicationSurfaceGraph, ApplicationSurfaceKind, MAX_APPLICATION_SURFACES,

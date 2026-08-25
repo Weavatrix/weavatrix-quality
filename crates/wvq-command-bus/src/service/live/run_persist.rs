@@ -4,6 +4,7 @@ use super::super::access::*;
 use super::super::persist_browser::persist_browser_runs;
 use super::super::persist_run::{obligation_execution_map, put_json_run_artifact, put_run_artifact};
 use super::super::persist_surface::persist_application_surface_graph;
+use super::super::persist_matrix::persist_surface_evidence_matrix;
 use super::super::persist_ui::persist_ui_integrity;
 use super::super::runner_coverage::stdout_kind;
 use super::super::selection_audit::live_selection_report;
@@ -83,6 +84,15 @@ impl LiveService {
             before,
             protection_graph,
             records,
+            &mut handles,
+        )?;
+        persist_surface_evidence_matrix(
+            store,
+            run_id,
+            before,
+            protection_graph,
+            records,
+            &live_selection.bindings,
             &mut handles,
         )?;
         put_json_run_artifact(
