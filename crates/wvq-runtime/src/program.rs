@@ -1,6 +1,7 @@
 //! Typed `TestProgram` IR. Canonical tests are programs, not Playwright source.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -353,6 +354,28 @@ pub enum TestAction {
         /// Drop target.
         to: Target,
     },
+    /// Set files on a file input from a named program fixture. Not a filesystem path.
+    Upload {
+        /// Semantic file-input target.
+        target: Target,
+        /// Name in `TestProgram.data`.
+        fixture: String,
+    },
+    /// Activate a control and wait for a download. Bytes stay out of observations.
+    Download {
+        /// Semantic target that starts the download.
+        target: Target,
+    },
+    /// Activate a control and switch to the opened popup or tab.
+    Popup {
+        /// Semantic target that opens the window.
+        target: Target,
+    },
+    /// Switch the driver to an already-open page whose route matches a prefix.
+    SwitchTab {
+        /// Route prefix or path.
+        route: String,
+    },
     /// Assert a sealed obligation.
     Assert {
         /// Obligation id.
@@ -371,6 +394,8 @@ impl TestAction {
             | Self::Select { target, .. }
             | Self::Hover { target }
             | Self::Scroll { target }
+            | Self::Download { target }
+            | Self::Popup { target }
             | Self::Wait {
                 condition: WaitCondition::Visible { target },
             } => target.validate(),
@@ -378,6 +403,13 @@ impl TestAction {
                 target.validate()?;
                 to.validate()
             }
+            Self::Upload { target, fixture } => {
+                target.validate()?;
+                validate_registered_name("upload fixture", fixture)
+            }
+            Self::SwitchTab { route } if route.is_empty() => Err(ProgramError::Invalid(
+                "switch_tab route must be non-empty".into(),
+            )),
             Self::Press { target, key } => {
                 if key.is_empty() {
                     return Err(ProgramError::Invalid("press key must be non-empty".into()));
@@ -418,6 +450,10 @@ impl TestAction {
             Self::Hover { .. } => "hover",
             Self::Scroll { .. } => "scroll",
             Self::Drag { .. } => "drag",
+            Self::Upload { .. } => "upload",
+            Self::Download { .. } => "download",
+            Self::Popup { .. } => "popup",
+            Self::SwitchTab { .. } => "switch_tab",
             Self::Assert { .. } => "assert",
         }
     }
@@ -432,6 +468,9 @@ impl TestAction {
             | Self::Hover { target }
             | Self::Scroll { target }
             | Self::Drag { target, .. }
+            | Self::Upload { target, .. }
+            | Self::Download { target }
+            | Self::Popup { target }
             | Self::Wait {
                 condition: WaitCondition::Visible { target },
             } => Some(target),
@@ -439,6 +478,73 @@ impl TestAction {
             _ => None,
         }
     }
+}
+
+/// Ceiling on named upload fixture text. Larger payloads fail closed.
+const MAX_UPLOAD_TEXT_BYTES: usize = 64 * 1024;
+
+fn validate_registered_name(label: &str, name: &str) -> Result<(), ProgramError> {
+    if name.is_empty() {
+        return Err(ProgramError::Invalid(format!("{label} must be non-empty")));
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(ProgramError::Invalid(format!(
+            "{label} must be a registered name, not a path"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_upload_filename(name: &str) -> Result<(), ProgramError> {
+    if name.is_empty() || name == "." || name == ".." {
+        return Err(ProgramError::Invalid(
+            "upload filename must be a basename".into(),
+        ));
+    }
+    let path = Path::new(name);
+    if path.components().count() != 1 || path.file_name() != Some(std::ffi::OsStr::new(name)) {
+        return Err(ProgramError::Invalid(
+            "upload filename must be a basename".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_upload_fixture(
+    fixture: &str,
+    data: &BTreeMap<String, serde_json::Value>,
+) -> Result<(), ProgramError> {
+    validate_registered_name("upload fixture", fixture)?;
+    let Some(value) = data.get(fixture) else {
+        return Err(ProgramError::Invalid(format!(
+            "upload names unknown data `{fixture}`"
+        )));
+    };
+    let Some(object) = value.as_object() else {
+        return Err(ProgramError::Invalid(
+            "upload fixture must be an object with filename and text".into(),
+        ));
+    };
+    if object.keys().any(|key| key != "filename" && key != "text") {
+        return Err(ProgramError::Invalid(
+            "upload fixture has unknown fields".into(),
+        ));
+    }
+    let Some(filename) = object.get("filename").and_then(serde_json::Value::as_str) else {
+        return Err(ProgramError::Invalid(
+            "upload fixture needs a filename".into(),
+        ));
+    };
+    let Some(text) = object.get("text").and_then(serde_json::Value::as_str) else {
+        return Err(ProgramError::Invalid("upload fixture needs text".into()));
+    };
+    validate_upload_filename(filename)?;
+    if text.len() > MAX_UPLOAD_TEXT_BYTES {
+        return Err(ProgramError::Invalid(
+            "upload fixture text exceeds 64KiB".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Canonical browser/API program.
@@ -458,7 +564,7 @@ pub struct TestProgram {
     pub preconditions: Vec<TestAction>,
     /// Ordered steps.
     pub steps: Vec<TestAction>,
-    /// Named deterministic data fixtures used by API operations.
+    /// Named deterministic data fixtures used by API operations and uploads.
     #[serde(default)]
     pub data: BTreeMap<String, serde_json::Value>,
     /// Named network faults. `InjectFault` can only select one of these.
@@ -552,6 +658,9 @@ impl TestProgram {
                     return Err(ProgramError::Invalid(format!(
                         "api_call requires registered operation `{operation}` and data `{input}`"
                     )));
+                }
+                TestAction::Upload { fixture, .. } => {
+                    validate_upload_fixture(fixture, &self.data)?;
                 }
                 _ => {}
             }

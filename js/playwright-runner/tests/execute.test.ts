@@ -17,6 +17,10 @@ test("every TestProgram action reaches a real driver method", async () => {
     async hover() { calls.push("hover"); },
     async scroll() { calls.push("scroll"); },
     async drag() { calls.push("drag"); },
+    async upload() { calls.push("upload"); },
+    async download() { calls.push("download"); },
+    async popup() { calls.push("popup"); },
+    async switchTab() { calls.push("switch_tab"); },
     async assert() { calls.push("assert"); },
   };
   const target = { role: "button", accessible_name: "Save" };
@@ -34,6 +38,10 @@ test("every TestProgram action reaches a real driver method", async () => {
     { action: "hover", target },
     { action: "scroll", target },
     { action: "drag", target, to: tray },
+    { action: "upload", target, fixture: "invoice" },
+    { action: "download", target },
+    { action: "popup", target },
+    { action: "switch_tab", route: "/preview" },
     { action: "assert", obligation: "saved" },
   ];
   for (const action of actions) await executeStep(driver, action);

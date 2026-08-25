@@ -1,7 +1,7 @@
 /** Actual Playwright adapter. Policy and sealed predicates arrive from Rust. */
 
 import { createHash } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -158,6 +158,7 @@ type ResolvedBrowserConfig = Required<Omit<BrowserConfig, "viewport" | "network"
 };
 
 const MAX_NETWORK_REQUESTS = 2_048;
+const MAX_UPLOAD_TEXT_BYTES = 64 * 1024;
 
 type NetworkEvent = {
   sequence: number;
@@ -193,7 +194,7 @@ export type RecordedOracleResult = {
 export class PlaywrightDriver implements Driver {
   readonly #browser: Browser;
   readonly #context: BrowserContext;
-  readonly #page: Page;
+  #page: Page;
   readonly #program: BrowserProgram;
   readonly #oracles: Map<string, ProgramOracle>;
   readonly #config: ResolvedBrowserConfig;
@@ -207,6 +208,7 @@ export class PlaywrightDriver implements Driver {
   readonly #recordedResponses: Array<NetworkReplayEntry & { sequence: number }> = [];
   readonly #networkLimitations: string[] = [];
   readonly #replayEntries = new Map<string, NetworkReplayEntry[]>();
+  readonly #boundPages = new WeakSet<Page>();
   #recordedResponseBytes = 0;
   #failed = false;
   #closed = false;
@@ -233,52 +235,8 @@ export class PlaywrightDriver implements Driver {
     this.#program = program;
     this.#oracles = new Map(oracles.map((oracle) => [oracle.obligation, oracle]));
     this.#config = config;
-    page.on("request", (request) => {
-      if (this.#network.length >= MAX_NETWORK_REQUESTS) {
-        this.#networkRequestsTruncated = true;
-        return;
-      }
-      const identity = identifyRequest(request);
-      const event: NetworkEvent = {
-        sequence: this.#network.length + 1,
-        method: request.method().toUpperCase(),
-        url: request.url(),
-        resource_type: request.resourceType(),
-        ...(identity.content_type ? { content_type: identity.content_type } : {}),
-        ...(identity.body_digest ? { body_digest: identity.body_digest } : {}),
-        ...(identity.graphql?.operation_name
-          ? { graphql_operation: identity.graphql.operation_name }
-          : {}),
-        ...(identity.graphql?.query_digest
-          ? { graphql_query_digest: identity.graphql.query_digest }
-          : {}),
-        ...(identity.graphql?.variables_digest
-          ? { graphql_variables_digest: identity.graphql.variables_digest }
-          : {}),
-      };
-      this.#network.push(event);
-      this.#requestEvents.set(request, event);
-      if (isMutationMethod(event.method)) {
-        this.#inflightMutations.add(request);
-        this.#lastMutationChange = Date.now();
-      }
-    });
-    page.on("response", (response) => {
-      const event = this.#requestEvents.get(response.request());
-      if (event) event.status = response.status();
-      if (this.#config.network.mode === "record") {
-        const capture = this.#captureNetworkResponse(response, event?.sequence ?? 0);
-        this.#networkCaptures.push(capture);
-      }
-    });
-    const mutationFinished = (request: Request): void => {
-      if (this.#inflightMutations.delete(request)) this.#lastMutationChange = Date.now();
-    };
-    page.on("requestfinished", mutationFinished);
-    page.on("requestfailed", mutationFinished);
-    page.on("console", (message) => {
-      this.#console.push({ type: message.type(), text: message.text() });
-    });
+    this.#bindPage(page);
+    context.on("page", (opened) => this.#bindPage(opened));
   }
 
   static async create(
@@ -393,6 +351,56 @@ export class PlaywrightDriver implements Driver {
 
   async drag(target: Target, to: Target): Promise<void> {
     await this.#locator(target).dragTo(this.#locator(to));
+  }
+
+  async upload(target: Target, fixture: string): Promise<void> {
+    const file = resolveUploadFixture(this.#program.data, fixture);
+    const dir = join(this.#config.evidence_dir, "uploads");
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, file.filename);
+    await writeFile(path, file.text, "utf8");
+    await this.#locator(target).setInputFiles(path);
+  }
+
+  async download(target: Target): Promise<void> {
+    const [download] = await Promise.all([
+      this.#page.waitForEvent("download"),
+      this.#locator(target).click(),
+    ]);
+    if (!download) throw new Error("download event was not observed");
+    const failure = await download.failure();
+    if (failure) throw new Error(`download failed: ${failure}`);
+    const path = await download.path();
+    if (!path) throw new Error("download completed without a local path");
+  }
+
+  async popup(target: Target): Promise<void> {
+    const [opened] = await Promise.all([
+      this.#context.waitForEvent("page"),
+      this.#locator(target).click(),
+    ]);
+    if (!opened) throw new Error("popup page was not observed");
+    await opened.waitForLoadState("domcontentloaded");
+    this.#adoptPage(opened);
+  }
+
+  async switchTab(route: string): Promise<void> {
+    const matches = this.#context.pages().filter((page) => {
+      if (page.isClosed() || page.url() === "about:blank") return false;
+      try {
+        return routeOf(new URL(page.url())).startsWith(route);
+      } catch {
+        return false;
+      }
+    });
+    if (matches.length > 1) {
+      throw new Error(`ambiguous tab route \`${route}\``);
+    }
+    const page = matches[0];
+    if (!page) {
+      throw new Error(`no open tab matches route \`${route}\``);
+    }
+    this.#adoptPage(page);
   }
 
   async fill(target: Target, value: string): Promise<void> {
@@ -813,6 +821,62 @@ export class PlaywrightDriver implements Driver {
       .sort((left, right) => left.sequence - right.sequence)
       .map(({ sequence: _sequence, ...entry }) => entry);
     return { schema_v: 2, entries };
+  }
+
+  #adoptPage(page: Page): void {
+    this.#bindPage(page);
+    this.#page = page;
+  }
+
+  #bindPage(page: Page): void {
+    if (this.#boundPages.has(page)) return;
+    this.#boundPages.add(page);
+    page.on("request", (request) => {
+      if (this.#network.length >= MAX_NETWORK_REQUESTS) {
+        this.#networkRequestsTruncated = true;
+        return;
+      }
+      const identity = identifyRequest(request);
+      const event: NetworkEvent = {
+        sequence: this.#network.length + 1,
+        method: request.method().toUpperCase(),
+        url: request.url(),
+        resource_type: request.resourceType(),
+        ...(identity.content_type ? { content_type: identity.content_type } : {}),
+        ...(identity.body_digest ? { body_digest: identity.body_digest } : {}),
+        ...(identity.graphql?.operation_name
+          ? { graphql_operation: identity.graphql.operation_name }
+          : {}),
+        ...(identity.graphql?.query_digest
+          ? { graphql_query_digest: identity.graphql.query_digest }
+          : {}),
+        ...(identity.graphql?.variables_digest
+          ? { graphql_variables_digest: identity.graphql.variables_digest }
+          : {}),
+      };
+      this.#network.push(event);
+      this.#requestEvents.set(request, event);
+      if (isMutationMethod(event.method)) {
+        this.#inflightMutations.add(request);
+        this.#lastMutationChange = Date.now();
+      }
+    });
+    page.on("response", (response) => {
+      const event = this.#requestEvents.get(response.request());
+      if (event) event.status = response.status();
+      if (this.#config.network.mode === "record") {
+        const capture = this.#captureNetworkResponse(response, event?.sequence ?? 0);
+        this.#networkCaptures.push(capture);
+      }
+    });
+    const mutationFinished = (request: Request): void => {
+      if (this.#inflightMutations.delete(request)) this.#lastMutationChange = Date.now();
+    };
+    page.on("requestfinished", mutationFinished);
+    page.on("requestfailed", mutationFinished);
+    page.on("console", (message) => {
+      this.#console.push({ type: message.type(), text: message.text() });
+    });
   }
 
   #locator(target: Target): Locator {
@@ -1263,6 +1327,38 @@ function routeOf(url: URL): string {
 
 function safeName(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 100);
+}
+
+function resolveUploadFixture(
+  data: Record<string, unknown> | undefined,
+  fixture: string,
+): { filename: string; text: string } {
+  if (!fixture || fixture.includes("/") || fixture.includes("\\") || fixture.includes("..")) {
+    throw new Error("upload fixture must be a registered name, not a path");
+  }
+  const value = data?.[fixture];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`upload names unknown data \`${fixture}\``);
+  }
+  const object = value as Record<string, unknown>;
+  if (Object.keys(object).some((key) => key !== "filename" && key !== "text")) {
+    throw new Error("upload fixture has unknown fields");
+  }
+  const filename = object.filename;
+  const text = object.text;
+  if (typeof filename !== "string" || filename === "" || filename === "." || filename === "..") {
+    throw new Error("upload fixture needs a filename");
+  }
+  if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+    throw new Error("upload filename must be a basename");
+  }
+  if (typeof text !== "string") {
+    throw new Error("upload fixture needs text");
+  }
+  if (Buffer.byteLength(text, "utf8") > MAX_UPLOAD_TEXT_BYTES) {
+    throw new Error("upload fixture text exceeds 64KiB");
+  }
+  return { filename, text };
 }
 
 function isMutationMethod(method: string): boolean {

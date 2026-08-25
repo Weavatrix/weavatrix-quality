@@ -78,3 +78,82 @@ test("hover, scroll, and drag are first-class Playwright actions", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("upload, download, popup, and switch_tab are first-class Playwright actions", async () => {
+  const server = createServer((request, response) => {
+    const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (path === "/file.txt") {
+      response.writeHead(200, {
+        "content-type": "text/plain",
+        "content-disposition": "attachment; filename=\"export.txt\"",
+      });
+      response.end("exported");
+      return;
+    }
+    if (path === "/preview") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end(`<!doctype html>
+        <html><body>
+          <h1 data-testid="preview-title">Preview</h1>
+        </body></html>`);
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<!doctype html>
+      <html><body>
+        <input data-testid="file" type="file" />
+        <span data-testid="chosen" hidden></span>
+        <a data-testid="export" href="/file.txt">Export</a>
+        <button data-testid="preview">Preview</button>
+        <script>
+          const input = document.querySelector('[data-testid=file]');
+          const chosen = document.querySelector('[data-testid=chosen]');
+          input.addEventListener('change', () => {
+            chosen.textContent = input.files?.[0]?.name ?? "";
+            chosen.hidden = !chosen.textContent;
+          });
+          document.querySelector('[data-testid=preview]').addEventListener('click', () => {
+            window.open('/preview', 'preview');
+          });
+        </script>
+      </body></html>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const evidence = await mkdtemp(join(tmpdir(), "wvq-window-"));
+  let driver;
+  try {
+    driver = await PlaywrightDriver.create(
+      {
+        id: "window-actions",
+        obligations: ["ready"],
+        data: { invoice: { filename: "invoice.txt", text: "hello" } },
+        steps: [{ action: "navigate", route: "/app" }],
+      },
+      [{ obligation: "ready", expected: { kind: "no_console_errors" } }],
+      {
+        base_url: `http://127.0.0.1:${address.port}`,
+        browser: "chromium",
+        headless: true,
+        timeout_ms: 8_000,
+        evidence_dir: evidence,
+      },
+    );
+    await driver.navigate("/app");
+    await driver.upload({ test_id: "file" }, "invoice");
+    await driver.wait({ kind: "visible", target: { test_id: "chosen" } });
+
+    await driver.download({ test_id: "export" });
+
+    await driver.popup({ test_id: "preview" });
+    await driver.wait({ kind: "visible", target: { test_id: "preview-title" } });
+
+    await driver.switchTab("/app");
+    await driver.wait({ kind: "visible", target: { test_id: "file" } });
+  } finally {
+    await driver?.finish();
+    await rm(evidence, { recursive: true, force: true });
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

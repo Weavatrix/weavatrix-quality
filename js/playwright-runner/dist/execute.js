@@ -8,6 +8,9 @@ export function actionTarget(action) {
         case "hover":
         case "scroll":
         case "drag":
+        case "upload":
+        case "download":
+        case "popup":
             return action.target;
         case "press":
             return action.target;
@@ -71,6 +74,23 @@ export async function executeStep(driver, action) {
             requireTarget("drag", action.target);
             requireTarget("drag drop", action.to);
             await driver.drag(action.target, action.to);
+            return;
+        case "upload":
+            requireTarget("upload", action.target);
+            requireText("upload fixture", action.fixture);
+            await driver.upload(action.target, action.fixture);
+            return;
+        case "download":
+            requireTarget("download", action.target);
+            await driver.download(action.target);
+            return;
+        case "popup":
+            requireTarget("popup", action.target);
+            await driver.popup(action.target);
+            return;
+        case "switch_tab":
+            requireText("switch_tab route", action.route);
+            await driver.switchTab(action.route);
             return;
         case "assert":
             requireText("assert obligation", action.obligation);

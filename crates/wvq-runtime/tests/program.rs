@@ -85,6 +85,79 @@ fn hover_scroll_and_drag_are_first_class_actions() {
 }
 
 #[test]
+fn upload_download_popup_and_switch_tab_are_first_class_actions() {
+    let program = TestProgram::from_json(
+        r#"{
+        "schema_v": 1,
+        "id": "window-actions",
+        "source": "authored",
+        "obligations": ["exported"],
+        "data": {
+            "invoice": { "filename": "invoice.txt", "text": "hello" }
+        },
+        "steps": [
+            { "action": "upload", "target": { "test_id": "file" }, "fixture": "invoice" },
+            { "action": "download", "target": { "role": "button", "accessible_name": "Export" } },
+            { "action": "popup", "target": { "test_id": "preview" } },
+            { "action": "switch_tab", "route": "/preview" },
+            { "action": "assert", "obligation": "exported" }
+        ]
+    }"#,
+    )
+    .unwrap();
+    assert!(matches!(program.steps[0], TestAction::Upload { .. }));
+    assert!(matches!(program.steps[1], TestAction::Download { .. }));
+    assert!(matches!(program.steps[2], TestAction::Popup { .. }));
+    assert!(matches!(program.steps[3], TestAction::SwitchTab { .. }));
+    assert_eq!(program.steps[0].kind(), "upload");
+    assert_eq!(program.steps[1].kind(), "download");
+    assert_eq!(program.steps[2].kind(), "popup");
+    assert_eq!(program.steps[3].kind(), "switch_tab");
+    assert_eq!(
+        program.steps[0].semantic_target().unwrap().test_id.as_deref(),
+        Some("file")
+    );
+}
+
+#[test]
+fn upload_fixture_must_be_registered_named_bytes_not_a_path() {
+    for (action, data) in [
+        (
+            r#"{"action":"upload","target":{"test_id":"file"},"fixture":"../secret"}"#,
+            r"{}",
+        ),
+        (
+            r#"{"action":"upload","target":{"test_id":"file"},"fixture":"missing"}"#,
+            r"{}",
+        ),
+        (
+            r#"{"action":"upload","target":{"test_id":"file"},"fixture":"invoice"}"#,
+            r#"{"invoice":{"filename":"../invoice.txt","text":"x"}}"#,
+        ),
+        (
+            r#"{"action":"upload","target":{"test_id":"file"},"fixture":"invoice"}"#,
+            r#"{"invoice":"plain-string"}"#,
+        ),
+    ] {
+        let raw = format!(
+            r#"{{
+                "schema_v": 1,
+                "id": "p1",
+                "source": "authored",
+                "obligations": ["exported"],
+                "data": {data},
+                "steps": [
+                    {action},
+                    {{ "action": "assert", "obligation": "exported" }}
+                ]
+            }}"#
+        );
+        let err = TestProgram::from_json(&raw).unwrap_err();
+        assert!(matches!(err, ProgramError::Invalid(_)), "{err}");
+    }
+}
+
+#[test]
 fn drag_without_a_drop_target_is_rejected() {
     let err = TestProgram::from_json(
         r#"{

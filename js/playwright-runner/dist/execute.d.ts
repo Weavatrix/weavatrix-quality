@@ -58,6 +58,19 @@ export type TestAction = {
     target: Target;
     to: Target;
 } | {
+    action: "upload";
+    target: Target;
+    fixture: string;
+} | {
+    action: "download";
+    target: Target;
+} | {
+    action: "popup";
+    target: Target;
+} | {
+    action: "switch_tab";
+    route: string;
+} | {
     action: "assert";
     obligation: string;
 };
@@ -74,6 +87,10 @@ export type Driver = {
     hover(target: Target): Promise<void>;
     scroll(target: Target): Promise<void>;
     drag(target: Target, to: Target): Promise<void>;
+    upload(target: Target, fixture: string): Promise<void>;
+    download(target: Target): Promise<void>;
+    popup(target: Target): Promise<void>;
+    switchTab(route: string): Promise<void>;
     assert(obligation: string): Promise<void>;
 };
 /** Semantic target the IR named for this action, if any. */

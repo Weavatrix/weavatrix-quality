@@ -172,13 +172,19 @@ fn retarget_step(program: &mut TestProgram, step: usize, target: &Target) -> Res
         | TestAction::Scroll { target: current }
         | TestAction::Drag {
             target: current, ..
-        } => {
+        }
+        | TestAction::Upload {
+            target: current, ..
+        }
+        | TestAction::Download { target: current }
+        | TestAction::Popup { target: current } => {
             *current = recover_target(current, target)?;
             Ok(())
         }
         TestAction::Assert { .. } => Err(HealError::AssertionChanged),
         _ => Err(HealError::Invalid(
-            "heal can only retarget activate/fill/select/hover/scroll/drag".into(),
+            "heal can only retarget activate/fill/select/hover/scroll/drag/upload/download/popup"
+                .into(),
         )),
     }
 }
@@ -201,9 +207,11 @@ fn fill_values(program: &TestProgram) -> Vec<String> {
         .steps
         .iter()
         .filter_map(|step| match step {
-            TestAction::Fill { value, .. } | TestAction::Select { value, .. } => {
-                Some(value.clone())
-            }
+            TestAction::Fill { value, .. }
+            | TestAction::Select { value, .. }
+            | TestAction::Upload {
+                fixture: value, ..
+            } => Some(value.clone()),
             _ => None,
         })
         .collect()

@@ -122,4 +122,12 @@ P1 (do not skip into closed-loop Autopilot):
 - [x] Gap classification + cheapest-evidence planner
 - [x] Observe-only calibration on real PRs
 
+Breadth (do not mix with Autopilot closed-loop):
+
+- [x] Remaining first-class browser actions (upload/download/popup/tab)
+- [ ] Continuous recorder package
+- [ ] Extended cassette
+- [ ] Studio frontend
+- [ ] `wvq baseline` with `OBSERVED_ONLY`
+
 The command-bus 300-line file split is done (`service/` ≤300, Clippy `-D warnings` green). Bench and gap analysis in `wvq-command-bus` are no longer blocked on file size.
