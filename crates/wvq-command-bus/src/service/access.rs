@@ -51,14 +51,15 @@ pub(in crate::service) use wvq_ui::{
 pub(in crate::service) use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, ContextCommand, DebtCommand,
-    EvidenceCommand, ExplainCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand,
-    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    EvidenceCommand, ExplainCommand, InitCommand, ModelCommand, PlanCommand, RecordCommand,
+    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 pub(in crate::service) use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
-    ExplainReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply, RunReply,
-    SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
+    ExplainReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
+    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
+    VerifyReply,
 };
 pub(in crate::service) use crate::source_mutation::{
     MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest, execute_source_mutation,

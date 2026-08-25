@@ -29,6 +29,7 @@ mod run_prepare;
 mod run_execute;
 mod run_persist;
 mod run_finish;
+mod init;
 
 /// Filesystem-backed service with registered bounded executors and a persistent evidence ledger.
 #[derive(Debug)]
@@ -178,5 +179,8 @@ impl QualityService for LiveService {
     }
     fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError> {
         LiveService::recovery(self, cmd)
+    }
+    fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError> {
+        LiveService::init(self, cmd)
     }
 }

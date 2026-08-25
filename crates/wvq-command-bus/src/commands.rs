@@ -340,6 +340,15 @@ pub struct RecoveryCommand {
     pub head: String,
 }
 
+/// Scaffold `.weavatrix-quality/` without inventing tests, browser, or a model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitCommand {
+    /// Overwrite an existing policy. Default false.
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -385,6 +394,8 @@ pub enum Command {
     Changes(ChangesCommand),
     /// [`RecoveryCommand`].
     Recovery(RecoveryCommand),
+    /// [`InitCommand`].
+    Init(InitCommand),
 }
 
 impl Command {
@@ -413,6 +424,7 @@ impl Command {
             Self::AuthorHeal(_) => "author_heal",
             Self::Changes(_) => "changes",
             Self::Recovery(_) => "recovery",
+            Self::Init(_) => "init",
         }
     }
 }

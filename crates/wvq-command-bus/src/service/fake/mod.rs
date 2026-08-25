@@ -179,4 +179,16 @@ impl QualityService for FakeService {
     fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError> {
         FakeService::recovery(self, cmd)
     }
+    fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError> {
+        let _ = cmd;
+        Ok(InitReply {
+            created: vec![
+                ".weavatrix-quality/config.yaml".into(),
+                ".weavatrix-quality/.gitignore".into(),
+            ],
+            skipped: Vec::new(),
+            config: ".weavatrix-quality/config.yaml".into(),
+            runtime_llm_tokens: 0,
+        })
+    }
 }

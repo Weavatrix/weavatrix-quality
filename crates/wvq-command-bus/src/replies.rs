@@ -593,6 +593,19 @@ pub struct AuthorHealReply {
     pub created: bool,
 }
 
+/// Files written by `wvq init`. Never a proof or a seal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InitReply {
+    /// Repository-relative files created or overwritten.
+    pub created: Vec<String>,
+    /// Repository-relative files left untouched.
+    pub skipped: Vec<String>,
+    /// Policy file that `quality_policy_v: 1` now occupies.
+    pub config: String,
+    /// Scaffolding spends no model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -661,6 +674,9 @@ pub enum Reply {
     /// [`RecoveryReply`].
     #[serde(rename = "recovery")]
     Recovery(Box<RecoveryReply>),
+    /// [`InitReply`].
+    #[serde(rename = "init")]
+    Init(InitReply),
 }
 
 impl Reply {

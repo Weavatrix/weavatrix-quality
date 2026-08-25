@@ -5,7 +5,7 @@ use std::process::Command as ProcessCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use wvq_cli::{parse_args, run_with};
-use wvq_command_bus::{Command, FakeService};
+use wvq_command_bus::{Command, FakeService, InitCommand};
 
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
@@ -105,6 +105,42 @@ fn git(root: &Path, args: &[&str]) {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn init_parses_and_scaffolds_an_empty_repository() {
+    let parsed = parse_args(&argv(&["init", "--force", "true"])).unwrap();
+    assert_eq!(parsed.command, Command::Init(InitCommand { force: true }));
+
+    let empty = TempRepo({
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("wvq-cli-init-{nanos}"));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    });
+    let output = wvq_cli::run(&argv(&[
+        "--repo",
+        empty.0.to_str().unwrap(),
+        "init",
+    ]));
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"command\": \"init\""));
+    assert!(output.stdout.contains("config.yaml"));
+    assert_eq!(output.stdout.matches("runtime_llm_tokens").count(), 1);
+    assert!(output.stdout.contains("\"runtime_llm_tokens\": 0"));
+    assert!(empty.0.join(".weavatrix-quality/config.yaml").is_file());
+    assert!(!empty.0.join(".weavatrix-quality/quality.db").exists());
+
+    let again = wvq_cli::run(&argv(&[
+        "--repo",
+        empty.0.to_str().unwrap(),
+        "init",
+    ]));
+    assert_ne!(again.code, 0);
+    assert!(again.stderr.contains("already exists"));
 }
 
 #[test]

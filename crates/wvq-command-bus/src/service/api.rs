@@ -7,14 +7,14 @@ use super::BusError;
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
     AuthorValidateCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
-    ExplainCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand, RunCommand,
-    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    ExplainCommand, InitCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand,
+    RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
-    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, ModelReply, PlanReply,
-    RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply,
-    SpecValidateReply, StatusReply, VerifyReply,
+    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply, ModelReply,
+    PlanReply, RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply,
+    SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
 };
 
 /// Shared facade for every host.
@@ -219,6 +219,16 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError`] when revision or graph evidence is incomplete.
     fn recovery(&self, cmd: &RecoveryCommand) -> Result<RecoveryReply, BusError>;
+    /// Write a fail-closed `.weavatrix-quality/config.yaml` if one is missing.
+    ///
+    /// Does not invent test bindings, a browser origin, or a model endpoint.
+    /// Does not open the evidence ledger.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError::InvalidInput`] when a policy already exists and
+    /// `force` is false, or when the repository path is not a directory.
+    fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -255,6 +265,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::Recovery(cmd) => service
             .recovery(&cmd)
             .map(|reply| Reply::Recovery(Box::new(reply))),
+        Command::Init(cmd) => service.init(&cmd).map(Reply::Init),
     }
 }
 

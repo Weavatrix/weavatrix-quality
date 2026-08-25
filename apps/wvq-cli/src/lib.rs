@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    Command, ContextCommand, DebtCommand, ExplainCommand, LiveService, ModelCommand, PlanCommand,
-    QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch,
+    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, LiveService, ModelCommand,
+    PlanCommand, QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand,
+    SpecCommand, VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -37,6 +37,7 @@ pub fn usage() -> String {
     "wvq — Weavatrix Quality
 
 Usage:
+  wvq [--repo PATH] init [--force true|false]
   wvq [--repo PATH] spec validate [--change ID]
   wvq [--repo PATH] spec seal [--change ID]
   wvq [--repo PATH] analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
@@ -167,6 +168,13 @@ fn parse_command(
             head,
         }),
         [cmd] if cmd == "verify" => Command::Verify(VerifyCommand { change }),
+        [cmd] if cmd == "init" => Command::Init(InitCommand {
+            force: flags
+                .get("force")
+                .map(|value| parse_bool_flag(value, "force"))
+                .transpose()?
+                .unwrap_or(false),
+        }),
         [cmd] if cmd == "plan" => Command::Plan(PlanCommand { change }),
         [cmd] if cmd == "status" => {
             Command::Status(wvq_command_bus::StatusCommand { run_id: None })
@@ -213,6 +221,7 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             "fixtures-json",
         ]),
         [cmd] if matches!(cmd.as_str(), "verify" | "plan") => Some(&["repo", "change"]),
+        [cmd] if cmd == "init" => Some(&["repo", "force"]),
         [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
         [cmd] if cmd == "run" => {
             Some(&["repo", "change", "base", "head", "scope", "evidence-policy"])
