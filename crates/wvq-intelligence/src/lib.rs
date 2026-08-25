@@ -16,6 +16,7 @@ mod impact_union;
 mod risk;
 mod selection;
 mod surface_graph;
+mod surface_reach;
 mod test_lineage;
 mod weavatrix;
 
@@ -31,6 +32,7 @@ pub use surface_graph::{
     ApplicationSurface, ApplicationSurfaceGraph, ApplicationSurfaceKind, MAX_APPLICATION_SURFACES,
     SurfaceEvidenceKind, application_surface_graph,
 };
+pub use surface_reach::production_nodes_for_binding;
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use flow::{
     FlowEntry, FlowFingerprint, FlowMatch, FlowState, ImpactedFlow, fingerprint, match_flows,

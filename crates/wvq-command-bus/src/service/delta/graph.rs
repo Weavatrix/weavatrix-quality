@@ -3,12 +3,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use wvq_proof::{FlowProtection, is_test_source_path};
+use wvq_intelligence::production_nodes_for_binding;
+use wvq_proof::FlowProtection;
 use wvq_runtime::{AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta};
 
 use super::super::{
-    BusError, TestBinding, ensure_complete_diff, graph_node_id, graph_node_source_path,
-    normalize_path, sha256_hex, values_at,
+    BusError, TestBinding, ensure_complete_diff, graph_node_id, sha256_hex, values_at,
 };
 
 pub(in crate::service) fn graph_diff_changed_nodes(diff: &Value) -> Result<BTreeSet<String>, BusError> {
@@ -58,48 +58,26 @@ pub(in crate::service) fn declared_code_flows(
     bindings: &[TestBinding],
     graph: &Value,
 ) -> Vec<FlowProtection> {
-    let mut by_path = BTreeMap::<String, BTreeSet<String>>::new();
-    for binding in bindings {
-        by_path
-            .entry(normalize_path(&binding.path))
-            .or_default()
-            .extend(binding.obligations.iter().cloned());
-    }
     let mut flows = BTreeMap::<String, FlowProtection>::new();
-    for node in values_at(graph, "/nodes") {
-        let Some(file) = graph_node_file(node) else {
-            continue;
-        };
-        if is_test_source_path(&file) {
-            continue;
-        }
-        let Some(obligations) = by_path.get(&file) else {
-            continue;
-        };
-        let Some(node_id) = graph_node_id(node) else {
-            continue;
-        };
-        let flow = flows
-            .entry(node_id.clone())
-            .or_insert_with(|| FlowProtection {
-                flow: node_id.clone(),
-                revision: revision.to_owned(),
-                tests: Vec::new(),
-                sessions: Vec::new(),
-                covered_nodes: vec![node_id.clone()],
-                covered_branches: Vec::new(),
-                proven_obligations: Vec::new(),
-                proofs: Vec::new(),
-            });
-        for obligation in obligations {
-            if !flow.proven_obligations.contains(obligation) {
-                flow.proven_obligations.push(obligation.clone());
+    for binding in bindings {
+        for node_id in production_nodes_for_binding(graph, &binding.path) {
+            let flow = flows
+                .entry(node_id.clone())
+                .or_insert_with(|| FlowProtection {
+                    flow: node_id.clone(),
+                    revision: revision.to_owned(),
+                    tests: Vec::new(),
+                    sessions: Vec::new(),
+                    covered_nodes: vec![node_id.clone()],
+                    covered_branches: Vec::new(),
+                    proven_obligations: Vec::new(),
+                    proofs: Vec::new(),
+                });
+            for obligation in &binding.obligations {
+                if !flow.proven_obligations.contains(obligation) {
+                    flow.proven_obligations.push(obligation.clone());
+                }
             }
-        }
-        for binding in bindings
-            .iter()
-            .filter(|binding| normalize_path(&binding.path) == file)
-        {
             if !flow.tests.contains(&binding.path) {
                 flow.tests.push(binding.path.clone());
             }
@@ -113,13 +91,6 @@ pub(in crate::service) fn declared_code_flows(
         flow.tests.dedup();
     }
     flows
-}
-
-fn graph_node_file(node: &Value) -> Option<String> {
-    node.pointer("/span/file")
-        .and_then(Value::as_str)
-        .or_else(|| graph_node_source_path(node))
-        .map(normalize_path)
 }
 
 pub(in crate::service::delta) fn paired_observation_delta(

@@ -4,6 +4,7 @@ use serde_json::json;
 use wvq_intelligence::{
     ApplicationSurfaceKind, CoverageMeasurement, NodeCoverage, SurfaceCoverageState,
     SurfaceEvidenceKind, application_surface_graph, coverage_autopilot,
+    production_nodes_for_binding,
 };
 
 #[test]
@@ -105,6 +106,31 @@ fn a_hit_implementation_node_covers_the_surface() {
         autopilot.surfaces[0].state,
         SurfaceCoverageState::MeasuredCovered
     );
+}
+
+#[test]
+fn a_test_binding_reaches_production_through_a_graph_edge() {
+    let graph = json!({
+        "nodes": [
+            {
+                "id": "symbol:src/widget.test.ts#renders",
+                "span": {"file": "src/widget.test.ts", "start_line": 1, "end_line": 1}
+            },
+            {
+                "id": "symbol:src/widget.ts#Widget",
+                "span": {"file": "src/widget.ts", "start_line": 1, "end_line": 1}
+            }
+        ],
+        "edges": [{
+            "source": "symbol:src/widget.test.ts#renders",
+            "target": "symbol:src/widget.ts#Widget"
+        }]
+    });
+    assert_eq!(
+        production_nodes_for_binding(&graph, "src/widget.test.ts"),
+        ["symbol:src/widget.ts#Widget"]
+    );
+    assert!(production_nodes_for_binding(&graph, "src/orphan.test.ts").is_empty());
 }
 
 #[test]
