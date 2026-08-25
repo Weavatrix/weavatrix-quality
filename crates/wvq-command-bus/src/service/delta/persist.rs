@@ -130,9 +130,7 @@ pub(in crate::service) fn persist_delta_triangle(
                     if delta.changed() {
                         changed_programs.push(program.clone());
                     }
-                    if program_code.measured {
-                        readings.push(triangle.reading.as_str().to_owned());
-                    }
+                    readings.push(triangle.reading.as_str().to_owned());
                     for finding in &triangle.findings {
                         findings.push(json!({
                             "check": finding.check.as_str(),
@@ -144,7 +142,7 @@ pub(in crate::service) fn persist_delta_triangle(
                     program_deltas.push(json!({
                         "program": program,
                         "measured": true,
-                        "reading": program_code.measured.then_some(triangle.reading.as_str()),
+                        "reading": triangle.reading.as_str(),
                         "behavior_changed": delta.changed(),
                         "spec_authorized": program_spec.changed,
                         "authorized_obligations": program_spec.authorized_obligations,
@@ -176,7 +174,7 @@ pub(in crate::service) fn persist_delta_triangle(
         .any(|finding| finding.get("severity").and_then(Value::as_str) == Some("error"));
     let state = if has_blocking {
         "blocking"
-    } else if !unmeasured_programs.is_empty() || !code_unmeasured_programs.is_empty() {
+    } else if !unmeasured_programs.is_empty() {
         "unmeasured"
     } else if findings.is_empty() {
         "clean"

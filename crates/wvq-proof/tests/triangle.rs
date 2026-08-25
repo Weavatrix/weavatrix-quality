@@ -272,7 +272,7 @@ fn a_program_that_asserts_no_obligation_cannot_claim_a_code_delta() {
 }
 
 #[test]
-fn unmeasured_code_does_not_emit_behavior_drift_findings() {
+fn unmeasured_code_does_not_excuse_unauthorized_behavior_drift() {
     let triangle = join_triangle(
         &SpecDelta::change_wide(false),
         &CodeDelta::unmeasured("no protected flow maps these obligations to Weavatrix nodes"),
@@ -281,5 +281,33 @@ fn unmeasured_code_does_not_emit_behavior_drift_findings() {
     );
     assert!(!triangle.axes.code);
     assert!(triangle.axes.behavior);
+    assert_eq!(triangle.reading, TriangleReading::UnintendedBehaviorDrift);
+    assert_eq!(triangle.findings.len(), 1);
+    assert_eq!(triangle.findings[0].check.as_str(), "WVQ-BEHAV-001");
+}
+
+#[test]
+fn unmeasured_code_does_not_fail_an_unchanged_behavior_cell() {
+    let triangle = join_triangle(
+        &SpecDelta::change_wide(false),
+        &CodeDelta::unmeasured("no protected flow maps these obligations to Weavatrix nodes"),
+        &stable(),
+        "viewer-widget",
+    );
+    assert!(!triangle.axes.code);
+    assert!(!triangle.axes.behavior);
+    assert_eq!(triangle.reading, TriangleReading::NoChange);
+    assert!(triangle.findings.is_empty());
+}
+
+#[test]
+fn unmeasured_code_keeps_spec_authorized_behavior_as_expected_change() {
+    let triangle = join_triangle(
+        &SpecDelta::change_wide(true),
+        &CodeDelta::unmeasured("no protected flow maps these obligations to Weavatrix nodes"),
+        &delta_with_route_change(),
+        "viewer-widget",
+    );
+    assert_eq!(triangle.reading, TriangleReading::ExpectedChangeCandidate);
     assert!(triangle.findings.is_empty());
 }

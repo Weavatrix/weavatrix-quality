@@ -211,17 +211,14 @@ pub(in crate::service) fn delta_triangle_axis(
             "unknown delta-triangle schema version".into(),
         ));
     }
-    let mut unmeasured_programs = values_at(&document, "/unmeasured_programs")
+    let unmeasured_programs = values_at(&document, "/unmeasured_programs")
         .iter()
         .filter_map(|value| value.as_str().map(ToOwned::to_owned))
         .collect::<Vec<_>>();
-    unmeasured_programs.extend(
-        values_at(&document, "/code_unmeasured_programs")
-            .iter()
-            .filter_map(|value| value.as_str().map(ToOwned::to_owned)),
-    );
-    unmeasured_programs.sort();
-    unmeasured_programs.dedup();
+    let code_unmeasured_programs = values_at(&document, "/code_unmeasured_programs")
+        .iter()
+        .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+        .collect::<Vec<_>>();
     let mut findings = Vec::new();
     for value in values_at(&document, "/findings") {
         let severity = match value.get("severity").and_then(Value::as_str) {
@@ -272,17 +269,26 @@ pub(in crate::service) fn delta_triangle_axis(
         .get("replay_limitation")
         .and_then(Value::as_str)
         .filter(|detail| !detail.is_empty());
-    let limitations = (!unmeasured_programs.is_empty())
-        .then(|| Limitation {
+    let mut limitations = Vec::new();
+    if !unmeasured_programs.is_empty() {
+        limitations.push(Limitation {
             axis: "delta_triangle".into(),
             detail: format!(
                 "same-program base/head replay was incomplete for {}{}",
                 unmeasured_programs.join(", "),
                 replay_detail.map_or_else(String::new, |detail| format!(": {detail}"))
             ),
-        })
-        .into_iter()
-        .collect();
+        });
+    }
+    if !code_unmeasured_programs.is_empty() {
+        limitations.push(Limitation {
+            axis: "delta_triangle".into(),
+            detail: format!(
+                "code mapping was unmeasured for {}; Spec × Behavior still decides authorization",
+                code_unmeasured_programs.join(", ")
+            ),
+        });
+    }
     Ok((axis, limitations))
 }
 

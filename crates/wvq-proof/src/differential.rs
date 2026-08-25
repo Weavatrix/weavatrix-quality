@@ -247,6 +247,9 @@ pub fn classify_triangle(spec: bool, code: bool, behavior: bool) -> TriangleRead
 }
 
 /// Join spec, code, and behavior deltas and emit unexpected findings.
+///
+/// Missing code mapping is an attribution gap, not a missing replay. Spec ×
+/// Behavior still decides whether a runtime change is authorized.
 #[must_use]
 pub fn join_triangle(
     spec: &SpecDelta,
@@ -254,13 +257,23 @@ pub fn join_triangle(
     behavior: &BehaviorDelta,
     program_id: &str,
 ) -> DeltaTriangle {
+    let behavior_changed = behavior.changed();
     let code_changed = code.measured && code.changed;
-    let reading = classify_triangle(spec.changed, code_changed, behavior.changed());
+    let reading = if code.measured {
+        classify_triangle(spec.changed, code_changed, behavior_changed)
+    } else {
+        match (spec.changed, behavior_changed) {
+            (false, false) => TriangleReading::NoChange,
+            (false, true) => TriangleReading::UnintendedBehaviorDrift,
+            (true, false) => TriangleReading::RequirementWithoutImplementation,
+            (true, true) => TriangleReading::ExpectedChangeCandidate,
+        }
+    };
     DeltaTriangle {
         axes: TriangleAxes {
             spec: spec.changed,
             code: code_changed,
-            behavior: behavior.changed(),
+            behavior: behavior_changed,
         },
         reading,
         first_behavior_axis: behavior
@@ -274,11 +287,7 @@ pub fn join_triangle(
                     .map(|item| item.axis.as_str().to_owned())
             }),
         visual_compared: behavior.visual_compared,
-        findings: if code.measured {
-            unexpected_findings(reading, program_id)
-        } else {
-            Vec::new()
-        },
+        findings: unexpected_findings(reading, program_id),
     }
 }
 
