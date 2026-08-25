@@ -24,6 +24,7 @@ Rule: one task, one commit, prescribed message. TDD. Do not start Task N+1 until
 | M10 | Quality Studio | 23 (studio half) | **done** |
 | M11 | Spec Recovery + Protection Continuity | 24–35 | **done** |
 | later | Figma / advanced visual / cross-repo | spec M11 extras | outside the 35-task plan |
+| after M11 | Soundness before new families | P0 a11y/coverage/reach/mutation | **done** (library); P1 wire Surface Graph next |
 
 M11 items are first-class, not polish. Dual-revision impact (Task 29) should inform selection as soon as M3 exists — do not “forget” base-only removals while waiting for Studio.
 
@@ -101,3 +102,24 @@ P1: record/replay, base/head behavior diff, flake triage, safe healing, Studio.
 P2: mutation, metamorphic, cheap explorer.
 
 P3+: Figma / vision-heavy exploration.
+
+## After M11 (not a new 35-task list)
+
+The 35 tasks are complete. Remaining work is soundness of what already exists, then wiring, then new families. See `STATUS.md` **Load next**.
+
+P0 soundness (done in library / bridge):
+
+- [x] Playwright bridge manifest is generated from `dist/*.js`, not a manual `BRIDGE_FILES` list
+- [x] a11y truncation propagates TypeScript → Rust; axe absent ≠ axe failed
+- [x] Coverage Autopilot: one hit is `measured_partial`, not the whole surface; graph `truncated` is copied
+- [x] `production_nodes_for_binding` is directed, returns `truncated` + evidence paths, and a truncated walk is not a CodeDelta surface
+- [x] Mutation does not fall back `owners.empty → all candidates`
+
+P1 (do not skip into closed-loop Autopilot):
+
+- [ ] Wire `ApplicationSurfaceGraph` as a read-only MCP/Studio artifact
+- [ ] Surface Evidence Matrix
+- [ ] Gap classification + cheapest-evidence planner
+- [ ] Observe-only calibration on real PRs
+
+The command-bus 300-line file split is still the local hygiene gate before bench/gap analysis work in `wvq-command-bus`.

@@ -2,21 +2,36 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const MAX_REACH_DEPTH: usize = 4;
 const MAX_REACH_NODES: usize = 64;
+const MAX_EVIDENCE_PATHS: usize = 32;
 
 /// Production implementation nodes a binding may claim.
 ///
 /// A production file binding returns the nodes in that file. A test/spec
-/// binding follows graph edges (bounded) onto production source nodes and
-/// never returns the test node itself.
+/// binding follows **directed** graph edges (bounded) onto production source
+/// nodes and never returns the test node itself. Reverse/undirected neighbours
+/// are not production evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BindingReach {
+    /// Production nodes reached from the binding.
+    pub nodes: Vec<String>,
+    /// Directed paths that justified each node, bounded.
+    pub evidence_paths: Vec<Vec<String>>,
+    /// True when depth or node ceilings stopped the walk.
+    pub truncated: bool,
+}
+
+/// Production implementation nodes a binding may claim.
 #[must_use]
-pub fn production_nodes_for_binding(graph: &Value, binding_path: &str) -> Vec<String> {
+pub fn production_nodes_for_binding(graph: &Value, binding_path: &str) -> BindingReach {
     let path = normalize_path(binding_path);
     if path.is_empty() {
-        return Vec::new();
+        return BindingReach::default();
     }
     let mut file_of = BTreeMap::<String, String>::new();
     let mut on_path = Vec::new();
@@ -33,21 +48,37 @@ pub fn production_nodes_for_binding(graph: &Value, binding_path: &str) -> Vec<St
         }
     }
     if !is_test_source_path(&path) {
-        return on_path;
+        let evidence_paths = on_path
+            .iter()
+            .take(MAX_EVIDENCE_PATHS)
+            .map(|id| vec![id.clone()])
+            .collect();
+        return BindingReach {
+            truncated: false,
+            nodes: on_path,
+            evidence_paths,
+        };
     }
-    let adjacency = adjacency(graph);
+    let outgoing = outgoing(graph);
     let mut seen = BTreeSet::<String>::new();
     let mut out = BTreeSet::<String>::new();
+    let mut evidence_paths = Vec::new();
+    let mut truncated = false;
     let mut queue = VecDeque::new();
     for id in on_path {
         seen.insert(id.clone());
-        queue.push_back((id, 0_usize));
+        queue.push_back((id.clone(), vec![id], 0_usize));
     }
-    while let Some((current, depth)) = queue.pop_front() {
-        if depth >= MAX_REACH_DEPTH || out.len() >= MAX_REACH_NODES {
+    while let Some((current, trail, depth)) = queue.pop_front() {
+        if depth >= MAX_REACH_DEPTH {
+            truncated = true;
+            continue;
+        }
+        if out.len() >= MAX_REACH_NODES {
+            truncated = true;
             break;
         }
-        let Some(neighbours) = adjacency.get(&current) else {
+        let Some(neighbours) = outgoing.get(&current) else {
             continue;
         };
         for next in neighbours {
@@ -59,21 +90,38 @@ pub fn production_nodes_for_binding(graph: &Value, binding_path: &str) -> Vec<St
             {
                 continue;
             }
+            let mut next_trail = trail.clone();
+            next_trail.push(next.clone());
             if file_of
                 .get(next)
                 .is_some_and(|file| is_production_source(file))
             {
+                if out.len() >= MAX_REACH_NODES {
+                    truncated = true;
+                    break;
+                }
                 out.insert(next.clone());
+                if evidence_paths.len() < MAX_EVIDENCE_PATHS {
+                    evidence_paths.push(next_trail.clone());
+                } else {
+                    truncated = true;
+                }
             }
             if depth + 1 < MAX_REACH_DEPTH {
-                queue.push_back((next.clone(), depth + 1));
+                queue.push_back((next.clone(), next_trail, depth + 1));
+            } else if outgoing.get(next).is_some_and(|set| !set.is_empty()) {
+                truncated = true;
             }
         }
     }
-    out.into_iter().collect()
+    BindingReach {
+        nodes: out.into_iter().collect(),
+        evidence_paths,
+        truncated,
+    }
 }
 
-fn adjacency(graph: &Value) -> BTreeMap<String, BTreeSet<String>> {
+fn outgoing(graph: &Value) -> BTreeMap<String, BTreeSet<String>> {
     let mut out = BTreeMap::<String, BTreeSet<String>>::new();
     for edge in values(graph, "edges") {
         let Some(source) = edge_end(edge, "source").or_else(|| edge_end(edge, "from")) else {
@@ -82,8 +130,7 @@ fn adjacency(graph: &Value) -> BTreeMap<String, BTreeSet<String>> {
         let Some(target) = edge_end(edge, "target").or_else(|| edge_end(edge, "to")) else {
             continue;
         };
-        out.entry(source.clone()).or_default().insert(target.clone());
-        out.entry(target).or_default().insert(source);
+        out.entry(source).or_default().insert(target);
     }
     out
 }

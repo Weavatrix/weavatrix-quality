@@ -238,8 +238,17 @@ export async function collectLayoutSnapshot(
     truncated: limitations.length > 0,
   };
   const a11yImport = await collectA11yImport(page);
-  if (a11yImport) {
-    return { snapshot, limitations, a11y_import: a11yImport };
+  if (a11yImport.status === "failed") {
+    limitations.push(`a11y producer failed: ${a11yImport.error}`);
+    snapshot.truncated = true;
+    return { snapshot, limitations };
+  }
+  if (a11yImport.status === "imported") {
+    if (a11yImport.report.truncated) {
+      limitations.push("a11y import truncated at the violation or node bound");
+      snapshot.truncated = true;
+    }
+    return { snapshot, limitations, a11y_import: a11yImport.report };
   }
   return { snapshot, limitations };
 }

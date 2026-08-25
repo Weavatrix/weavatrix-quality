@@ -37,7 +37,7 @@ pub struct CodeSurfaceEvidence {
 pub struct ObligationCodeSurface {
     /// Obligation id.
     pub obligation: String,
-    /// Implementation Weavatrix nodes. Used by CodeDelta and mutation.
+    /// Implementation Weavatrix nodes. Used by `CodeDelta` and mutation.
     pub implementation_nodes: Vec<String>,
     /// Test/spec nodes recorded for lineage, never as production code evidence.
     pub test_nodes: Vec<String>,
@@ -88,7 +88,7 @@ pub fn node_source_path(node_id: &str) -> Option<&str> {
     (!path.is_empty()).then_some(path)
 }
 
-/// Split nodes into implementation vs test. Test ids never become CodeDelta.
+/// Split nodes into implementation vs test. Test ids never become `CodeDelta`.
 #[must_use]
 pub fn partition_code_nodes(
     nodes: impl IntoIterator<Item = impl AsRef<str>>,
@@ -206,26 +206,24 @@ pub fn surfaces_from_declared_paths(
     out
 }
 
-/// Obligations allowed to judge a mutant on `path`. Empty owners keep `candidates`.
+/// Obligations allowed to judge a mutant on `path`.
+///
+/// Empty owners means no obligation owns this path. The mutant stays
+/// unmeasured; unrelated candidates are not allowed to judge it.
 #[must_use]
 pub fn obligations_owning_path(
     surfaces: &[ObligationCodeSurface],
     path: &str,
     candidates: &[String],
 ) -> Vec<String> {
-    let owners = surfaces
+    surfaces
         .iter()
         .filter(|surface| {
             candidates.iter().any(|item| item == &surface.obligation)
                 && surface.contains_implementation_path(path)
         })
         .map(|surface| surface.obligation.clone())
-        .collect::<Vec<_>>();
-    if owners.is_empty() {
-        candidates.to_vec()
-    } else {
-        owners
-    }
+        .collect()
 }
 
 fn normalize_path(path: &str) -> String {

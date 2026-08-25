@@ -218,7 +218,14 @@ impl MutationRunDocument {
                 .binary_search_by(|candidate| candidate.as_str().cmp(obligation))
                 .is_err()
             {
-                return None;
+                return (self.planned > 0 && self.applicable_obligations.is_empty()).then_some(
+                    MutationSummary {
+                        killed: 0,
+                        survived: 0,
+                        invalid: 0,
+                        unmeasured: true,
+                    },
+                );
             }
             Some(MutationSummary {
                 killed: u64::try_from(
@@ -319,8 +326,11 @@ impl MutationRunDocument {
             "unmeasured" => {
                 killed == 0
                     && survived == 0
-                    && (self.planned == 0 || invalid > 0)
-                    && !self.applicable_obligations.is_empty()
+                    && ((self.planned > 0
+                        && self.results.is_empty()
+                        && self.applicable_obligations.is_empty())
+                        || ((self.planned == 0 || invalid > 0)
+                            && !self.applicable_obligations.is_empty()))
             }
             "measured" => self.planned > 0 && killed.saturating_add(survived) > 0,
             _ => false,
@@ -465,23 +475,29 @@ pub(crate) fn execute_source_mutation(
     let mutation_started = Instant::now();
     let mut wall_limit_reached = false;
     let mut decision_limit_reached = false;
+    let mut unowned_mutants = 0_u64;
     for mutant in &planned {
         if mutation_started.elapsed() >= MAX_MUTATION_WALL_TIME {
             wall_limit_reached = true;
             break;
+        }
+        let owners = obligations_owning_path(
+            &surfaces,
+            &mutant.path,
+            &request
+                .policy
+                .obligations_for(mutant.ecosystem, &mutant.operator),
+        );
+        if owners.is_empty() {
+            unowned_mutants = unowned_mutants.saturating_add(1);
+            continue;
         }
         let original = std::fs::read_to_string(workspace.path.join(&mutant.path))
             .map_err(|error| format!("cannot read isolated source {}: {error}", mutant.path))?;
         let mutated = mutant.apply(&original).map_err(|error| error.to_string())?;
         std::fs::write(workspace.path.join(&mutant.path), mutated)
             .map_err(|error| format!("cannot write isolated mutant {}: {error}", mutant.id))?;
-        for obligation in obligations_owning_path(
-            &surfaces,
-            &mutant.path,
-            &request
-                .policy
-                .obligations_for(mutant.ecosystem, &mutant.operator),
-        ) {
+        for obligation in owners {
             if mutation_started.elapsed() >= MAX_MUTATION_WALL_TIME {
                 wall_limit_reached = true;
                 break;
@@ -511,6 +527,11 @@ pub(crate) fn execute_source_mutation(
     }
     if decision_limit_reached {
         limitations.push("mutation execution hit the 128 obligation-case ceiling".into());
+    }
+    if unowned_mutants > 0 {
+        limitations.push(format!(
+            "{unowned_mutants} source mutant(s) had no owning obligation and were not judged"
+        ));
     }
     let killed = results
         .iter()
@@ -1129,6 +1150,29 @@ mod tests {
             document.validate(&policy()).unwrap_err(),
             "mutation result counters do not match their records"
         );
+    }
+
+    #[test]
+    fn unowned_planned_mutants_are_unmeasured_not_judged_by_everyone() {
+        let document = MutationRunDocument {
+            schema_v: 1,
+            state: "unmeasured".into(),
+            obligations: vec!["admin".into(), "viewer".into()],
+            applicable_obligations: Vec::new(),
+            planned: 1,
+            killed: 0,
+            survived: 0,
+            invalid: 0,
+            results: Vec::new(),
+            limitations: vec![
+                "1 source mutant(s) had no owning obligation and were not judged".into(),
+            ],
+            runtime_llm_tokens: 0,
+        };
+        assert!(document.validate(&policy()).is_ok());
+        let admin = document.summary_for("admin").unwrap();
+        assert!(admin.unmeasured);
+        assert_eq!((admin.killed, admin.survived, admin.invalid), (0, 0, 0));
     }
 
     fn binding(case: &str, known_flaky: bool) -> MutationBinding {

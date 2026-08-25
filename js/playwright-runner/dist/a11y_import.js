@@ -20,6 +20,7 @@ function sanitize(raw, producer) {
         : Array.isArray(nested)
             ? nested
             : [];
+    let truncated = list.length > MAX_VIOLATIONS;
     const violations = list.slice(0, MAX_VIOLATIONS).flatMap((item) => {
         if (!item || typeof item !== "object")
             return [];
@@ -28,6 +29,8 @@ function sanitize(raw, producer) {
         if (!id)
             return [];
         const nodesRaw = Array.isArray(violation.nodes) ? violation.nodes : [];
+        if (nodesRaw.length > MAX_NODES)
+            truncated = true;
         const nodes = nodesRaw.slice(0, MAX_NODES).map((node) => {
             const targets = node && typeof node === "object" && Array.isArray(node.target)
                 ? node.target.map(bound).filter(Boolean)
@@ -39,11 +42,11 @@ function sanitize(raw, producer) {
             ? [{ id, impact, nodes }]
             : [{ id, nodes }];
     });
-    return { producer, violations };
+    return truncated ? { producer, truncated: true, violations } : { producer, violations };
 }
 /**
  * Run axe if the page already loaded it (Storybook addon-a11y or a project
- * script). WVQ does not vendor axe-core.
+ * script). WVQ does not vendor axe-core. Absence is not a failure.
  */
 export async function collectA11yImport(page) {
     try {
@@ -57,12 +60,17 @@ export async function collectA11yImport(page) {
             return { producer: "axe-core", raw: result };
         });
         if (!raw || typeof raw !== "object")
-            return undefined;
+            return { status: "absent" };
         const envelope = raw;
         const producer = envelope.producer === "storybook-a11y" ? "storybook-a11y" : "axe-core";
-        return sanitize(envelope.raw, producer);
+        const report = sanitize(envelope.raw, producer);
+        if (!report)
+            return { status: "failed", error: `${producer} returned a report that could not be sanitised` };
+        return { status: "imported", report };
     }
-    catch {
-        return undefined;
+    catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const bounded = message.replace(/\s+/g, " ").trim().slice(0, MAX_TOKEN);
+        return { status: "failed", error: bounded || "a11y producer threw" };
     }
 }

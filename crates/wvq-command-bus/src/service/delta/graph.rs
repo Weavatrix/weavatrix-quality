@@ -60,7 +60,12 @@ pub(in crate::service) fn declared_code_flows(
 ) -> Vec<FlowProtection> {
     let mut flows = BTreeMap::<String, FlowProtection>::new();
     for binding in bindings {
-        for node_id in production_nodes_for_binding(graph, &binding.path) {
+        let reach = production_nodes_for_binding(graph, &binding.path);
+        if reach.truncated {
+            // A partial walk is not a complete CodeDelta surface. Fail closed.
+            continue;
+        }
+        for node_id in reach.nodes {
             let flow = flows
                 .entry(node_id.clone())
                 .or_insert_with(|| FlowProtection {

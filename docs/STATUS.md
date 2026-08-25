@@ -1,11 +1,13 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-25
-Session: split command-bus policy/tests/delta trees
+Session: P0 soundness — a11y closure, surface coverage, graph reach, mutation owners
 
 ## Now
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
+
+P0 soundness on the existing axes (not a new feature family): the Playwright bridge now materializes every committed `dist/*.js` module from a generated manifest; a11y truncation and axe-failed (as opposed to axe-absent) propagate into the layout snapshot; Coverage Autopilot treats a mixed surface as `measured_partial` and copies `ApplicationSurfaceGraph.truncated`; binding reach is directed, returns evidence paths, and a truncated walk is not a CodeDelta surface; a mutant with no owning obligation is unmeasured instead of being judged by every candidate.
 
 ### Maturity matrix
 
@@ -282,10 +284,10 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 Correctness of the existing axes comes before any new feature family. In order:
 
 1. **Finish splitting `crates/wvq-command-bus/src/service/` to files of at most 300 lines.** `policy/`, `delta/`, and `tests/` already meet that. `authoring.rs` (~498), `recovery.rs` (~327), and `mod.rs` (~9.5k: LiveService, verify, protection, persist) do not. Bench and gap analysis wait until that rule holds.
-2. **Bounded failure evidence.** On a Playwright failure, assemble a diagnostic reel — frame before the action, the highlighted semantic target, frame after, and the assertion or geometric cause — behind a CAS handle. Diagnostic only: it must never become a verdict source and must not run on the green path.
-3. **Snapshot reach.** Shadow DOM, same-origin iframes, the effective clip chain, and responsive sentinels.
-4. **Application Surface Graph → Coverage Autopilot.** The library projection is on `main`: Weavatrix endpoints/routes become named surfaces, test files never join them, and Coverage Autopilot classifies each surface as measured-covered, measured-uncovered, or unmeasured. Missing LCOV is unmeasured, never a fake uncovered. A test-file binding now reaches production Weavatrix nodes through graph edges, so CodeDelta can measure a checkout widget without treating the spec file as production code.
-5. **Then breadth.** Continuous recorder, extended cassette (WebSocket, cookie/storage replay, schema patching), Studio frontend, `wvq init`, `wvq baseline` with `OBSERVED_ONLY`, and first-class hover/scroll/drag-drop/upload/download/popup/tab actions.
+2. **P1 — wire `ApplicationSurfaceGraph` read-only.** Persist `application-surface-graph` and expose the MCP/Studio projection (`protected` / `partial` / `unmeasured`). Not a gate. The library already classifies `measured_covered`, `measured_partial`, `measured_uncovered`, and `unmeasured`, and copies `truncated`.
+3. **Then Surface Evidence Matrix, gap classification, cheapest-evidence planner, observe-only calibration.** Coverage Autopilot closed-loop generation waits until those exist.
+4. **Bounded failure evidence** is already a library + bridge path (`failure_reel`); keep it diagnostic-only and never a verdict source.
+5. **Then breadth.** Continuous recorder package, extended cassette, Studio frontend, `wvq init`, `wvq baseline` with `OBSERVED_ONLY`, and first-class hover/scroll/drag-drop/upload/download/popup/tab actions.
 6. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

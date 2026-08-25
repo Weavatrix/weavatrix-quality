@@ -20,48 +20,7 @@ use crate::{Observation, Target, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 1024 * 1024;
-const BRIDGE_FILES: [(&str, &str); 10] = [
-    (
-        "main.js",
-        include_str!("../../../js/playwright-runner/dist/main.js"),
-    ),
-    (
-        "ui_integrity.js",
-        include_str!("../../../js/playwright-runner/dist/ui_integrity.js"),
-    ),
-    (
-        "protocol.js",
-        include_str!("../../../js/playwright-runner/dist/protocol.js"),
-    ),
-    (
-        "execute.js",
-        include_str!("../../../js/playwright-runner/dist/execute.js"),
-    ),
-    (
-        "observe.js",
-        include_str!("../../../js/playwright-runner/dist/observe.js"),
-    ),
-    (
-        "record.js",
-        include_str!("../../../js/playwright-runner/dist/record.js"),
-    ),
-    (
-        "playwright.js",
-        include_str!("../../../js/playwright-runner/dist/playwright.js"),
-    ),
-    (
-        "request_identity.js",
-        include_str!("../../../js/playwright-runner/dist/request_identity.js"),
-    ),
-    (
-        "a11y_import.js",
-        include_str!("../../../js/playwright-runner/dist/a11y_import.js"),
-    ),
-    (
-        "failure_reel.js",
-        include_str!("../../../js/playwright-runner/dist/failure_reel.js"),
-    ),
-];
+include!(concat!(env!("OUT_DIR"), "/bridge_files.rs"));
 
 /// Fixed browser launch and repository paths supplied by local policy.
 #[derive(Debug, Clone)]
@@ -1354,5 +1313,40 @@ impl BridgeWireReply {
         match self {
             Self::Ok { id, .. } | Self::Error { id, .. } => *id,
         }
+    }
+}
+
+#[cfg(test)]
+mod bridge_manifest_tests {
+    use super::BRIDGE_FILES;
+    use std::fs;
+    use std::path::Path;
+
+    #[test]
+    fn generated_bridge_manifest_matches_committed_dist_js() {
+        let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../js/playwright-runner/dist");
+        let mut on_disk = fs::read_dir(&dist)
+            .expect("committed playwright-runner dist")
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                (path.extension()?.to_str()? == "js")
+                    .then(|| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        on_disk.sort();
+        let generated = BRIDGE_FILES
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            generated, on_disk,
+            "Rust must materialize every committed dist/*.js module"
+        );
+        assert!(
+            generated.iter().any(|name| name == "a11y_import.js"),
+            "a11y_import.js is part of the ESM closure"
+        );
+        assert!(generated.iter().any(|name| name == "main.js"));
     }
 }

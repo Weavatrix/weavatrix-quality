@@ -126,7 +126,7 @@ fn payment_surface_does_not_let_pagination_judge_a_payment_mutant() {
 }
 
 #[test]
-fn unmapped_mutant_path_keeps_operator_candidates() {
+fn unmapped_mutant_path_is_not_judged_by_unrelated_obligations() {
     let surfaces = surfaces_from_declared_paths(&[(
         "src/widget.test.ts".into(),
         BTreeSet::from(["export-usable".into()]),
@@ -136,5 +136,8 @@ fn unmapped_mutant_path_keeps_operator_candidates() {
         "src/widget.ts",
         &["export-usable".into()],
     );
-    assert_eq!(judged, ["export-usable"]);
+    assert!(
+        judged.is_empty(),
+        "no owner must not fall back to every candidate: {judged:?}"
+    );
 }

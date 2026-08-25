@@ -1,7 +1,8 @@
 //! Coverage Autopilot: name which application surfaces lack measured evidence.
 //!
 //! Missing coverage is unmeasured, never a fake uncovered. Global percentages
-//! do not override a local surface gap.
+//! do not override a local surface gap. One hit on one node is not the whole
+//! surface.
 
 use std::collections::BTreeMap;
 
@@ -14,8 +15,10 @@ use crate::{CoverageMeasurement, NodeCoverage};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceCoverageState {
-    /// At least one implementation node was hit.
+    /// Every implementation node was hit.
     MeasuredCovered,
+    /// At least one node was hit and at least one was not.
+    MeasuredPartial,
     /// Implementation nodes are instrumented and every hit count is zero.
     MeasuredUncovered,
     /// No measured report covers this surface. Not evidence of absence.
@@ -50,8 +53,12 @@ pub struct CoverageAutopilot {
     pub unmeasured: Vec<String>,
     /// Surfaces instrumented and entirely unhit.
     pub uncovered: Vec<String>,
-    /// Surfaces with at least one hit.
+    /// Surfaces with mixed hit and gap.
+    pub partial: Vec<String>,
+    /// Surfaces where every implementation node was hit.
     pub covered: Vec<String>,
+    /// True when the surface graph itself was truncated.
+    pub truncated: bool,
 }
 
 /// Classify each application surface against node-level coverage.
@@ -64,7 +71,10 @@ pub fn coverage_autopilot(
         .iter()
         .map(|item| (item.node_id.as_str(), item.measurement))
         .collect::<BTreeMap<_, _>>();
-    let mut out = CoverageAutopilot::default();
+    let mut out = CoverageAutopilot {
+        truncated: graph.truncated,
+        ..CoverageAutopilot::default()
+    };
     for surface in &graph.surfaces {
         let mut covered = 0_u64;
         let mut uncovered = 0_u64;
@@ -81,8 +91,10 @@ pub fn coverage_autopilot(
                 }
             }
         }
-        let state = if covered > 0 {
+        let state = if covered > 0 && uncovered == 0 && unmeasured == 0 {
             SurfaceCoverageState::MeasuredCovered
+        } else if covered > 0 {
+            SurfaceCoverageState::MeasuredPartial
         } else if uncovered > 0 && unmeasured == 0 {
             SurfaceCoverageState::MeasuredUncovered
         } else {
@@ -98,6 +110,7 @@ pub fn coverage_autopilot(
         };
         match state {
             SurfaceCoverageState::MeasuredCovered => out.covered.push(surface.id.clone()),
+            SurfaceCoverageState::MeasuredPartial => out.partial.push(surface.id.clone()),
             SurfaceCoverageState::MeasuredUncovered => out.uncovered.push(surface.id.clone()),
             SurfaceCoverageState::Unmeasured => out.unmeasured.push(surface.id.clone()),
         }
@@ -105,6 +118,7 @@ pub fn coverage_autopilot(
     }
     out.surfaces.sort_by(|left, right| left.surface.cmp(&right.surface));
     out.covered.sort();
+    out.partial.sort();
     out.uncovered.sort();
     out.unmeasured.sort();
     out

@@ -213,6 +213,59 @@ test("axe html never leaves the page", async () => {
   assert.equal(encoded.includes("\"html\""), false);
 });
 
+test("axe absence is not a failed measurement", async () => {
+  const { a11y_import, limitations, snapshot } = await collect(`<!doctype html>
+    <html><body><button data-testid="pay">Pay</button></body></html>`);
+  assert.equal(a11y_import, undefined);
+  assert.equal(
+    limitations.some((item) => item.includes("a11y producer failed")),
+    false,
+  );
+  assert.equal(snapshot.truncated, false);
+});
+
+test("axe present but throwing is a failed measurement", async () => {
+  const { a11y_import, limitations, snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <button data-testid="pay">Pay</button>
+      <script>
+        window.axe = { run: async () => { throw new Error("axe exploded"); } };
+      </script>
+    </body></html>`);
+  assert.equal(a11y_import, undefined);
+  assert.equal(
+    limitations.some((item) => item.includes("a11y producer failed")),
+    true,
+  );
+  assert.equal(snapshot.truncated, true);
+});
+
+test("axe truncation is flagged on the sanitised report", async () => {
+  const { a11y_import, limitations, snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <button data-testid="pay">Pay</button>
+      <script>
+        window.axe = {
+          run: async () => ({
+            violations: Array.from({ length: 129 }, (_, index) => ({
+              id: "rule-" + index,
+              impact: "moderate",
+              nodes: [{ target: ["button"] }]
+            }))
+          })
+        };
+      </script>
+    </body></html>`);
+  assert(a11y_import);
+  assert.equal(a11y_import.truncated, true);
+  assert.equal(a11y_import.violations.length, 128);
+  assert.equal(
+    limitations.some((item) => item.includes("a11y import truncated")),
+    true,
+  );
+  assert.equal(snapshot.truncated, true);
+});
+
 test("open shadow roots are entered", async () => {
   const { snapshot } = await collect(`<!doctype html>
     <html><body>

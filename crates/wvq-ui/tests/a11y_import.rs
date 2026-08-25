@@ -70,6 +70,40 @@ fn axe_html_is_dropped_and_impact_sets_objective_severity() {
 }
 
 #[test]
+fn a_truncated_flag_from_the_producer_is_not_dropped() {
+    let report = json!({
+        "producer": "axe-core",
+        "truncated": true,
+        "violations": [{
+            "id": "button-name",
+            "impact": "critical",
+            "nodes": [{ "target": ["button"] }]
+        }]
+    });
+    let (findings, truncated) = import_a11y_violations(&snapshot(), &report).unwrap();
+    assert!(truncated);
+    assert_eq!(findings.len(), 1);
+}
+
+#[test]
+fn extra_nodes_on_one_violation_mark_the_import_truncated() {
+    let nodes = (0..9)
+        .map(|index| json!({ "target": [format!("button.{index}")] }))
+        .collect::<Vec<_>>();
+    let report = json!({
+        "producer": "axe-core",
+        "violations": [{
+            "id": "button-name",
+            "impact": "serious",
+            "nodes": nodes
+        }]
+    });
+    let (findings, truncated) = import_a11y_violations(&snapshot(), &report).unwrap();
+    assert!(truncated);
+    assert_eq!(findings.len(), 8);
+}
+
+#[test]
 fn storybook_nested_results_are_accepted() {
     let report = json!({
         "results": {

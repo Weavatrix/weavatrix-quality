@@ -50,7 +50,7 @@ pub fn import_a11y_violations(
     {
         violations = results.violations;
     }
-    let truncated = violations.len() > MAX_A11Y_IMPORT_VIOLATIONS;
+    let mut truncated = parsed.truncated || violations.len() > MAX_A11Y_IMPORT_VIOLATIONS;
     violations.truncate(MAX_A11Y_IMPORT_VIOLATIONS);
     let mut findings = Vec::new();
     for violation in violations {
@@ -62,6 +62,7 @@ pub fn import_a11y_violations(
         let node_count = u32::try_from(violation.nodes.len()).unwrap_or(u32::MAX);
         let mut nodes = violation.nodes;
         if nodes.len() > MAX_A11Y_IMPORT_NODES {
+            truncated = true;
             nodes.truncate(MAX_A11Y_IMPORT_NODES);
         }
         if nodes.is_empty() {
@@ -102,6 +103,8 @@ struct AxeShaped {
     producer: Option<String>,
     #[serde(default)]
     engine: Option<String>,
+    #[serde(default)]
+    truncated: bool,
     #[serde(default)]
     violations: Vec<AxeViolation>,
     #[serde(default)]

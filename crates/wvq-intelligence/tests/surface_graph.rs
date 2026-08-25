@@ -127,10 +127,19 @@ fn a_test_binding_reaches_production_through_a_graph_edge() {
         }]
     });
     assert_eq!(
-        production_nodes_for_binding(&graph, "src/widget.test.ts"),
+        production_nodes_for_binding(&graph, "src/widget.test.ts").nodes,
         ["symbol:src/widget.ts#Widget"]
     );
-    assert!(production_nodes_for_binding(&graph, "src/orphan.test.ts").is_empty());
+    let reach = production_nodes_for_binding(&graph, "src/widget.test.ts");
+    assert!(!reach.truncated);
+    assert_eq!(
+        reach.evidence_paths,
+        [vec![
+            "symbol:src/widget.test.ts#renders".to_string(),
+            "symbol:src/widget.ts#Widget".to_string()
+        ]]
+    );
+    assert!(production_nodes_for_binding(&graph, "src/orphan.test.ts").nodes.is_empty());
 }
 
 #[test]
@@ -149,4 +158,106 @@ fn an_instrumented_zero_hit_surface_is_uncovered() {
     );
     assert_eq!(autopilot.uncovered, ["endpoint:POST /pay"]);
     assert!(autopilot.unmeasured.is_empty());
+}
+
+#[test]
+fn one_hit_does_not_cover_a_multi_node_surface() {
+    let graph = application_surface_graph(&json!({
+        "endpoints": [{
+            "id": "POST /pay",
+            "nodes": [
+                {"id": "symbol:src/payment.ts#charge"},
+                {"id": "symbol:src/payment.ts#refund"}
+            ]
+        }]
+    }));
+    let autopilot = coverage_autopilot(
+        &graph,
+        &[NodeCoverage {
+            node_id: "symbol:src/payment.ts#charge".into(),
+            measurement: CoverageMeasurement::Covered,
+            covered_lines: 3,
+            instrumented_lines: 3,
+        }],
+    );
+    assert_eq!(autopilot.partial, ["endpoint:POST /pay"]);
+    assert!(autopilot.covered.is_empty());
+    assert_eq!(
+        autopilot.surfaces[0].state,
+        SurfaceCoverageState::MeasuredPartial
+    );
+    assert_eq!(autopilot.surfaces[0].covered_nodes, 1);
+    assert_eq!(autopilot.surfaces[0].unmeasured_nodes, 1);
+}
+
+#[test]
+fn a_truncated_surface_graph_marks_autopilot_incomplete() {
+    let endpoints = (0..=512)
+        .map(|index| json!({ "id": format!("GET /s{index}") }))
+        .collect::<Vec<_>>();
+    let graph = application_surface_graph(&json!({ "endpoints": endpoints }));
+    assert!(graph.truncated);
+    let autopilot = coverage_autopilot(&graph, &[]);
+    assert!(autopilot.truncated);
+    assert_eq!(autopilot.surfaces.len(), 512);
+}
+
+#[test]
+fn reverse_edges_do_not_claim_unrelated_production_nodes() {
+    let graph = json!({
+        "nodes": [
+            {
+                "id": "symbol:src/widget.test.ts#renders",
+                "span": {"file": "src/widget.test.ts", "start_line": 1, "end_line": 1}
+            },
+            {
+                "id": "symbol:src/widget.ts#Widget",
+                "span": {"file": "src/widget.ts", "start_line": 1, "end_line": 1}
+            },
+            {
+                "id": "symbol:src/unrelated.ts#Other",
+                "span": {"file": "src/unrelated.ts", "start_line": 1, "end_line": 1}
+            }
+        ],
+        "edges": [
+            {
+                "source": "symbol:src/widget.test.ts#renders",
+                "target": "symbol:src/widget.ts#Widget"
+            },
+            {
+                "source": "symbol:src/unrelated.ts#Other",
+                "target": "symbol:src/widget.ts#Widget"
+            }
+        ]
+    });
+    let reach = production_nodes_for_binding(&graph, "src/widget.test.ts");
+    assert_eq!(reach.nodes, ["symbol:src/widget.ts#Widget"]);
+    assert!(!reach.truncated);
+}
+
+#[test]
+fn a_deeper_than_bound_walk_is_truncated_not_silently_complete() {
+    let mut nodes = vec![json!({
+        "id": "symbol:src/widget.test.ts#renders",
+        "span": {"file": "src/widget.test.ts", "start_line": 1, "end_line": 1}
+    })];
+    let mut edges = Vec::new();
+    let mut previous = "symbol:src/widget.test.ts#renders".to_owned();
+    for index in 0..5 {
+        let id = format!("symbol:src/mod{index}.ts#f");
+        nodes.push(json!({
+            "id": id,
+            "span": {"file": format!("src/mod{index}.ts"), "start_line": 1, "end_line": 1}
+        }));
+        edges.push(json!({ "source": previous, "target": id }));
+        previous = id;
+    }
+    let graph = json!({ "nodes": nodes, "edges": edges });
+    let reach = production_nodes_for_binding(&graph, "src/widget.test.ts");
+    assert!(reach.truncated);
+    assert!(
+        !reach.nodes.iter().any(|id| id == "symbol:src/mod4.ts#f"),
+        "depth-4 ceiling must not silently include the fifth hop: {:?}",
+        reach.nodes
+    );
 }
