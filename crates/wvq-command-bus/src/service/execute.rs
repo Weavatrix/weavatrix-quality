@@ -1,5 +1,3 @@
-//! Extracted command-bus helper.
-
 use super::access::*;
 use super::runner::{attach_normalized_artifacts, clear_generated_runner_artifacts};
 
@@ -300,4 +298,3 @@ pub(in crate::service) fn execute_full_targets(
     }
     Ok(records)
 }
-

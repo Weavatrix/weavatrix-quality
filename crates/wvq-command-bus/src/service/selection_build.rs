@@ -278,34 +278,3 @@ pub(in crate::service) fn selection_candidates(repo: &Path, bindings: &[TestBind
     }
     candidates.into_values().collect()
 }
-
-pub(in crate::service) fn live_selection_report(selection: &LiveSelection, historical_candidates: usize) -> Value {
-    let selected = selection
-        .selected
-        .iter()
-        .zip(&selection.explanations)
-        .map(|(path, explanation)| {
-            json!({
-                "path": path,
-                "explanation": explanation,
-            })
-        })
-        .collect::<Vec<_>>();
-    json!({
-        "schema_v": 2,
-        "algorithm": "weavatrix-base-head-history-union+greedy-weighted-set-cover",
-        "selected": selected,
-        "historical_candidates": historical_candidates,
-        "minimum_history_observations": 2,
-        "uncovered_mandatory": selection.uncovered_mandatory,
-        "uncovered_obligations": selection.uncovered_all,
-    })
-}
-
-pub(in crate::service) struct SelectionAuditArtifactInput<'a> {
-    pub(in crate::service) missed: &'a [StoredTestCaseIdentity],
-    pub(in crate::service) learned_paths: &'a BTreeSet<String>,
-    pub(in crate::service) impact_nodes_total: usize,
-    pub(in crate::service) impact_nodes_considered: usize,
-    pub(in crate::service) learning_truncated: bool,
-}

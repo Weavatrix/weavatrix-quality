@@ -12,7 +12,8 @@ pub(in crate::service) use files::{ChangedFiles, RevisionRange, TemporaryWorktre
 pub(in crate::service) use runtime::{
     BaseBrowserReplay, BehaviorContributionSummary, BrowserPolicy, BrowserProofEvidence,
     ConfiguredBrowserProgram, ExecutionRequest, ExecutorRecord, FilterGroups, LiveSelection,
-    ModelPolicy, ProducedArtifact, ProgramBehaviorContribution, StoredBrowserAssertionEvidence,
+    ModelPolicy, ProducedArtifact, ProgramBehaviorContribution, RunState,
+    StoredBrowserAssertionEvidence,
     StoredBrowserProgramEvidence, StoredObligationExecution, StoredObligationExecutionMap,
     StoredRevisionRangeEvidence, TestBinding,
 };

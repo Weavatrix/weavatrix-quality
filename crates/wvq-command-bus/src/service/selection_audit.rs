@@ -2,7 +2,14 @@
 
 use super::access::*;
 use super::persist_run::put_json_run_artifact;
-use super::selection_build::SelectionAuditArtifactInput;
+
+pub(in crate::service) struct SelectionAuditArtifactInput<'a> {
+    pub(in crate::service) missed: &'a [StoredTestCaseIdentity],
+    pub(in crate::service) learned_paths: &'a BTreeSet<String>,
+    pub(in crate::service) impact_nodes_total: usize,
+    pub(in crate::service) impact_nodes_considered: usize,
+    pub(in crate::service) learning_truncated: bool,
+}
 
 pub(in crate::service) fn audit_live_selection(
     repo: &Path,
@@ -267,4 +274,27 @@ pub(in crate::service) fn read_single_run_json(store: &Store, run: &RunId, kind:
             })?);
     }
     found.ok_or_else(|| BusError::Store(format!("run {run} has no {kind} artifact")))
+}
+
+pub(in crate::service) fn live_selection_report(selection: &LiveSelection, historical_candidates: usize) -> Value {
+    let selected = selection
+        .selected
+        .iter()
+        .zip(&selection.explanations)
+        .map(|(path, explanation)| {
+            json!({
+                "path": path,
+                "explanation": explanation,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "schema_v": 2,
+        "algorithm": "weavatrix-base-head-history-union+greedy-weighted-set-cover",
+        "selected": selected,
+        "historical_candidates": historical_candidates,
+        "minimum_history_observations": 2,
+        "uncovered_mandatory": selection.uncovered_mandatory,
+        "uncovered_obligations": selection.uncovered_all,
+    })
 }

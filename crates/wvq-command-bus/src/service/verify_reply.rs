@@ -1,43 +1,6 @@
-//! Extracted command-bus helper.
-
 use super::access::*;
 use super::persist_evidence::parse_revision_range_evidence;
 use super::selection_audit::read_single_run_json;
-use super::verify_debt::combine_verify;
-
-pub(in crate::service) fn verify_from_token(change: &str, verdict: &str) -> VerifyReply {
-    let proofs = vec![ProofSummary {
-        id: "proof-fake".into(),
-        requirement: "sankey.visual-limit-others".into(),
-        obligation: "others-visible".into(),
-        verdict: verdict.to_owned(),
-    }];
-    let outcomes = vec![ProofOutcome {
-        obligation: "others-visible".into(),
-        requirement: "sankey.visual-limit-others".into(),
-        verdict: parse_proof_verdict(verdict),
-        mandatory: false,
-    }];
-    combine_verify(
-        change,
-        proofs,
-        &[parse_proof_verdict(verdict)],
-        compose(&VerdictInputs {
-            proofs: outcomes,
-            ..VerdictInputs::default()
-        }),
-    )
-}
-
-pub(in crate::service) fn parse_proof_verdict(token: &str) -> ProofVerdict {
-    match token {
-        "PROVEN" => ProofVerdict::Proven,
-        "CONTRADICTED" => ProofVerdict::Contradicted,
-        "PARTIAL" => ProofVerdict::Partial,
-        "HUMAN_REQUIRED" => ProofVerdict::HumanRequired,
-        _ => ProofVerdict::Unproven,
-    }
-}
 
 /// Explain one UI-integrity finding by fingerprint, detector id, or subject.
 ///
@@ -307,4 +270,3 @@ pub(in crate::service) fn stored_oracle_replacement(
     }
     Ok(found)
 }
-

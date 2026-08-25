@@ -11,6 +11,14 @@ use wvq_runtime::{
 use wvq_spec::{EvidenceKind, OpenSpecChange};
 use wvq_domain::RevisionId;
 
+#[derive(Debug, Clone)]
+pub(in crate::service) struct RunState {
+    pub(in crate::service) id: String,
+    pub(in crate::service) status: String,
+    pub(in crate::service) outcome: String,
+    pub(in crate::service) handles: Vec<String>,
+}
+
 #[derive(Debug)]
 pub(in crate::service) struct ExecutorRecord {
     pub(in crate::service) executor: String,
