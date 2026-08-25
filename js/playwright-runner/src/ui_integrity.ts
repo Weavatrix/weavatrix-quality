@@ -20,6 +20,9 @@
  *
  * There is no AI here, and no vision. Everything below is `getBoundingClientRect`,
  * `getComputedStyle`, `elementsFromPoint`, and scroll-versus-client metrics.
+ * Open shadow roots and same-origin iframes are entered; a cross-origin iframe
+ * is an opaque surface. `clip_rect` is the intersection of the whole clip
+ * chain, not the first overflow ancestor.
  */
 
 import type { Page } from "playwright";
@@ -202,6 +205,11 @@ export async function collectLayoutSnapshot(
   if (stable.truncatedHitTests) {
     limitations.push(`hit testing hit the ${HARD_MAX_HIT_TESTS}-sample ceiling`);
   }
+  if (stable.opaqueFrames > 0) {
+    limitations.push(
+      `${stable.opaqueFrames} cross-origin iframe(s) recorded as opaque surfaces`,
+    );
+  }
 
   const viewport = page.viewportSize() ?? { width: 0, height: 0 };
   const responsive = resolved.responsive_breakpoints
@@ -371,6 +379,8 @@ type PageRead = {
   hitTests: HitTestSample[];
   truncatedNodes: boolean;
   truncatedHitTests: boolean;
+  /** Same-origin iframes whose document could not be read. */
+  opaqueFrames: number;
 };
 
 /**
@@ -568,6 +578,14 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
           component: text(element.getAttribute("data-component")),
         });
 
+      const composedParent = (element: Element): Element | null => {
+        if (element.parentElement) return element.parentElement;
+        const root = element.getRootNode();
+        if (root instanceof ShadowRoot) return root.host;
+        const frame = element.ownerDocument.defaultView?.frameElement;
+        return frame instanceof Element ? frame : null;
+      };
+
       const requiredTargetMatches = (target: Target, element: Element): boolean => {
         const facts = targetFacts(element);
         const comparisons = [
@@ -592,14 +610,14 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
           }
         }
         if (target.scope !== undefined) {
-          let ancestor = element.parentElement;
+          let ancestor = composedParent(element);
           let matched = false;
           while (ancestor) {
             if (requiredTargetMatches(target.scope, ancestor)) {
               matched = true;
               break;
             }
-            ancestor = ancestor.parentElement;
+            ancestor = composedParent(ancestor);
           }
           if (!matched) return false;
         }
@@ -614,15 +632,51 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
         ["hidden", "clip", "auto", "scroll"].includes(style.overflowX) ||
         ["hidden", "clip", "auto", "scroll"].includes(style.overflowY);
 
+      const frameOffset = (element: Element): { x: number; y: number } => {
+        let x = 0;
+        let y = 0;
+        let doc: Document | null = element.ownerDocument;
+        while (doc && doc !== document) {
+          const frame: Element | null | undefined = doc.defaultView?.frameElement;
+          if (!(frame instanceof HTMLElement)) break;
+          const box = frame.getBoundingClientRect();
+          x += box.left + frame.clientLeft;
+          y += box.top + frame.clientTop;
+          doc = frame.ownerDocument;
+        }
+        return { x, y };
+      };
+
       const rectOf = (element: Element): Rect => {
         const box = element.getBoundingClientRect();
-        return { x: box.x, y: box.y, width: box.width, height: box.height };
+        const offset = frameOffset(element);
+        return {
+          x: box.x + offset.x,
+          y: box.y + offset.y,
+          width: box.width,
+          height: box.height,
+        };
+      };
+
+      const intersectRect = (left: Rect, right: Rect): Rect => {
+        const x = Math.max(left.x, right.x);
+        const y = Math.max(left.y, right.y);
+        const nextRight = Math.min(left.x + left.width, right.x + right.width);
+        const nextBottom = Math.min(left.y + left.height, right.y + right.height);
+        return {
+          x,
+          y,
+          width: Math.max(0, nextRight - x),
+          height: Math.max(0, nextBottom - y),
+        };
       };
 
       const nodes: UiNode[] = [];
       const assigned = new Map<Element, string>();
       let truncated = false;
       let counter = 0;
+      let opaqueFrames = 0;
+      let openShadows = 0;
 
       /**
        * The candidate set. Collecting the whole DOM would be unbounded and
@@ -637,7 +691,7 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
         if (INTERACTIVE_TAGS.has(element.tagName)) return true;
         const role = element.getAttribute("role");
         if (role && (INTERACTIVE_ROLES.has(role) || SURFACE_ROLES.has(role))) return true;
-        if (element.tagName === "DIALOG") return true;
+        if (element.tagName === "DIALOG" || element.tagName === "IFRAME") return true;
         if (element.hasAttribute("data-component") || element.hasAttribute("data-entity")) {
           return true;
         }
@@ -653,23 +707,28 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
 
       /** Nearest collected ancestor, so parent links stay inside the subset. */
       const nearestCollected = (element: Element): string | undefined => {
-        let current = element.parentElement;
+        let current = composedParent(element);
         while (current) {
           const found = assigned.get(current);
           if (found) return found;
-          current = current.parentElement;
+          current = composedParent(current);
         }
         return undefined;
       };
 
-      const nearestClip = (element: Element): Rect | undefined => {
-        let current = element.parentElement;
+      /** Intersection of every clipping ancestor, including same-origin iframes. */
+      const effectiveClip = (element: Element): Rect | undefined => {
+        let clip: Rect | undefined;
+        let current = composedParent(element);
         while (current) {
           const style = getComputedStyle(current);
-          if (clipsChildren(style)) return rectOf(current);
-          current = current.parentElement;
+          if (clipsChildren(style) || current.tagName === "IFRAME") {
+            const box = rectOf(current);
+            clip = clip ? intersectRect(clip, box) : box;
+          }
+          current = composedParent(current);
         }
-        return undefined;
+        return clip;
       };
 
       const nearestEntity = (element: Element): string | undefined => {
@@ -677,17 +736,47 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
         while (current) {
           const entity = current.getAttribute("data-entity");
           if (entity) return text(entity);
-          current = current.parentElement;
+          current = composedParent(current);
         }
         return undefined;
       };
 
-      // Document order keeps the snapshot stable across runs; a parent is always
-      // visited before its children, so `nearestCollected` can resolve.
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+      type WalkFrame = { element: Element; shadowDepth: number; frameDepth: number };
+      const MAX_SHADOW_DEPTH = 8;
+      const MAX_FRAME_DEPTH = 4;
+      const descendants = (el: Element, shadowDepth: number, frameDepth: number): WalkFrame[] => {
+        const out: WalkFrame[] = [];
+        if (el.shadowRoot && shadowDepth < MAX_SHADOW_DEPTH) {
+          openShadows += 1;
+          for (const child of el.shadowRoot.children) {
+            out.push({ element: child, shadowDepth: shadowDepth + 1, frameDepth });
+          }
+        }
+        if (el.tagName === "IFRAME" && frameDepth < MAX_FRAME_DEPTH) {
+          try {
+            const body = (el as HTMLIFrameElement).contentDocument?.body;
+            if (body) {
+              out.push({ element: body, shadowDepth, frameDepth: frameDepth + 1 });
+            } else {
+              opaqueFrames += 1;
+            }
+          } catch {
+            opaqueFrames += 1;
+          }
+        }
+        for (const child of el.children) {
+          out.push({ element: child, shadowDepth, frameDepth });
+        }
+        return out;
+      };
+
+      // Host before shadow, iframe before its document, parent before children.
+      const stack: WalkFrame[] = [{ element: document.body, shadowDepth: 0, frameDepth: 0 }];
       const required = new Set(requiredTestIds);
-      let element = document.body as Element | null;
-      while (element) {
+      while (stack.length > 0) {
+        const frame = stack.pop();
+        if (!frame) break;
+        const element = frame.element;
         const style = getComputedStyle(element);
         const box = rectOf(element);
         const hidden =
@@ -721,9 +810,10 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
             (role !== undefined && INTERACTIVE_ROLES.has(role)) ||
             element.hasAttribute("onclick") ||
             (element as HTMLElement).tabIndex >= 0;
+          const origin = frameOffset(element);
           const clientRects = Array.from(element.getClientRects()).map((rect) => ({
-            x: rect.x,
-            y: rect.y,
+            x: rect.x + origin.x,
+            y: rect.y + origin.y,
             width: rect.width,
             height: rect.height,
           }));
@@ -763,8 +853,17 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
             element instanceof HTMLTextAreaElement
           ) node.native_disabled = element.disabled;
           node.modal = isModal(element);
-          const active = document.activeElement;
-          node.contains_focus = Boolean(active && active !== document.body && element.contains(active));
+          const active = element.ownerDocument.activeElement;
+          let focused: Element | null = active instanceof Element ? active : null;
+          let containsFocus = false;
+          while (focused) {
+            if (focused === element) {
+              containsFocus = true;
+              break;
+            }
+            focused = composedParent(focused);
+          }
+          node.contains_focus = containsFocus && active !== element.ownerDocument.body;
           for (const [attribute, field] of [
             ["aria-disabled", "aria_disabled"],
             ["aria-checked", "aria_checked"],
@@ -778,7 +877,7 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
           node.required_by_oracle = mustKeep;
           const entity = nearestEntity(element);
           if (entity) node.entity_key = entity;
-          const clip = nearestClip(element);
+          const clip = effectiveClip(element);
           if (clip) node.clip_rect = clip;
           if (style.position !== "static") node.position = style.position;
           const zIndex = Number.parseInt(style.zIndex, 10);
@@ -791,7 +890,11 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
           node.text_client_height = element.clientHeight;
           nodes.push(node);
         }
-        element = walker.nextNode() as Element | null;
+        const kids = descendants(element, frame.shadowDepth, frame.frameDepth);
+        for (let index = kids.length - 1; index >= 0; index -= 1) {
+          const kid = kids[index];
+          if (kid) stack.push(kid);
+        }
       }
 
       // ---- hit testing, against the identities just assigned ----------------
@@ -849,9 +952,30 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
         while (current) {
           const id = assigned.get(current);
           if (id) return id;
-          current = current.parentElement;
+          current = composedParent(current);
         }
         return undefined;
+      };
+
+      const hitElements = (x: number, y: number): Element[] => {
+        const top = document.elementsFromPoint(x, y);
+        const out: Element[] = [];
+        for (const el of top) {
+          out.push(el);
+          if (el.tagName !== "IFRAME") continue;
+          try {
+            const iframe = el as HTMLIFrameElement;
+            const doc = iframe.contentDocument;
+            if (!doc) continue;
+            const box = iframe.getBoundingClientRect();
+            out.push(
+              ...doc.elementsFromPoint(x - box.left - iframe.clientLeft, y - box.top - iframe.clientTop),
+            );
+          } catch {
+            // Opaque frame: the iframe element itself is the surface.
+          }
+        }
+        return out;
       };
 
       const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -869,8 +993,7 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
           break;
         }
         for (const point of points) {
-          const stack = document
-            .elementsFromPoint(point.x, point.y)
+          const stack = hitElements(point.x, point.y)
             .map(identify)
             .filter((value): value is string => value !== undefined);
           const sample: HitTestSample = { target: nodeId, point, stack };
@@ -887,6 +1010,7 @@ async function readPage(page: Page, config: ResolvedConfig): Promise<PageRead> {
         hitTests,
         truncatedNodes: truncated,
         truncatedHitTests,
+        opaqueFrames,
         document: {
           scroll_width: root.scrollWidth,
           client_width: root.clientWidth,

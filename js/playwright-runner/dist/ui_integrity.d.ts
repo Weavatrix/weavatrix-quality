@@ -20,6 +20,9 @@
  *
  * There is no AI here, and no vision. Everything below is `getBoundingClientRect`,
  * `getComputedStyle`, `elementsFromPoint`, and scroll-versus-client metrics.
+ * Open shadow roots and same-origin iframes are entered; a cross-origin iframe
+ * is an opaque surface. `clip_rect` is the intersection of the whole clip
+ * chain, not the first overflow ancestor.
  */
 import type { Page } from "playwright";
 import type { Target } from "./execute.js";

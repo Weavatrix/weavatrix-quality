@@ -184,6 +184,77 @@ test("row scope is collected from data-entity so repeated actions stay distinct"
   );
 });
 
+test("open shadow roots are entered", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body>
+      <div id="host"></div>
+      <script>
+        const host = document.getElementById("host");
+        const root = host.attachShadow({ mode: "open" });
+        root.innerHTML = '<button id="shadow-pay" data-testid="shadow-pay">Pay</button>';
+      </script>
+    </body></html>`);
+  const pay = snapshot.nodes.find((node) => node.test_id === "shadow-pay");
+  assert(pay, "open shadow button must be a candidate");
+  assert.equal(pay.accessible_name, "Pay");
+  const host = snapshot.nodes.find((node) => node.dom_id === "host");
+  assert(host);
+  assert.equal(pay.parent, host.id);
+});
+
+test("same-origin iframe content is collected in top-level coordinates", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body style="margin:0">
+      <iframe id="frame" style="position:absolute;left:40px;top:20px;width:200px;height:100px;border:0"
+        srcdoc="<!doctype html><button id='inner' data-testid='inner-pay'>Pay</button>"></iframe>
+    </body></html>`);
+  const frame = snapshot.nodes.find((node) => node.dom_id === "frame");
+  const pay = snapshot.nodes.find((node) => node.test_id === "inner-pay");
+  assert(frame, "iframe itself is a surface");
+  assert(pay, "same-origin iframe button must be a candidate");
+  assert(pay.rects[0]);
+  assert(
+    pay.rects[0].x >= 40,
+    `iframe child must be offset into the parent viewport, got x=${pay.rects[0].x}`,
+  );
+  assert.equal(pay.parent, frame.id);
+});
+
+test("cross-origin iframe is an opaque surface", async () => {
+  const { snapshot, limitations } = await collect(`<!doctype html>
+    <html><body>
+      <iframe id="opaque" sandbox srcdoc="<!doctype html><button id='secret' data-testid='secret'>X</button>"></iframe>
+    </body></html>`);
+  assert.equal(
+    snapshot.nodes.some((node) => node.test_id === "secret"),
+    false,
+    "opaque iframe content must not leak",
+  );
+  assert(snapshot.nodes.some((node) => node.dom_id === "opaque"));
+  assert(
+    limitations.some((item) => item.includes("opaque")),
+    `${JSON.stringify(limitations)}`,
+  );
+});
+
+test("clip_rect is the intersection of the whole overflow chain", async () => {
+  const { snapshot } = await collect(`<!doctype html>
+    <html><body style="margin:0">
+      <div id="outer" style="overflow:hidden;width:40px;height:40px;position:relative">
+        <div id="inner" style="overflow:hidden;width:80px;height:80px">
+          <button id="pay" style="width:100px;height:100px">Pay</button>
+        </div>
+      </div>
+    </body></html>`);
+  const pay = snapshot.nodes.find((node) => node.dom_id === "pay");
+  assert(pay);
+  assert(pay.clip_rect, "a clipped button must carry clip_rect");
+  assert(
+    pay.clip_rect.width <= 41 && pay.clip_rect.height <= 41,
+    `effective clip must be the 40x40 outer box, got ${pay.clip_rect.width}x${pay.clip_rect.height}`,
+  );
+});
+
 test("text and document overflow metrics are collected", async () => {
   const { snapshot } = await collect(`<!doctype html>
     <html><body style="margin:0">
