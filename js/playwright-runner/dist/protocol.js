@@ -6,6 +6,7 @@ export const METHODS = [
     "execute_step",
     "observe",
     "collect_ui",
+    "capture_failure_reel",
     "poll_recording",
     "finish_recording",
     "finish",

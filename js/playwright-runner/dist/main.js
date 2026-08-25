@@ -116,6 +116,18 @@ class BridgeSession {
                     body = filterObservation(raw, program.evidence_policy ?? defaultPolicy(), failed);
                     break;
                 }
+                case "capture_failure_reel": {
+                    const { driver } = this.#requirePrepared();
+                    if (!this.#failed) {
+                        throw new Error("capture_failure_reel runs only after a failed step");
+                    }
+                    const step = request.params.step;
+                    if (!Number.isInteger(step) || Number(step) < 0) {
+                        throw new Error("capture_failure_reel requires a non-negative integer step");
+                    }
+                    body = await driver.captureFailureReel(Number(step), request.params.action);
+                    break;
+                }
                 case "collect_ui": {
                     const { program, driver } = this.#requirePrepared();
                     const revision = request.params.revision;

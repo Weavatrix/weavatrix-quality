@@ -2,6 +2,7 @@
 
 use super::access::*;
 use super::persist_evidence::{browser_evidence_kinds, remove_browser_evidence_file};
+use super::persist_failure_reel::persist_failure_reel;
 use super::persist_run::{put_json_run_artifact, put_run_artifact};
 
 pub(in crate::service) fn persist_browser_runs(
@@ -48,6 +49,14 @@ pub(in crate::service) fn persist_browser_run(
         handles,
     )?;
     persist_browser_files(
+        store,
+        run_id,
+        program_index,
+        result,
+        keep_normalized,
+        handles,
+    )?;
+    persist_failure_reel(
         store,
         run_id,
         program_index,

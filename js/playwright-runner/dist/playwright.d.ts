@@ -1,5 +1,6 @@
 /** Actual Playwright adapter. Policy and sealed predicates arrive from Rust. */
-import type { Driver, Target, WaitCondition } from "./execute.js";
+import { type Driver, type Target, type WaitCondition } from "./execute.js";
+import { type FailureReelCapture } from "./failure_reel.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
 import { type RecorderInstallConfig } from "./record.js";
 import { type CollectionResult, type UiIntegrityConfig } from "./ui_integrity.js";
@@ -193,6 +194,12 @@ export declare class PlaywrightDriver implements Driver {
         step: number;
         stateDigest: string;
     }, config: UiIntegrityConfig | undefined): Promise<CollectionResult>;
+    /**
+     * Diagnostic frames for a failed step. Never called on the green path.
+     * Overlay is restored before this returns so later observe/UI collection
+     * cannot see it — the host calls this after both.
+     */
+    captureFailureReel(step: number, action: Record<string, unknown>): Promise<FailureReelCapture>;
     finish(): Promise<{
         trace_path?: string;
         network_profile?: NetworkReplayProfile;

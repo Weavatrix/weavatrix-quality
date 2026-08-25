@@ -9,6 +9,7 @@ mod cargotest;
 mod diff;
 mod discovery;
 mod executor;
+mod failure_reel;
 mod gocover;
 mod gojson;
 mod junit;
@@ -42,6 +43,12 @@ pub use discovery::{ExecutorTarget, discover_executor_targets};
 pub use executor::{
     ExecutionResult, Executor, ExecutorCapabilities, ExecutorId, ExecutorRegistry, ExecutorSpec,
     PrepareRequest, PreparedRun, default_limits,
+};
+pub use failure_reel::{
+    FAILURE_REEL_SCHEMA_V, FailureCause, FailureCauseKind, FailureReel, FailureReelCapture,
+    FailureReelFrames, MAX_FAILURE_REEL_CAUSE_CHARS, MAX_FAILURE_REEL_FRAMES,
+    MAX_FAILURE_REEL_FRAME_BYTES, assemble_failure_reel, copy_reel_frame, failure_cause,
+    summarize_target,
 };
 pub use gocover::parse_go_coverprofile;
 pub use gojson::parse_go_json;

@@ -14,12 +14,13 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use wvq_domain::ObligationId;
 
+use crate::failure_reel::{FailureReelCapture, copy_reel_frame};
 use crate::process::{TreeChild, spawn_tree};
 use crate::{Observation, Target, TestAction, TestProgram};
 
 const MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 1024 * 1024;
-const BRIDGE_FILES: [(&str, &str); 7] = [
+const BRIDGE_FILES: [(&str, &str); 10] = [
     (
         "main.js",
         include_str!("../../../js/playwright-runner/dist/main.js"),
@@ -47,6 +48,18 @@ const BRIDGE_FILES: [(&str, &str); 7] = [
     (
         "playwright.js",
         include_str!("../../../js/playwright-runner/dist/playwright.js"),
+    ),
+    (
+        "request_identity.js",
+        include_str!("../../../js/playwright-runner/dist/request_identity.js"),
+    ),
+    (
+        "a11y_import.js",
+        include_str!("../../../js/playwright-runner/dist/a11y_import.js"),
+    ),
+    (
+        "failure_reel.js",
+        include_str!("../../../js/playwright-runner/dist/failure_reel.js"),
     ),
 ];
 
@@ -412,6 +425,9 @@ pub struct BrowserProgramRun {
     pub network_limitations: Vec<String>,
     /// Stable failure text.
     pub failure: Option<String>,
+    /// Diagnostic frames captured only after a step failed. Never a verdict source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reel: Option<FailureReelCapture>,
 }
 
 /// Bounded inputs for one passive browser recording session.
@@ -772,14 +788,18 @@ pub fn run_browser_program_at(
     let mut action_spans = Vec::new();
     let mut screenshot_paths = Vec::new();
     let mut ui_snapshots = Vec::new();
+    let mut last_screenshot = None;
+    let mut failure_reel = None;
     let (initial, screenshot) =
         observe_bridge(&mut bridge, false, false, false, &config.evidence_dir)?;
     if let Some(path) = screenshot {
+        last_screenshot = Some(path.clone());
         screenshot_paths.push(path);
     }
     observations.push(initial);
     for (index, step) in program.steps.iter().enumerate() {
         let start_observation = observations.len().saturating_sub(1);
+        let before_screenshot = last_screenshot.clone();
         let step_result = bridge.request("execute_step", &json!({"index": index}));
         let assertion = classify_assertion(step, &step_result, &mut asserted, &mut contradicted);
         if let Err(err) = step_result {
@@ -794,6 +814,7 @@ pub fn run_browser_program_at(
         let (observation, screenshot) =
             observe_bridge(&mut bridge, !passed, true, true, &config.evidence_dir)?;
         if let Some(path) = screenshot {
+            last_screenshot = Some(path.clone());
             screenshot_paths.push(path);
         }
         let state_digest = observation
@@ -827,6 +848,15 @@ pub fn run_browser_program_at(
             });
         }
         if !passed {
+            failure_reel = Some(capture_failure_reel(
+                &mut bridge,
+                program,
+                index,
+                step,
+                before_screenshot.as_deref(),
+                &config.evidence_dir,
+                failure.as_deref().unwrap_or("step_failed"),
+            )?);
             break;
         }
     }
@@ -874,6 +904,85 @@ pub fn run_browser_program_at(
         network_profile,
         network_limitations,
         failure,
+        failure_reel,
+    })
+}
+
+fn capture_failure_reel(
+    bridge: &mut BridgeProcess,
+    program: &TestProgram,
+    step: usize,
+    action: &TestAction,
+    before: Option<&Path>,
+    evidence_dir: &Path,
+    failure: &str,
+) -> Result<FailureReelCapture, BrowserBridgeError> {
+    let mut limitations = Vec::new();
+    let before_path = if let Some(path) = before {
+        copy_reel_frame(path, evidence_dir, program.id.as_str(), step, "before").or_else(|| {
+            limitations.push("before_frame_unmeasured".into());
+            None
+        })
+    } else {
+        limitations.push("before_frame_unmeasured".into());
+        None
+    };
+    let body = match bridge.request(
+        "capture_failure_reel",
+        &json!({
+            "step": step,
+            "action": action,
+        }),
+    ) {
+        Ok(body) => body,
+        Err(BrowserBridgeError::Remote(message)) => {
+            limitations.push(format!(
+                "capture_failed:{}",
+                message.chars().take(200).collect::<String>()
+            ));
+            return Ok(FailureReelCapture {
+                program: program.id.to_string(),
+                step,
+                action: action.kind().into(),
+                target: action.semantic_target().cloned(),
+                failure: failure.into(),
+                before_path,
+                highlight_path: None,
+                after_path: None,
+                limitations,
+            });
+        }
+        Err(other) => return Err(other),
+    };
+    let after_path = body
+        .get("after_path")
+        .and_then(Value::as_str)
+        .map(|path| validated_evidence_path(evidence_dir, path))
+        .transpose()?;
+    let highlight_path = body
+        .get("highlight_path")
+        .and_then(Value::as_str)
+        .map(|path| validated_evidence_path(evidence_dir, path))
+        .transpose()?;
+    if let Some(reported) = body.get("limitations").and_then(Value::as_array) {
+        for item in reported.iter().filter_map(Value::as_str) {
+            if !item.is_empty() {
+                limitations.push(item.to_owned());
+            }
+        }
+    }
+    limitations.sort();
+    limitations.dedup();
+    Ok(FailureReelCapture {
+        program: program.id.to_string(),
+        step,
+        action: action.kind().into(),
+        target: action.semantic_target().cloned(),
+        failure: failure.into(),
+        before_path,
+        highlight_path,
+        after_path,
+        limitations,
     })
 }
 

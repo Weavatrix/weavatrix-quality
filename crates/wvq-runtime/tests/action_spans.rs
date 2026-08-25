@@ -43,6 +43,7 @@ fn run(observations: Vec<Observation>, action_spans: Vec<ActionSpan>) -> Browser
         network_profile: None,
         network_limitations: Vec::new(),
         failure: None,
+        failure_reel: None,
     }
 }
 

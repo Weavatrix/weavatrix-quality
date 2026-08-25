@@ -1,5 +1,5 @@
 /** Line protocol. Unknown methods fail closed. No AI. */
-export declare const METHODS: readonly ["initialize", "prepare", "prepare_recording", "execute_step", "observe", "collect_ui", "poll_recording", "finish_recording", "finish", "cancel"];
+export declare const METHODS: readonly ["initialize", "prepare", "prepare_recording", "execute_step", "observe", "collect_ui", "capture_failure_reel", "poll_recording", "finish_recording", "finish", "cancel"];
 export type Method = (typeof METHODS)[number];
 export type BridgeRequest = {
     method: Method;

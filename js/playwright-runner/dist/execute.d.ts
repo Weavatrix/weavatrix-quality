@@ -63,4 +63,6 @@ export type Driver = {
     apiCall(operation: string, input: string): Promise<void>;
     assert(obligation: string): Promise<void>;
 };
+/** Semantic target the IR named for this action, if any. */
+export declare function actionTarget(action: TestAction): Target | undefined;
 export declare function executeStep(driver: Driver, action: TestAction): Promise<void>;

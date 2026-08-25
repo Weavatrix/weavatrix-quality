@@ -34,6 +34,7 @@ mod selection_audit;
 mod execute;
 mod persist_run;
 mod persist_browser;
+mod persist_failure_reel;
 mod persist_ui;
 mod persist_ui_analyse;
 mod persist_behavior;

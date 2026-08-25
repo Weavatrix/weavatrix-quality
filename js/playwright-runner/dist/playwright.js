@@ -4,6 +4,8 @@ import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { actionTarget, } from "./execute.js";
+import { captureFailureReelFrames, predicateTarget, } from "./failure_reel.js";
 import { installSemanticRecorder, } from "./record.js";
 import { collectLayoutSnapshot, freezeAnimations, waitForFonts, } from "./ui_integrity.js";
 import { identifyRequestBytes, identityFromProfileEntry, mediaType, networkIdentity, requestPathIdentity, } from "./request_identity.js";
@@ -356,6 +358,38 @@ export class PlaywrightDriver {
             step: identity.step,
             stateDigest: identity.stateDigest,
         }, config);
+    }
+    /**
+     * Diagnostic frames for a failed step. Never called on the green path.
+     * Overlay is restored before this returns so later observe/UI collection
+     * cannot see it — the host calls this after both.
+     */
+    async captureFailureReel(step, action) {
+        const targetSpec = this.#reelTarget(action);
+        let locator = null;
+        if (targetSpec) {
+            try {
+                locator = this.#locator(targetSpec);
+            }
+            catch {
+                locator = null;
+            }
+        }
+        return captureFailureReelFrames(this.#page, {
+            evidence_dir: this.#config.evidence_dir,
+            program_id: this.#program.id,
+            step,
+            target: locator,
+            target_applicable: Boolean(targetSpec),
+        });
+    }
+    #reelTarget(action) {
+        if (action.action === "assert" && typeof action.obligation === "string") {
+            const oracle = this.#oracles.get(action.obligation);
+            if (oracle)
+                return predicateTarget(oracle.expected);
+        }
+        return actionTarget(action);
     }
     async finish() {
         if (this.#closed)

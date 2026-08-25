@@ -1,4 +1,19 @@
 /** Deterministic step execution. Playwright is the host; this file has no AI. */
+/** Semantic target the IR named for this action, if any. */
+export function actionTarget(action) {
+    switch (action.action) {
+        case "activate":
+        case "fill":
+        case "select":
+            return action.target;
+        case "press":
+            return action.target;
+        case "wait":
+            return action.condition.kind === "visible" ? action.condition.target : undefined;
+        default:
+            return undefined;
+    }
+}
 export async function executeStep(driver, action) {
     switch (action.action) {
         case "navigate":

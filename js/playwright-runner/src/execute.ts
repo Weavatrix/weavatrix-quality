@@ -39,6 +39,22 @@ export type Driver = {
   assert(obligation: string): Promise<void>;
 };
 
+/** Semantic target the IR named for this action, if any. */
+export function actionTarget(action: TestAction): Target | undefined {
+  switch (action.action) {
+    case "activate":
+    case "fill":
+    case "select":
+      return action.target;
+    case "press":
+      return action.target;
+    case "wait":
+      return action.condition.kind === "visible" ? action.condition.target : undefined;
+    default:
+      return undefined;
+  }
+}
+
 export async function executeStep(driver: Driver, action: TestAction): Promise<void> {
   switch (action.action) {
     case "navigate":

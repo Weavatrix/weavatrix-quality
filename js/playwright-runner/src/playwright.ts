@@ -13,7 +13,18 @@ import type {
   Request,
   Response,
 } from "playwright";
-import type { Driver, Target, WaitCondition } from "./execute.js";
+import {
+  actionTarget,
+  type Driver,
+  type Target,
+  type TestAction,
+  type WaitCondition,
+} from "./execute.js";
+import {
+  captureFailureReelFrames,
+  predicateTarget,
+  type FailureReelCapture,
+} from "./failure_reel.js";
 import type { EvidencePolicy, Observation } from "./observe.js";
 import {
   installSemanticRecorder,
@@ -574,6 +585,41 @@ export class PlaywrightDriver implements Driver {
       },
       config,
     );
+  }
+
+  /**
+   * Diagnostic frames for a failed step. Never called on the green path.
+   * Overlay is restored before this returns so later observe/UI collection
+   * cannot see it — the host calls this after both.
+   */
+  async captureFailureReel(
+    step: number,
+    action: Record<string, unknown>,
+  ): Promise<FailureReelCapture> {
+    const targetSpec = this.#reelTarget(action);
+    let locator = null;
+    if (targetSpec) {
+      try {
+        locator = this.#locator(targetSpec);
+      } catch {
+        locator = null;
+      }
+    }
+    return captureFailureReelFrames(this.#page, {
+      evidence_dir: this.#config.evidence_dir,
+      program_id: this.#program.id,
+      step,
+      target: locator,
+      target_applicable: Boolean(targetSpec),
+    });
+  }
+
+  #reelTarget(action: Record<string, unknown>): Target | undefined {
+    if (action.action === "assert" && typeof action.obligation === "string") {
+      const oracle = this.#oracles.get(action.obligation);
+      if (oracle) return predicateTarget(oracle.expected) as Target | undefined;
+    }
+    return actionTarget(action as TestAction);
   }
 
   async finish(): Promise<{

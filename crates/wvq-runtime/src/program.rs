@@ -378,6 +378,38 @@ impl TestAction {
             _ => Ok(()),
         }
     }
+
+    /// Wire tag used by the diagnostic failure reel.
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Navigate { .. } => "navigate",
+            Self::Activate { .. } => "activate",
+            Self::Fill { .. } => "fill",
+            Self::Select { .. } => "select",
+            Self::Press { .. } => "press",
+            Self::Wait { .. } => "wait",
+            Self::SetFeatureFlag { .. } => "set_feature_flag",
+            Self::InjectFault { .. } => "inject_fault",
+            Self::ApiCall { .. } => "api_call",
+            Self::Assert { .. } => "assert",
+        }
+    }
+
+    /// Semantic target the action names, if any. Navigate and assert have none.
+    #[must_use]
+    pub fn semantic_target(&self) -> Option<&Target> {
+        match self {
+            Self::Activate { target }
+            | Self::Fill { target, .. }
+            | Self::Select { target, .. }
+            | Self::Wait {
+                condition: WaitCondition::Visible { target },
+            } => Some(target),
+            Self::Press { target, .. } => target.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 /// Canonical browser/API program.

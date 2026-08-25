@@ -1,5 +1,7 @@
 use super::*;
 use super::super::policy::yaml::{utc_date, valid_iso_date};
+use wvq_runtime::BrowserProgramRun;
+use wvq_spec::EvidenceKind;
 
     #[test]
     fn run_policy_caps_program_owned_browser_capture() {
@@ -33,6 +35,53 @@ use super::super::policy::yaml::{utc_date, valid_iso_date};
         assert_eq!(none.evidence_policy.screenshot, CaptureWhen::Never);
         assert_eq!(none.evidence_policy.network, CaptureWhen::Never);
         assert!(!browser_capture_active(CaptureWhen::Always, true, "none"));
+    }
+
+    #[test]
+    fn a_failure_reel_does_not_count_as_screenshot_or_verdict_evidence() {
+        let program = TestProgram::from_json(
+            r#"{
+            "schema_v": 1,
+            "id": "reel-policy",
+            "source": "authored",
+            "obligations": ["visible"],
+            "steps": [{"action":"assert","obligation":"visible"}]
+        }"#,
+        )
+        .unwrap();
+        let configured = ConfiguredBrowserProgram {
+            path: "programs/reel.json".into(),
+            program,
+            oracles: Vec::new(),
+        };
+        let result = BrowserProgramRun {
+            program: "reel-policy".into(),
+            passed: false,
+            asserted: Vec::new(),
+            contradicted: Vec::new(),
+            assertions: Vec::new(),
+            observations: Vec::new(),
+            action_spans: Vec::new(),
+            screenshot_paths: Vec::new(),
+            trace_path: None,
+            ui_snapshots: Vec::new(),
+            network_profile: None,
+            network_limitations: Vec::new(),
+            failure: Some("assertion_failed:visible:sealed expectation visible was not met".into()),
+            failure_reel: Some(wvq_runtime::FailureReelCapture {
+                program: "reel-policy".into(),
+                step: 0,
+                action: "assert".into(),
+                failure: "assertion_failed:visible:sealed expectation visible was not met".into(),
+                limitations: vec!["before_frame_unmeasured".into()],
+                ..wvq_runtime::FailureReelCapture::default()
+            }),
+        };
+        let kinds = browser_evidence_kinds(&configured, &result, "standard");
+        assert!(
+            !kinds.contains(&EvidenceKind::Screenshot),
+            "diagnostic reel frames must not become screenshot evidence"
+        );
     }
     #[test]
     fn debt_policy_loads_active_exceptions_and_rejects_expired_ones() {
