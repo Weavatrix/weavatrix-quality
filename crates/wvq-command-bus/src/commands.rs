@@ -380,6 +380,18 @@ pub struct IngestJournalCommand {
     pub journal: String,
 }
 
+/// Admit a HAR archive as a privacy-safe network cassette.
+///
+/// Never enables replay, never seals, and never retains cookies or request bodies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IngestCassetteCommand {
+    /// Application origin used to keep same-origin JSON only.
+    pub origin: String,
+    /// HAR 1.1/1.2 JSON. Not a filesystem path.
+    pub har: String,
+}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -429,6 +441,8 @@ pub enum Command {
     Init(InitCommand),
     /// [`IngestJournalCommand`].
     IngestJournal(IngestJournalCommand),
+    /// [`IngestCassetteCommand`].
+    IngestCassette(IngestCassetteCommand),
 }
 
 impl Command {
@@ -459,6 +473,7 @@ impl Command {
             Self::Recovery(_) => "recovery",
             Self::Init(_) => "init",
             Self::IngestJournal(_) => "ingest_journal",
+            Self::IngestCassette(_) => "ingest_cassette",
         }
     }
 }

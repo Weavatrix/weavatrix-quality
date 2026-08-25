@@ -174,7 +174,7 @@ impl NetworkRunPolicy {
 }
 
 impl NetworkReplayProfile {
-    fn validate(&self, policy: &NetworkRunPolicy) -> Result<(), BrowserBridgeError> {
+    pub(crate) fn validate(&self, policy: &NetworkRunPolicy) -> Result<(), BrowserBridgeError> {
         if self.schema_v != 1 && self.schema_v != 2 {
             return Err(BrowserBridgeError::Config(format!(
                 "unknown network replay schema_v {}",

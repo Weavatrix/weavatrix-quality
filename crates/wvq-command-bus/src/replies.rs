@@ -728,6 +728,38 @@ pub struct IngestJournalReply {
     pub runtime_llm_tokens: u64,
 }
 
+/// Result of admitting a HAR archive as a network cassette.
+///
+/// Never enables replay and never seals.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IngestCassetteReply {
+    /// Application origin used for same-origin filtering.
+    pub origin: String,
+    /// Exact repository/Weavatrix revision at ingest.
+    pub revision: String,
+    /// Same-origin JSON responses kept.
+    pub captured_entries: u64,
+    /// Entries dropped as cross-origin, non-JSON, or over a ceiling.
+    pub omitted: u64,
+    /// True when at least one JSON response was stored.
+    pub useful: bool,
+    /// True when the HAR was valid but produced no replayable JSON.
+    pub discarded: bool,
+    /// Stable reason when discarded.
+    pub discard_reason: Option<String>,
+    /// Drop/redaction notes. Never raw secrets.
+    pub limitations: Vec<String>,
+    /// Always false. A cassette is not a seal and does not turn replay on.
+    pub replay_enabled: bool,
+    /// Always false. HAR cannot become a normative seal.
+    pub seal_eligible: bool,
+    /// CAS-backed `schema_v: 2` profile when admitted.
+    pub profile_handle: Option<String>,
+    /// Ingest never spends model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -802,6 +834,9 @@ pub enum Reply {
     /// [`IngestJournalReply`].
     #[serde(rename = "ingest_journal")]
     IngestJournal(IngestJournalReply),
+    /// [`IngestCassetteReply`].
+    #[serde(rename = "ingest_cassette")]
+    IngestCassette(IngestCassetteReply),
 }
 
 impl Reply {

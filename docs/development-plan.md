@@ -126,7 +126,7 @@ Breadth (do not mix with Autopilot closed-loop):
 
 - [x] Remaining first-class browser actions (upload/download/popup/tab)
 - [x] Continuous recorder package
-- [ ] Extended cassette
+- [x] Extended cassette
 - [ ] Studio frontend
 - [ ] `wvq baseline` with `OBSERVED_ONLY`
 

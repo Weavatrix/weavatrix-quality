@@ -6,6 +6,7 @@ mod behavior;
 mod browser_bridge;
 mod browser_protocol;
 mod cargotest;
+mod cassette;
 mod continuous_journal;
 mod diff;
 mod discovery;
@@ -28,6 +29,9 @@ pub use behavior::{
 pub use continuous_journal::{
     CONTINUOUS_JOURNAL_SCHEMA_V, ContinuousJournal, ContinuousJournalEvent,
     ContinuousJournalSource, MAX_CONTINUOUS_JOURNAL_BYTES, MAX_CONTINUOUS_JOURNAL_EVENTS,
+};
+pub use cassette::{
+    CassetteAdmission, CassetteError, MAX_NETWORK_CASSETTE_BYTES, ingest_har,
 };
 pub use browser_bridge::{
     ActionSpan, BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError,

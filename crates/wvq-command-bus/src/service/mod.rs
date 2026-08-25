@@ -22,6 +22,8 @@ pub(in crate::service) const CHEAPEST_EVIDENCE_PLAN_KIND: &str = "cheapest-evide
 /// CAS artifact kind for an admitted continuous observation journal.
 pub(in crate::service) const CONTINUOUS_OBSERVATION_JOURNAL_KIND: &str =
     "continuous-observation-journal";
+/// CAS artifact kind for a HAR-derived privacy-safe network cassette.
+pub(in crate::service) const NETWORK_CASSETTE_KIND: &str = "network-replay-profile";
 
 mod authoring;
 mod recovery;

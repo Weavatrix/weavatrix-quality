@@ -215,4 +215,10 @@ impl QualityService for FakeService {
     fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError> {
         FakeService::ingest_journal(self, cmd)
     }
+    fn ingest_cassette(
+        &self,
+        cmd: &IngestCassetteCommand,
+    ) -> Result<IngestCassetteReply, BusError> {
+        FakeService::ingest_cassette(self, cmd)
+    }
 }

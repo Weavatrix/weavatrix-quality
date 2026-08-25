@@ -33,7 +33,7 @@ pub(in crate::service) use wvq_runtime::{
     BrowserRunConfig, BrowserViewport, CaptureWhen, ContinuousJournal, CoverageArtifact,
     ExecutionResult, ExecutorRegistry, ExecutorTarget, NetworkMode, NetworkRunPolicy,
     NormalizedTestRun, PrepareRequest, ProgramOracle, Recorder, TestAction, TestProgram, TestStatus,
-    default_limits, discover_executor_targets, parse_cargo_test, parse_go_coverprofile,
+    default_limits, discover_executor_targets, ingest_har, parse_cargo_test, parse_go_coverprofile,
     parse_go_json, parse_junit, parse_lcov, promote, record_browser_session, run_browser_program,
     run_browser_program_at,
 };
@@ -53,13 +53,13 @@ pub(in crate::service) use wvq_ui::{
 pub(in crate::service) use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, ContextCommand, DebtCommand,
-    EvidenceCommand, ExplainCommand, InitCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
+    EvidenceCommand, ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
     RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 pub(in crate::service) use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
-    ExplainReply, InitReply, IngestJournalReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
+    ExplainReply, InitReply, IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
     RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
     VerifyReply, ApplicationSurfaceView, CheapestEvidencePlanView, SurfaceEvidenceMatrixView,
 };
@@ -78,7 +78,6 @@ pub(in crate::service) use super::types::*;
 pub(in crate::service) use super::validate::*;
 pub(in crate::service) use super::{
     APPLICATION_SURFACE_GRAPH_KIND, CHEAPEST_EVIDENCE_PLAN_KIND, CONTINUOUS_OBSERVATION_JOURNAL_KIND,
-    DELTA_TRIANGLE_KIND,
-    MUTATION_RESULTS_KIND, ORACLE_REPLACEMENT_KIND, SURFACE_EVIDENCE_MATRIX_KIND,
-    UI_INTEGRITY_DELTA_KIND,
+    DELTA_TRIANGLE_KIND, MUTATION_RESULTS_KIND, NETWORK_CASSETTE_KIND, ORACLE_REPLACEMENT_KIND,
+    SURFACE_EVIDENCE_MATRIX_KIND, UI_INTEGRITY_DELTA_KIND,
 };

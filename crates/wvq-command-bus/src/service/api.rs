@@ -7,13 +7,13 @@ use super::BusError;
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
     AuthorValidateCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
-    ExplainCommand, InitCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
+    ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
     RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
     ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply,
-    IngestJournalReply, ModelReply, PlanReply, RecordReply, RecoveryReply, Reply, RunReply,
+    IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply, RecordReply, RecoveryReply, Reply, RunReply,
     SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
 };
 
@@ -237,6 +237,14 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError`] when the journal is malformed or the repository revision is ambiguous.
     fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError>;
+    /// Admit a HAR archive as a privacy-safe network cassette.
+    ///
+    /// Never enables replay or seals. Unknown HAR versions fail closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when the HAR is malformed or the origin is unusable.
+    fn ingest_cassette(&self, cmd: &IngestCassetteCommand) -> Result<IngestCassetteReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -275,6 +283,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
             .map(|reply| Reply::Recovery(Box::new(reply))),
         Command::Init(cmd) => service.init(&cmd).map(Reply::Init),
         Command::IngestJournal(cmd) => service.ingest_journal(&cmd).map(Reply::IngestJournal),
+        Command::IngestCassette(cmd) => service.ingest_cassette(&cmd).map(Reply::IngestCassette),
     }
 }
 

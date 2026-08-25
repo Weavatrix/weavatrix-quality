@@ -100,6 +100,23 @@ export class WvqClient {
         return this.#call('ingest_journal', args, signal)
     }
 
+    ingestCassette({ origin, file, har, signal } = {}) {
+        if ((file && har) || (!file && !har)) {
+            throw new TypeError('ingestCassette requires exactly one of file or har')
+        }
+        const args = [
+            'ingest-cassette', '--origin', requireText('origin', origin),
+        ]
+        if (file) args.push('--file', requireText('file', file))
+        if (har) {
+            if (typeof har !== 'string' || har.trim() === '') {
+                throw new TypeError('har must be non-empty JSON')
+            }
+            args.push('--har', har)
+        }
+        return this.#call('ingest_cassette', args, signal)
+    }
+
     status({ signal } = {}) {
         return this.#call('status', ['status'], signal)
     }

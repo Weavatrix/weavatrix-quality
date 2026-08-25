@@ -56,3 +56,4 @@ mod policy;
 mod protection;
 mod init;
 mod ingest_journal;
+mod ingest_cassette;

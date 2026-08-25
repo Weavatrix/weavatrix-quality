@@ -215,4 +215,27 @@ impl FakeService {
             runtime_llm_tokens: 0,
         })
     }
+
+    pub(in crate::service) fn ingest_cassette(
+        &self,
+        cmd: &IngestCassetteCommand,
+    ) -> Result<IngestCassetteReply, BusError> {
+        let admitted = ingest_har(&cmd.har, &cmd.origin)
+            .map_err(|err| BusError::InvalidInput(err.to_string()))?;
+        let useful = admitted.captured_entries != 0;
+        Ok(IngestCassetteReply {
+            origin: cmd.origin.clone(),
+            revision: "fake-revision".into(),
+            captured_entries: admitted.captured_entries,
+            omitted: admitted.omitted,
+            useful,
+            discarded: !useful,
+            discard_reason: (!useful).then(|| "no_json_same_origin_responses".into()),
+            limitations: admitted.limitations,
+            replay_enabled: false,
+            seal_eligible: false,
+            profile_handle: useful.then(|| "artifact-cassette-fake-profile".into()),
+            runtime_llm_tokens: 0,
+        })
+    }
 }

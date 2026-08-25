@@ -25,6 +25,7 @@ mod record;
 mod record_capture;
 mod record_persist;
 mod ingest_journal;
+mod ingest_cassette;
 mod run;
 mod run_types;
 mod run_prepare;
@@ -187,5 +188,11 @@ impl QualityService for LiveService {
     }
     fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError> {
         LiveService::ingest_journal(self, cmd)
+    }
+    fn ingest_cassette(
+        &self,
+        cmd: &IngestCassetteCommand,
+    ) -> Result<IngestCassetteReply, BusError> {
+        LiveService::ingest_cassette(self, cmd)
     }
 }

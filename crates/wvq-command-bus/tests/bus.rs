@@ -15,7 +15,7 @@ use wvq_command_bus::{
     AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
     EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
     PlanCommand, QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch, estimate_tokens, IngestJournalCommand,
+    VerifyCommand, dispatch, estimate_tokens, IngestCassetteCommand, IngestJournalCommand,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -2054,6 +2054,39 @@ fn live_ingest_journal_fills_behavior_graph_without_a_seal() {
         .unwrap();
     assert!(again.discarded);
     assert_eq!(again.discard_reason.as_deref(), Some("no_new_behavior"));
+}
+
+#[test]
+fn live_ingest_cassette_stores_a_profile_without_enabling_replay() {
+    let repo = live_runner_repo();
+    let service = LiveService::new(&repo.0);
+    let har = r#"{
+        "log": {
+            "version": "1.2",
+            "entries": [{
+                "request": {
+                    "method": "GET",
+                    "url": "https://app.example/api/sum",
+                    "headers": [{ "name": "Content-Type", "value": "application/json" }]
+                },
+                "response": {
+                    "status": 200,
+                    "content": { "mimeType": "application/json", "text": "{ \"total\": 3 }" }
+                }
+            }]
+        }
+    }"#;
+    let reply = service
+        .ingest_cassette(&IngestCassetteCommand {
+            origin: "https://app.example".into(),
+            har: har.into(),
+        })
+        .unwrap();
+    assert!(reply.useful);
+    assert!(!reply.replay_enabled);
+    assert!(!reply.seal_eligible);
+    assert_eq!(reply.runtime_llm_tokens, 0);
+    assert!(reply.profile_handle.is_some());
 }
 
 #[test]

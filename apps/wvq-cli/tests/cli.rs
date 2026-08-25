@@ -455,3 +455,66 @@ fn ingest_journal_refuses_a_seal_claim() {
     assert_eq!(output.code, 1, "{}", output.stdout);
     assert!(output.stderr.contains("observed_only"), "{}", output.stderr);
 }
+
+const NETWORK_HAR: &str = r#"{
+    "log": {
+        "version": "1.2",
+        "entries": [{
+            "request": {
+                "method": "GET",
+                "url": "https://app.example/api/pay",
+                "headers": [{ "name": "Content-Type", "value": "application/json" }]
+            },
+            "response": {
+                "status": 200,
+                "content": { "mimeType": "application/json", "text": "{ \"ok\": true }" }
+            }
+        }]
+    }
+}"#;
+
+#[test]
+fn ingest_cassette_is_a_first_class_cli_command_and_never_enables_replay() {
+    let parsed = parse_args(&argv(&[
+        "ingest-cassette",
+        "--origin",
+        "https://app.example",
+        "--har",
+        NETWORK_HAR,
+    ]))
+    .unwrap();
+    let Command::IngestCassette(command) = parsed.command else {
+        panic!("expected ingest-cassette command");
+    };
+    assert_eq!(command.origin, "https://app.example");
+
+    let output = run_with(
+        &argv(&[
+            "ingest-cassette",
+            "--origin",
+            "https://app.example",
+            "--har",
+            NETWORK_HAR,
+        ]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"replay_enabled\": false"));
+    assert!(output.stdout.contains("\"seal_eligible\": false"));
+}
+
+#[test]
+fn ingest_cassette_refuses_unknown_har_versions() {
+    let output = run_with(
+        &argv(&[
+            "ingest-cassette",
+            "--origin",
+            "https://app.example",
+            "--har",
+            r#"{"log":{"version":"1.3","entries":[]}}"#,
+        ]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 1, "{}", output.stdout);
+    assert!(output.stderr.contains("1.3"), "{}", output.stderr);
+}

@@ -438,6 +438,21 @@ export interface IngestJournalReply {
     runtime_llm_tokens: 0
 }
 
+export interface IngestCassetteReply {
+    origin: string
+    revision: string
+    captured_entries: number
+    omitted: number
+    useful: boolean
+    discarded: boolean
+    discard_reason: string | null
+    limitations: string[]
+    replay_enabled: false
+    seal_eligible: false
+    profile_handle: string | null
+    runtime_llm_tokens: 0
+}
+
 export interface AuthorPromoteReply {
     change: string
     revision: string
@@ -494,6 +509,7 @@ export class WvqClient {
         headless?: boolean
     }): Promise<RecordReply>
     ingestJournal(options?: RangeOptions & { file?: string; journal?: string }): Promise<IngestJournalReply>
+    ingestCassette(options: { origin: string; file?: string; har?: string; signal?: AbortSignal }): Promise<IngestCassetteReply>
     status(options?: CallOptions): Promise<StatusReply>
     verify(options?: { change?: string; observeOnly?: boolean; signal?: AbortSignal }): Promise<VerifyReply>
     explain(id: string, options?: CallOptions): Promise<ExplainReply>

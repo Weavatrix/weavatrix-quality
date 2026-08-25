@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, IngestJournalCommand,
-    LiveService, ModelCommand, PlanCommand, QualityService, RecordCommand, RecoveryCommand,
-    RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
+    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, IngestCassetteCommand,
+    IngestJournalCommand, LiveService, ModelCommand, PlanCommand, QualityService, RecordCommand,
+    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -46,6 +46,7 @@ Usage:
   wvq [--repo PATH] recover [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] record [--change ID] [--base REF] [--head REF|WORKTREE] [--route /PATH] [--idle-ms N] [--max-events N] [--headless true|false] [--fixtures-json JSON]
   wvq [--repo PATH] ingest-journal --file PATH [--change ID] [--base REF] [--head REF|WORKTREE]
+  wvq [--repo PATH] ingest-cassette --file PATH --origin URL
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID] [--observe-only true|false]
@@ -138,8 +139,14 @@ fn parse_command(
             change,
             base,
             head,
-            journal: read_journal_flag(flags.get("file"), flags.get("journal"))?,
+            journal: read_bounded_payload(
+                flags.get("file"),
+                flags.get("journal"),
+                "journal",
+                1_048_576,
+            )?,
         }),
+        [cmd] if cmd == "ingest-cassette" => parse_ingest_cassette(flags)?,
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
             kind: required_flag(flags, "kind")?,
@@ -215,6 +222,13 @@ fn parse_record_command(
     }))
 }
 
+fn parse_ingest_cassette(flags: &BTreeMap<String, String>) -> Result<Command, String> {
+    Ok(Command::IngestCassette(IngestCassetteCommand {
+        origin: required_flag(flags, "origin")?,
+        har: read_bounded_payload(flags.get("file"), flags.get("har"), "HAR", 8_388_608)?,
+    }))
+}
+
 fn required_flag(flags: &BTreeMap<String, String>, name: &str) -> Result<String, String> {
     flags
         .get(name)
@@ -246,6 +260,7 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
         [cmd] if cmd == "ingest-journal" => {
             Some(&["repo", "change", "base", "head", "file", "journal"])
         }
+        [cmd] if cmd == "ingest-cassette" => Some(&["repo", "file", "har", "origin"]),
         [cmd] if cmd == "verify" => Some(&["repo", "change", "observe-only"]),
         [cmd] if cmd == "plan" => Some(&["repo", "change"]),
         [cmd] if cmd == "init" => Some(&["repo", "force"]),
@@ -292,23 +307,28 @@ fn parse_fixtures(raw: Option<&String>) -> Result<BTreeMap<String, String>, Stri
     )
 }
 
-fn read_journal_flag(file: Option<&String>, journal: Option<&String>) -> Result<String, String> {
-    match (file, journal) {
-        (Some(_), Some(_)) => Err("pass exactly one of --file or --journal".into()),
+fn read_bounded_payload(
+    file: Option<&String>,
+    inline: Option<&String>,
+    name: &str,
+    max_bytes: u64,
+) -> Result<String, String> {
+    match (file, inline) {
+        (Some(_), Some(_)) => Err(format!("pass exactly one of --file or --{name}")),
         (None, None) => Err("flag --file is required".into()),
         (None, Some(body)) => {
-            if body.len() > 1_048_576 {
-                return Err("continuous journal exceeds 1MiB".into());
+            if u64::try_from(body.len()).unwrap_or(u64::MAX) > max_bytes {
+                return Err(format!("{name} exceeds {max_bytes} bytes"));
             }
             Ok(body.clone())
         }
         (Some(path), None) => {
-            let metadata = std::fs::metadata(path)
-                .map_err(|err| format!("cannot read journal {path}: {err}"))?;
-            if metadata.len() > 1_048_576 {
-                return Err("continuous journal exceeds 1MiB".into());
+            let metadata =
+                std::fs::metadata(path).map_err(|err| format!("cannot read {name} {path}: {err}"))?;
+            if metadata.len() > max_bytes {
+                return Err(format!("{name} exceeds {max_bytes} bytes"));
             }
-            std::fs::read_to_string(path).map_err(|err| format!("cannot read journal {path}: {err}"))
+            std::fs::read_to_string(path).map_err(|err| format!("cannot read {name} {path}: {err}"))
         }
     }
 }

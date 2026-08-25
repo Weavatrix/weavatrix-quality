@@ -41,7 +41,9 @@ test('typed client maps methods to bounded native argv', async () => {
                 ? `spec_${args[3]}`
                 : args[2] === 'ingest-journal'
                     ? 'ingest_journal'
-                    : args[2]
+                    : args[2] === 'ingest-cassette'
+                        ? 'ingest_cassette'
+                        : args[2]
             return { command, body: { ok: true } }
         },
         binary: 'wvq-test',
@@ -83,6 +85,16 @@ test('typed client maps methods to bounded native argv', async () => {
         args: [
             '--repo', 'C:/repo', 'ingest-journal', '--change', 'live', '--base', 'HEAD',
             '--head', 'WORKTREE', '--journal', '{"schema_v":1}',
+        ],
+    })
+    assert.deepEqual(await client.ingestCassette({
+        origin: 'https://app.example', har: '{"log":{"version":"1.2","entries":[]}}',
+    }), { ok: true })
+    assert.deepEqual(calls[4], {
+        binary: 'wvq-test',
+        args: [
+            '--repo', 'C:/repo', 'ingest-cassette', '--origin', 'https://app.example',
+            '--har', '{"log":{"version":"1.2","entries":[]}}',
         ],
     })
 })
