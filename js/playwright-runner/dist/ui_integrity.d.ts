@@ -25,6 +25,7 @@
  * chain, not the first overflow ancestor.
  */
 import type { Page } from "playwright";
+import { type A11yImportReport } from "./a11y_import.js";
 import type { Target } from "./execute.js";
 /** Schema version Rust accepts. Bumping it is a breaking change. */
 export declare const LAYOUT_SNAPSHOT_SCHEMA_V = 2;
@@ -141,6 +142,8 @@ export type CollectionResult = {
     snapshot: LayoutSnapshot;
     /** Empty when the layout settled and every bound was respected. */
     limitations: string[];
+    /** Sanitised axe/Storybook report, when a producer was already on the page. */
+    a11y_import?: A11yImportReport;
 };
 /**
  * Collect one route/state/viewport.

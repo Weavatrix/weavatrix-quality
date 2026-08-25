@@ -26,6 +26,7 @@
  */
 
 import type { Page } from "playwright";
+import { collectA11yImport, type A11yImportReport } from "./a11y_import.js";
 import type { Target } from "./execute.js";
 
 /** Schema version Rust accepts. Bumping it is a breaking change. */
@@ -164,6 +165,8 @@ export type CollectionResult = {
   snapshot: LayoutSnapshot;
   /** Empty when the layout settled and every bound was respected. */
   limitations: string[];
+  /** Sanitised axe/Storybook report, when a producer was already on the page. */
+  a11y_import?: A11yImportReport;
 };
 
 /**
@@ -234,6 +237,10 @@ export async function collectLayoutSnapshot(
     // Any limitation at all means this snapshot is not a clean measurement.
     truncated: limitations.length > 0,
   };
+  const a11yImport = await collectA11yImport(page);
+  if (a11yImport) {
+    return { snapshot, limitations, a11y_import: a11yImport };
+  }
   return { snapshot, limitations };
 }
 

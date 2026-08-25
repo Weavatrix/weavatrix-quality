@@ -136,7 +136,11 @@ class BridgeSession {
                         step: Number(step),
                         stateDigest,
                     }, request.params.config);
-                    body = { snapshot: result.snapshot, limitations: result.limitations };
+                    body = {
+                        snapshot: result.snapshot,
+                        limitations: result.limitations,
+                        ...(result.a11y_import ? { a11y_import: result.a11y_import } : {}),
+                    };
                     break;
                 }
                 case "poll_recording": {

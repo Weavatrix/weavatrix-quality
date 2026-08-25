@@ -47,6 +47,8 @@ pub enum UiCheck {
     DialogName,
     /// `WVQ-A11Y-DIALOG-002` — a visible modal dialog does not contain focus.
     DialogFocus,
+    /// `WVQ-A11Y-IMPORT-001` — axe-core or Storybook a11y, not a Rust-ported rule.
+    ImportedA11y,
 }
 
 impl UiCheck {
@@ -68,6 +70,7 @@ impl UiCheck {
             Self::RoleState => "WVQ-A11Y-STATE-001",
             Self::DialogName => "WVQ-A11Y-DIALOG-001",
             Self::DialogFocus => "WVQ-A11Y-DIALOG-002",
+            Self::ImportedA11y => "WVQ-A11Y-IMPORT-001",
         }
     }
 

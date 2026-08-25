@@ -69,6 +69,15 @@ pub(in crate::service) fn analyse_ui_snapshots(
             snapshot.responsive_breakpoints_incomplete |= !layout.responsive_breakpoints_complete;
             snapshot.measured_states.insert(layout.state_key());
             snapshot.findings.extend(output.findings);
+            if let Some(report) = &evidence.a11y_import {
+                match wvq_ui::import_a11y_violations(&layout, report) {
+                    Ok((imported, truncated)) => {
+                        snapshot.truncated |= truncated;
+                        snapshot.findings.extend(imported);
+                    }
+                    Err(_) => snapshot.truncated = true,
+                }
+            }
             snapshot.findings.extend(
                 duplicate_mutations
                     .iter()

@@ -24,6 +24,7 @@
  * is an opaque surface. `clip_rect` is the intersection of the whole clip
  * chain, not the first overflow ancestor.
  */
+import { collectA11yImport } from "./a11y_import.js";
 /** Schema version Rust accepts. Bumping it is a breaking change. */
 export const LAYOUT_SNAPSHOT_SCHEMA_V = 2;
 /** Longest accessible name or label kept in evidence. Matches `wvq-ui`. */
@@ -106,6 +107,10 @@ export async function collectLayoutSnapshot(page, identity, config) {
         // Any limitation at all means this snapshot is not a clean measurement.
         truncated: limitations.length > 0,
     };
+    const a11yImport = await collectA11yImport(page);
+    if (a11yImport) {
+        return { snapshot, limitations, a11y_import: a11yImport };
+    }
     return { snapshot, limitations };
 }
 function normalizeRequiredTargets(targets) {

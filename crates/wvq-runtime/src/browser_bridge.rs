@@ -306,6 +306,9 @@ pub struct UiSnapshotEvidence {
     /// Bounds hit or instability observed during collection. Non-empty means
     /// the snapshot is not a clean measurement.
     pub limitations: Vec<String>,
+    /// Sanitised axe-core / Storybook a11y report, when a producer ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub a11y_import: Option<Value>,
 }
 
 /// Sealed oracle sent to the deterministic adapter.
@@ -944,12 +947,14 @@ fn collect_ui_snapshot(
                 step,
                 snapshot,
                 limitations,
+                a11y_import: body.get("a11y_import").cloned().filter(|value| !value.is_null()),
             })
         }
         Err(BrowserBridgeError::Remote(message)) => Ok(UiSnapshotEvidence {
             step,
             snapshot: Value::Null,
             limitations: vec![format!("UI collection failed at step {step}: {message}")],
+            a11y_import: None,
         }),
         Err(other) => Err(other),
     }

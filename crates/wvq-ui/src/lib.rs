@@ -18,6 +18,7 @@
 
 #![forbid(unsafe_code)]
 
+mod a11y_import;
 mod detect;
 mod finding;
 mod policy;
@@ -28,6 +29,9 @@ mod spatial;
 mod visual;
 mod visual_pixels;
 
+pub use a11y_import::{
+    MAX_A11Y_IMPORT_NODES, MAX_A11Y_IMPORT_TOKEN, MAX_A11Y_IMPORT_VIOLATIONS, import_a11y_violations,
+};
 pub use detect::{DetectionOutput, detect};
 pub use finding::{UiCheck, UiEvidence, UiIntegrityFinding, sort_findings};
 pub use policy::{

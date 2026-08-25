@@ -143,7 +143,11 @@ class BridgeSession {
             },
             request.params.config as UiIntegrityConfig | undefined,
           );
-          body = { snapshot: result.snapshot, limitations: result.limitations };
+          body = {
+            snapshot: result.snapshot,
+            limitations: result.limitations,
+            ...(result.a11y_import ? { a11y_import: result.a11y_import } : {}),
+          };
           break;
         }
         case "poll_recording": {

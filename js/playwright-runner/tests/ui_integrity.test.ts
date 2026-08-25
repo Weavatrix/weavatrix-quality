@@ -184,6 +184,35 @@ test("row scope is collected from data-entity so repeated actions stay distinct"
   );
 });
 
+test("axe html never leaves the page", async () => {
+  const { a11y_import } = await collect(`<!doctype html>
+    <html><body>
+      <button data-testid="pay">Pay</button>
+      <script>
+        window.axe = {
+          run: async () => ({
+            violations: [{
+              id: "button-name",
+              impact: "critical",
+              nodes: [{
+                html: "<button>secret-token-xyz</button>",
+                failureSummary: "secret-token-xyz",
+                target: ["[data-testid=pay]"]
+              }]
+            }]
+          })
+        };
+      </script>
+    </body></html>`);
+  assert(a11y_import);
+  assert.equal(a11y_import.producer, "axe-core");
+  assert.equal(a11y_import.violations[0]?.id, "button-name");
+  assert.deepEqual(a11y_import.violations[0]?.nodes[0]?.target, ["[data-testid=pay]"]);
+  const encoded = JSON.stringify(a11y_import);
+  assert.equal(encoded.includes("secret-token-xyz"), false);
+  assert.equal(encoded.includes("\"html\""), false);
+});
+
 test("open shadow roots are entered", async () => {
   const { snapshot } = await collect(`<!doctype html>
     <html><body>
