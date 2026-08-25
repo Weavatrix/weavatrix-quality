@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-25
-Session: honest visual digest
+Session: split command-bus delta triangle
 
 ## Now
 
@@ -278,7 +278,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **Split `crates/wvq-command-bus/src/service.rs`.** It is past 12 000 lines; this is engineering risk, not style.
+1. **Finish splitting `crates/wvq-command-bus/src/service/`.** The 12k-line facade is now a directory; Delta Triangle persistence lives in `delta.rs`. Policy loaders, run execution, protection, and the in-file test module still need the same treatment.
 2. **Bounded failure evidence.** On a Playwright failure, assemble a diagnostic reel — frame before the action, the highlighted semantic target, frame after, and the assertion or geometric cause — behind a CAS handle. Diagnostic only: it must never become a verdict source and must not run on the green path.
 3. **Snapshot reach.** Shadow DOM, same-origin iframes, the effective clip chain, and responsive sentinels.
 4. **Application Surface Graph → Coverage Autopilot.**
