@@ -47,11 +47,23 @@ export class PlaywrightDriver {
                 this.#networkRequestsTruncated = true;
                 return;
             }
+            const identity = identifyRequest(request);
             const event = {
                 sequence: this.#network.length + 1,
                 method: request.method().toUpperCase(),
                 url: request.url(),
                 resource_type: request.resourceType(),
+                ...(identity.content_type ? { content_type: identity.content_type } : {}),
+                ...(identity.body_digest ? { body_digest: identity.body_digest } : {}),
+                ...(identity.graphql?.operation_name
+                    ? { graphql_operation: identity.graphql.operation_name }
+                    : {}),
+                ...(identity.graphql?.query_digest
+                    ? { graphql_query_digest: identity.graphql.query_digest }
+                    : {}),
+                ...(identity.graphql?.variables_digest
+                    ? { graphql_variables_digest: identity.graphql.variables_digest }
+                    : {}),
             };
             this.#network.push(event);
             this.#requestEvents.set(request, event);
@@ -391,8 +403,11 @@ export class PlaywrightDriver {
         const policy = this.#config.network;
         if (policy.mode !== "replay" && policy.mode !== "hybrid")
             return;
+        const schemaV = policy.profile?.schema_v ?? 1;
         for (const entry of policy.profile?.entries ?? []) {
-            const key = networkIdentity(entry.method, entry.path);
+            const key = schemaV === 1
+                ? networkIdentity(entry.method, entry.path)
+                : networkIdentity(entry.method, entry.path, identityFromProfileEntry(entry));
             const queue = this.#replayEntries.get(key) ?? [];
             queue.push(entry);
             this.#replayEntries.set(key, queue);
@@ -404,7 +419,9 @@ export class PlaywrightDriver {
                 return;
             }
             const path = requestPath(request.url(), new Set(policy.redact_json_keys));
-            const key = networkIdentity(request.method(), path);
+            const key = schemaV === 1
+                ? networkIdentity(request.method(), path)
+                : networkIdentity(request.method(), path, identifyRequest(request));
             const entry = this.#replayEntries.get(key)?.shift();
             if (entry) {
                 await route.fulfill({
@@ -467,6 +484,7 @@ export class PlaywrightDriver {
             return;
         }
         this.#recordedResponseBytes += bodyBytes;
+        const identity = identifyRequest(request);
         this.#recordedResponses.push({
             sequence,
             method: request.method().toUpperCase(),
@@ -474,6 +492,17 @@ export class PlaywrightDriver {
             status: response.status(),
             content_type: contentType,
             body,
+            ...(identity.content_type ? { request_content_type: identity.content_type } : {}),
+            ...(identity.body_digest ? { request_body_digest: identity.body_digest } : {}),
+            ...(identity.graphql?.operation_name
+                ? { graphql_operation_name: identity.graphql.operation_name }
+                : {}),
+            ...(identity.graphql?.query_digest
+                ? { graphql_query_digest: identity.graphql.query_digest }
+                : {}),
+            ...(identity.graphql?.variables_digest
+                ? { graphql_variables_digest: identity.graphql.variables_digest }
+                : {}),
         });
     }
     #networkProfile() {
@@ -482,7 +511,7 @@ export class PlaywrightDriver {
         const entries = this.#recordedResponses
             .sort((left, right) => left.sequence - right.sequence)
             .map(({ sequence: _sequence, ...entry }) => entry);
-        return { schema_v: 1, entries };
+        return { schema_v: 2, entries };
     }
     #locator(target) {
         validateTarget(target);
@@ -777,7 +806,7 @@ function validateNetworkPolicy(policy) {
     };
 }
 function validateNetworkProfile(profile, maxEntries, maxBodyBytes, maxTotalBytes) {
-    if (profile.schema_v !== 1 || !Array.isArray(profile.entries)) {
+    if ((profile.schema_v !== 1 && profile.schema_v !== 2) || !Array.isArray(profile.entries)) {
         throw new Error("unknown or malformed network replay profile");
     }
     if (profile.entries.length > maxEntries) {
@@ -830,8 +859,133 @@ function requestPath(url, redactedKeys) {
     }
     return `${parsed.pathname}${parsed.search}`;
 }
-function networkIdentity(method, path) {
-    return `${method.toUpperCase()} ${path}`;
+function networkIdentity(method, path, identity) {
+    const parts = [`${method.toUpperCase()} ${path}`];
+    if (identity?.content_type)
+        parts.push(identity.content_type);
+    if (identity?.graphql) {
+        parts.push(`gql:${identity.graphql.operation_name || "-"}`);
+        parts.push(`q:${identity.graphql.query_digest}`);
+        parts.push(`v:${identity.graphql.variables_digest}`);
+    }
+    else if (identity?.body_digest) {
+        parts.push(`body:${identity.body_digest}`);
+    }
+    return parts.join(" ");
+}
+function identityFromProfileEntry(entry) {
+    return {
+        content_type: entry.request_content_type,
+        body_digest: entry.request_body_digest,
+        graphql: entry.graphql_query_digest || entry.graphql_variables_digest
+            ? {
+                operation_name: entry.graphql_operation_name,
+                query_digest: entry.graphql_query_digest,
+                variables_digest: entry.graphql_variables_digest,
+            }
+            : undefined,
+    };
+}
+function identifyRequest(request) {
+    const headers = request.headers();
+    const contentType = mediaType(headers["content-type"] ?? "");
+    const body = request.postDataBuffer();
+    return identifyRequestBytes(request.method(), requestPathIdentity(request.url()), contentType, body);
+}
+function requestPathIdentity(url) {
+    try {
+        const parsed = new URL(url);
+        return `${parsed.pathname}${parsed.search}` || "/";
+    }
+    catch {
+        return url;
+    }
+}
+function mediaType(contentType) {
+    return (contentType.split(";", 1)[0] ?? "").trim().toLowerCase();
+}
+function identifyRequestBytes(_method, path, contentType, body) {
+    const identity = {
+        content_type: contentType,
+        body_digest: undefined,
+        graphql: undefined,
+    };
+    if (!body || body.byteLength === 0)
+        return identity;
+    let parsed;
+    try {
+        parsed = JSON.parse(body.toString("utf8"));
+    }
+    catch {
+        parsed = undefined;
+    }
+    if (looksLikeGraphql(path, contentType, parsed, body)) {
+        const graphql = graphqlIdentity(contentType, body, parsed);
+        if (graphql) {
+            identity.graphql = graphql;
+            return identity;
+        }
+    }
+    identity.body_digest = parsed === undefined
+        ? sha256Hex(body)
+        : sha256Hex(Buffer.from(JSON.stringify(canonicalJson(parsed)), "utf8"));
+    return identity;
+}
+function looksLikeGraphql(path, contentType, json, body) {
+    if (contentType === "application/graphql" || contentType.startsWith("application/graphql+"))
+        return true;
+    const lower = path.toLowerCase();
+    const pathLooksGraphql = lower.includes("/graphql") || lower.endsWith("graphql");
+    return (json && typeof json.query === "string") || (pathLooksGraphql && body.byteLength > 0);
+}
+function graphqlIdentity(contentType, body, json) {
+    let query;
+    let operationName;
+    let variables = {};
+    if (contentType === "application/graphql" || contentType.startsWith("application/graphql+")) {
+        query = body.toString("utf8").trim();
+        if (!query)
+            return undefined;
+    }
+    else {
+        if (!json || typeof json.query !== "string" || !json.query.trim())
+            return undefined;
+        query = json.query;
+        if (typeof json.operationName === "string" && json.operationName.trim())
+            operationName = json.operationName.trim();
+        if (json.variables !== undefined)
+            variables = json.variables;
+    }
+    return {
+        operation_name: operationName ?? namedGraphqlOperation(query),
+        query_digest: sha256Hex(Buffer.from(normaliseGraphqlQuery(query), "utf8")),
+        variables_digest: sha256Hex(Buffer.from(JSON.stringify(canonicalJson(variables)), "utf8")),
+    };
+}
+function namedGraphqlOperation(query) {
+    const tokens = query.split(/\s+/).filter(Boolean);
+    for (let index = 0; index < tokens.length - 1; index += 1) {
+        if (!["query", "mutation", "subscription"].includes(tokens[index]))
+            continue;
+        const name = tokens[index + 1];
+        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+            return name;
+    }
+    return undefined;
+}
+function normaliseGraphqlQuery(query) {
+    return query.split(/\s+/).filter(Boolean).join(" ");
+}
+function canonicalJson(value) {
+    if (Array.isArray(value))
+        return value.map(canonicalJson);
+    if (value && typeof value === "object") {
+        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+    }
+    return value;
+}
+function sha256Hex(bytes) {
+    return createHash("sha256").update(bytes).digest("hex");
 }
 function redactJson(value, keys, parentKey = "") {
     if (keys.has(parentKey.toLowerCase()))

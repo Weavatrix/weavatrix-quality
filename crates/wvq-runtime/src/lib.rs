@@ -16,6 +16,7 @@ mod lcov;
 mod normalize;
 mod process;
 mod program;
+mod request_identity;
 
 pub use behavior::{
     BehaviorEdge, BehaviorState, BehaviorTrace, CoverageContribution, GraphMemory, RecordedEvent,
@@ -55,4 +56,7 @@ pub use program::{
     ApiOperation, CaptureWhen, EvidencePolicy, FaultSpec, NetworkRequestObservation, Observation,
     ProgramError, ProgramSource, Target, TestAction, TestProgram, WaitCondition,
     filter_observation,
+};
+pub use request_identity::{
+    GraphqlIdentity, RequestIdentity, canonical_json_digest, identify_request, request_path,
 };

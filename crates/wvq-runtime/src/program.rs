@@ -524,6 +524,47 @@ pub struct NetworkRequestObservation {
     /// Playwright resource class (`fetch`, `xhr`, `document`, …), when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resource_type: Option<String>,
+    /// Lowercase request media type, without parameters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Canonical JSON or raw SHA-256 of the request body. Never the body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_digest: Option<String>,
+    /// GraphQL operation name when the request was GraphQL-shaped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_operation: Option<String>,
+    /// SHA-256 of the whitespace-normalised GraphQL query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_query_digest: Option<String>,
+    /// SHA-256 of canonical GraphQL variables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_variables_digest: Option<String>,
+}
+
+impl NetworkRequestObservation {
+    /// Privacy-safe comparison token. Falls back to method + path for v1 journals.
+    #[must_use]
+    pub fn identity_key(&self) -> String {
+        let mut identity = crate::identify_request(
+            &self.method,
+            &self.url,
+            self.content_type.as_deref().unwrap_or(""),
+            None,
+        );
+        if let Some(content_type) = &self.content_type {
+            identity.content_type.clone_from(content_type);
+        }
+        identity.body_digest.clone_from(&self.body_digest);
+        if self.graphql_query_digest.is_some() || self.graphql_variables_digest.is_some() {
+            identity.graphql = Some(crate::GraphqlIdentity {
+                operation_name: self.graphql_operation.clone(),
+                query_digest: self.graphql_query_digest.clone().unwrap_or_default(),
+                variables_digest: self.graphql_variables_digest.clone().unwrap_or_default(),
+            });
+            identity.body_digest = None;
+        }
+        identity.key()
+    }
 }
 
 /// Structured observation. Binary screenshots stay handles.

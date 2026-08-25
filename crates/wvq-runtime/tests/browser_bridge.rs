@@ -360,6 +360,7 @@ fn rust_host_records_redacted_json_and_strictly_replays_it() {
     assert!(recorded.passed, "{recorded:#?}");
     assert_eq!(api_calls.load(Ordering::Acquire), 1);
     let profile = recorded.network_profile.expect("redacted replay profile");
+    assert_eq!(profile.schema_v, 2);
     assert_eq!(profile.entries.len(), 1);
     let serialized = serde_json::to_string(&profile).unwrap();
     assert!(!serialized.contains("private@example.invalid"));

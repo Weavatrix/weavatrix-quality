@@ -120,11 +120,19 @@ impl StructuredView {
             // Base and head preview deployments normally use different
             // origins. Origin is infrastructure identity, not application
             // behaviour, so compare method/path/status instead.
-            network: observation
-                .network
-                .iter()
-                .map(|event| network_event_identity(event))
-                .collect(),
+            network: if observation.network_requests.is_empty() {
+                observation
+                    .network
+                    .iter()
+                    .map(|event| network_event_identity(event))
+                    .collect()
+            } else {
+                observation
+                    .network_requests
+                    .iter()
+                    .map(crate::NetworkRequestObservation::identity_key)
+                    .collect()
+            },
             console: observation.console.clone(),
             storage: observation
                 .storage

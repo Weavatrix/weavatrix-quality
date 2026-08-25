@@ -104,13 +104,28 @@ pub struct NetworkReplayEntry {
     pub content_type: String,
     /// Bounded redacted JSON response.
     pub body: String,
+    /// Request media type used for replay identity. Never a body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_content_type: Option<String>,
+    /// Canonical request-body digest. The body itself is never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_body_digest: Option<String>,
+    /// GraphQL operation name when the request was GraphQL-shaped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_operation_name: Option<String>,
+    /// SHA-256 of the whitespace-normalised GraphQL query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_query_digest: Option<String>,
+    /// SHA-256 of canonical GraphQL variables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphql_variables_digest: Option<String>,
 }
 
 /// Versioned network replay artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkReplayProfile {
-    /// Schema version. Only `1`.
+    /// Schema version. `1` is method/path only; `2` adds privacy-safe request identity.
     pub schema_v: u32,
     /// Responses consumed in request order for each method/path identity.
     pub entries: Vec<NetworkReplayEntry>,
@@ -187,7 +202,7 @@ impl NetworkRunPolicy {
 
 impl NetworkReplayProfile {
     fn validate(&self, policy: &NetworkRunPolicy) -> Result<(), BrowserBridgeError> {
-        if self.schema_v != 1 {
+        if self.schema_v != 1 && self.schema_v != 2 {
             return Err(BrowserBridgeError::Config(format!(
                 "unknown network replay schema_v {}",
                 self.schema_v
@@ -468,7 +483,7 @@ pub fn duplicate_mutation_requests(run: &BrowserProgramRun) -> Vec<DuplicateMuta
             .iter()
             .map(|request| request.sequence)
             .collect::<BTreeSet<_>>();
-        let mut groups: BTreeMap<(String, String), Vec<u64>> = BTreeMap::new();
+        let mut groups: BTreeMap<String, (String, String, Vec<u64>)> = BTreeMap::new();
         for request in end
             .network_requests
             .iter()
@@ -478,12 +493,14 @@ pub fn duplicate_mutation_requests(run: &BrowserProgramRun) -> Vec<DuplicateMuta
             if !matches!(method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE") {
                 continue;
             }
+            let path = crate::request_path(&request.url);
             groups
-                .entry((method, request_url_identity(&request.url)))
-                .or_default()
+                .entry(request.identity_key())
+                .or_insert_with(|| (method, path, Vec::new()))
+                .2
                 .push(request.sequence);
         }
-        for ((method, url), sequences) in groups {
+        for (_, (method, url, sequences)) in groups {
             if sequences.len() > 1 {
                 duplicates.push(DuplicateMutationRequest {
                     step: span.step,
@@ -496,15 +513,6 @@ pub fn duplicate_mutation_requests(run: &BrowserProgramRun) -> Vec<DuplicateMuta
         }
     }
     duplicates
-}
-
-fn request_url_identity(url: &str) -> String {
-    let Some((_, after_scheme)) = url.split_once("://") else {
-        return url.to_owned();
-    };
-    after_scheme
-        .find('/')
-        .map_or_else(|| "/".into(), |index| after_scheme[index..].to_owned())
 }
 
 /// Browser bridge startup, protocol, or evidence failure.

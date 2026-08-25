@@ -10,6 +10,11 @@ fn request(sequence: u64, method: &str, url: &str) -> NetworkRequestObservation 
         url: url.into(),
         status: Some(200),
         resource_type: Some("fetch".into()),
+        content_type: None,
+        body_digest: None,
+        graphql_operation: None,
+        graphql_query_digest: None,
+        graphql_variables_digest: None,
     }
 }
 
@@ -139,5 +144,66 @@ fn reads_and_truncated_journals_never_become_duplicate_mutation_claims() {
     assert!(
         duplicate_mutation_requests(&run(vec![Observation::default(), truncated], spans))
             .is_empty()
+    );
+}
+
+#[test]
+fn different_body_digests_on_the_same_path_are_not_duplicates() {
+    let mut save = request(1, "POST", "https://example.invalid/api/save");
+    save.body_digest = Some("aaa".into());
+    save.content_type = Some("application/json".into());
+    let mut other = request(2, "POST", "https://example.invalid/api/save");
+    other.body_digest = Some("bbb".into());
+    other.content_type = Some("application/json".into());
+    let observations = vec![
+        Observation::default(),
+        Observation {
+            network_requests: vec![save, other],
+            ..Observation::default()
+        },
+    ];
+    assert!(
+        duplicate_mutation_requests(&run(
+            observations,
+            vec![ActionSpan {
+                step: 0,
+                action: activate(),
+                start_observation: 0,
+                end_observation: 1,
+            }],
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
+fn graphql_operations_on_the_same_path_are_not_the_same_mutation() {
+    let mut checkout = request(1, "POST", "https://example.invalid/graphql");
+    checkout.content_type = Some("application/json".into());
+    checkout.graphql_operation = Some("Checkout".into());
+    checkout.graphql_query_digest = Some("q1".into());
+    checkout.graphql_variables_digest = Some("v1".into());
+    let mut theme = request(2, "POST", "https://example.invalid/graphql");
+    theme.content_type = Some("application/json".into());
+    theme.graphql_operation = Some("Theme".into());
+    theme.graphql_query_digest = Some("q2".into());
+    theme.graphql_variables_digest = Some("v2".into());
+    assert!(
+        duplicate_mutation_requests(&run(
+            vec![
+                Observation::default(),
+                Observation {
+                    network_requests: vec![checkout, theme],
+                    ..Observation::default()
+                },
+            ],
+            vec![ActionSpan {
+                step: 0,
+                action: activate(),
+                start_observation: 0,
+                end_observation: 1,
+            }],
+        ))
+        .is_empty()
     );
 }
