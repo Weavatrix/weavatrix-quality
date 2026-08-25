@@ -196,6 +196,12 @@ impl LiveService {
             }
             None => SurfaceEvidenceMatrixView::absent(),
         };
+        reply.evidence_plan = match &run {
+            Some(run) => {
+                super::super::persist_plan::load_cheapest_evidence_plan(&store, &run.id)?
+            }
+            None => CheapestEvidencePlanView::absent(),
+        };
         Ok(reply)
     }
 }

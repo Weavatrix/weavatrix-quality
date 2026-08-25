@@ -119,7 +119,7 @@ P1 (do not skip into closed-loop Autopilot):
 
 - [x] Wire `ApplicationSurfaceGraph` as a read-only MCP/Studio artifact
 - [x] Surface Evidence Matrix
-- [ ] Gap classification + cheapest-evidence planner
+- [x] Gap classification + cheapest-evidence planner
 - [ ] Observe-only calibration on real PRs
 
 The command-bus 300-line file split is done (`service/` ≤300, Clippy `-D warnings` green). Bench and gap analysis in `wvq-command-bus` are no longer blocked on file size.

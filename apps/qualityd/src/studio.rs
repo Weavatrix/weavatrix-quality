@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
     ApplicationSurfaceView, AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand, DebtCommand, DebtReply,
-    EvidenceCommand, ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand,
-    SurfaceEvidenceMatrixView, VerifyCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand, CheapestEvidencePlanView,
+    DebtCommand, DebtReply, EvidenceCommand, ExplainCommand, ProofSummary, QualityService,
+    RecordCommand, StatusCommand, SurfaceEvidenceMatrixView, VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -115,6 +115,8 @@ struct SummaryBody {
     application_surface: ApplicationSurfaceView,
     /// Read-only Surface Evidence Matrix. Never a gate.
     surface_evidence: SurfaceEvidenceMatrixView,
+    /// Read-only cheapest-evidence plan. Never a gate.
+    evidence_plan: CheapestEvidencePlanView,
 }
 
 /// One axis reduced to its state for the dashboard header.
@@ -406,6 +408,7 @@ impl Studio {
             ui_integrity,
             application_surface: verify.application_surface,
             surface_evidence: verify.surface_evidence,
+            evidence_plan: verify.evidence_plan,
         })
     }
 

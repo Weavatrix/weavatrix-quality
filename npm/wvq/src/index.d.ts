@@ -225,6 +225,8 @@ export interface VerifyReply {
     application_surface: ApplicationSurfaceView
     /** Read-only evidence matrix. Never a gate. */
     surface_evidence: SurfaceEvidenceMatrixView
+    /** Read-only cheapest-evidence plan. Never a gate. */
+    evidence_plan: CheapestEvidencePlanView
 }
 
 export interface SurfaceEvidenceRow {
@@ -244,6 +246,42 @@ export interface SurfaceEvidenceMatrixView {
     present: boolean
     truncated: boolean
     surfaces: SurfaceEvidenceRow[]
+}
+
+export interface EvidencePlan {
+    surface: string
+    kind: string
+    column:
+        | 'intent'
+        | 'runtime'
+        | 'test'
+        | 'proof'
+        | 'protection'
+        | 'ui'
+        | 'a11y'
+        | 'mutation'
+    cheapest:
+        | 'existing_test_adaptation'
+        | 'recorded_session'
+        | 'storybook_flow'
+        | 'browser_explore'
+        | 'ai_test_program'
+        | null
+    producers: Array<{
+        producer:
+            | 'existing_test_adaptation'
+            | 'recorded_session'
+            | 'storybook_flow'
+            | 'browser_explore'
+            | 'ai_test_program'
+        cost: number
+    }>
+}
+
+export interface CheapestEvidencePlanView {
+    present: boolean
+    truncated: boolean
+    gaps: EvidencePlan[]
 }
 
 export interface ExplainReply {

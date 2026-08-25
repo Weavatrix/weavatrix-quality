@@ -22,6 +22,7 @@ pub(in crate::service) fn combine_verify(
         quality,
         application_surface: ApplicationSurfaceView::absent(),
         surface_evidence: SurfaceEvidenceMatrixView::absent(),
+        evidence_plan: CheapestEvidencePlanView::absent(),
     }
 }
 

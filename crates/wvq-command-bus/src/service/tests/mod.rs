@@ -51,6 +51,7 @@ mod paths;
 mod surface;
 mod surface_persist;
 mod surface_matrix;
+mod surface_plan;
 mod policy;
 mod protection;
 mod init;

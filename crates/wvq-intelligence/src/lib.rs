@@ -9,6 +9,7 @@
 
 mod checks;
 mod coverage_autopilot;
+mod evidence_plan;
 mod debt;
 mod flow;
 mod hypothesis;
@@ -28,6 +29,10 @@ pub use checks::{
 };
 pub use coverage_autopilot::{
     CoverageAutopilot, SurfaceCoverage, SurfaceCoverageState, coverage_autopilot,
+};
+pub use evidence_plan::{
+    CheapestEvidencePlan, EvidenceColumn, EvidenceGap, EvidencePlan, EvidenceProducer,
+    ProducerOffer, classify_evidence_gaps, plan_cheapest_evidence,
 };
 pub use surface_evidence::{
     EvidenceCell, MeasuredColumn, SurfaceEvidenceColumns, SurfaceEvidenceMatrix,

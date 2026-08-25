@@ -249,6 +249,29 @@ impl SurfaceEvidenceMatrixView {
     }
 }
 
+/// Read-only cheapest-evidence plan for MCP and Studio.
+///
+/// Ranked producers for measured-absent cells. A missing artifact is
+/// [`Self::absent`], not an empty “no gaps” plan. This view is never a gate
+/// and does not generate evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct CheapestEvidencePlanView {
+    /// False when the run never stored a plan.
+    pub present: bool,
+    /// True when the surface graph or a binding reach was truncated.
+    pub truncated: bool,
+    /// One ranked plan per measured-absent cell.
+    pub gaps: Vec<wvq_intelligence::EvidencePlan>,
+}
+
+impl CheapestEvidencePlanView {
+    /// No artifact. Missing evidence is not an empty plan.
+    #[must_use]
+    pub fn absent() -> Self {
+        Self::default()
+    }
+}
+
 /// Multi-axis verdict. Not a quality percentage.
 ///
 /// `verdict` stays the combined [`wvq_proof::ProofVerdict`] token so existing
@@ -273,6 +296,8 @@ pub struct VerifyReply {
     pub application_surface: ApplicationSurfaceView,
     /// Read-only Surface Evidence Matrix. Never a gate.
     pub surface_evidence: SurfaceEvidenceMatrixView,
+    /// Read-only cheapest-evidence plan. Never a gate.
+    pub evidence_plan: CheapestEvidencePlanView,
 }
 
 impl VerifyReply {

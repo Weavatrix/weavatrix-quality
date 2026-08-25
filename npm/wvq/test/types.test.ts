@@ -53,3 +53,15 @@ verified.surface_evidence.surfaces satisfies Array<{
     intent: 'present' | 'absent' | 'unmeasured'
     protection: 'present' | 'absent' | 'unmeasured'
 }>
+verified.evidence_plan.present satisfies boolean
+verified.evidence_plan.gaps satisfies Array<{
+    surface: string
+    column: 'intent' | 'runtime' | 'test' | 'proof' | 'protection' | 'ui' | 'a11y' | 'mutation'
+    cheapest:
+        | 'existing_test_adaptation'
+        | 'recorded_session'
+        | 'storybook_flow'
+        | 'browser_explore'
+        | 'ai_test_program'
+        | null
+}>

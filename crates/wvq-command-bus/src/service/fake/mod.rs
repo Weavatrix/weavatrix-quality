@@ -27,6 +27,7 @@ pub(in crate::service) struct FakeInner {
     pub(in crate::service) proofs: Vec<ProofSummary>,
     pub(in crate::service) application_surface: ApplicationSurfaceView,
     pub(in crate::service) surface_evidence: SurfaceEvidenceMatrixView,
+    pub(in crate::service) evidence_plan: CheapestEvidencePlanView,
 }
 
 impl Default for FakeService {
@@ -47,6 +48,7 @@ impl Default for FakeService {
                 proofs: Vec::new(),
                 application_surface: ApplicationSurfaceView::absent(),
                 surface_evidence: SurfaceEvidenceMatrixView::absent(),
+                evidence_plan: CheapestEvidencePlanView::absent(),
             }),
         }
     }
@@ -88,6 +90,11 @@ impl FakeService {
     /// Read-only Surface Evidence Matrix [`QualityService::verify`] returns.
     pub fn set_surface_evidence(&self, view: SurfaceEvidenceMatrixView) {
         self.lock().surface_evidence = view;
+    }
+
+    /// Read-only cheapest-evidence plan [`QualityService::verify`] returns.
+    pub fn set_evidence_plan(&self, view: CheapestEvidencePlanView) {
+        self.lock().evidence_plan = view;
     }
 
     /// Whether [`QualityService::run`] was invoked.

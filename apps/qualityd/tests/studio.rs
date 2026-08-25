@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qualityd::{HttpRequest, HttpResponse, Studio, serve};
 use serde_json::Value;
 use wvq_command_bus::{
-    ApplicationSurfaceKind, EvidenceCell, FakeService, ProofSummary, QualityService,
-    SurfaceEvidenceRow,
+    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidencePlan, EvidenceProducer,
+    FakeService, ProducerOffer, ProofSummary, QualityService, SurfaceEvidenceRow,
 };
 use wvq_proof::{FlowView, ProtectionView, TestLineageView};
 use wvq_spec_recovery::RecoveryDesk;
@@ -356,6 +356,34 @@ fn the_dashboard_projects_the_surface_evidence_matrix_without_gating() {
     assert_eq!(row["intent"], "present");
     assert_eq!(row["mutation"], "absent");
     assert_eq!(row["runtime"], "unmeasured");
+}
+
+#[test]
+fn the_dashboard_projects_the_cheapest_evidence_plan_without_gating() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("PROVEN");
+    fake.set_evidence_plan(wvq_command_bus::CheapestEvidencePlanView {
+        present: true,
+        truncated: false,
+        gaps: vec![EvidencePlan {
+            surface: "endpoint:GET /admin".into(),
+            kind: ApplicationSurfaceKind::Endpoint,
+            column: EvidenceColumn::Protection,
+            cheapest: Some(EvidenceProducer::ExistingTestAdaptation),
+            producers: vec![ProducerOffer {
+                producer: EvidenceProducer::ExistingTestAdaptation,
+                cost: 1,
+            }],
+        }],
+    });
+    let studio = studio_with(&fake);
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["blocking"], false);
+    let gap = &body["evidence_plan"]["gaps"][0];
+    assert_eq!(gap["surface"], "endpoint:GET /admin");
+    assert_eq!(gap["column"], "protection");
+    assert_eq!(gap["cheapest"], "existing_test_adaptation");
+    assert_eq!(gap["producers"][0]["cost"], 1);
 }
 
 #[test]

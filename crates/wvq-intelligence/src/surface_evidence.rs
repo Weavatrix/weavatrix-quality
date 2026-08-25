@@ -93,6 +93,24 @@ pub struct SurfaceEvidenceRow {
     pub mutation: EvidenceCell,
 }
 
+impl SurfaceEvidenceRow {
+    /// Column cells in planner order.
+    #[must_use]
+    pub fn cells(&self) -> [(crate::evidence_plan::EvidenceColumn, EvidenceCell); 8] {
+        use crate::evidence_plan::EvidenceColumn as Column;
+        [
+            (Column::Intent, self.intent),
+            (Column::Runtime, self.runtime),
+            (Column::Test, self.test),
+            (Column::Proof, self.proof),
+            (Column::Protection, self.protection),
+            (Column::Ui, self.ui),
+            (Column::A11y, self.a11y),
+            (Column::Mutation, self.mutation),
+        ]
+    }
+}
+
 /// Matrix over every named production surface.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

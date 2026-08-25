@@ -17,6 +17,8 @@ pub(in crate::service) const ORACLE_REPLACEMENT_KIND: &str = "oracle-replacement
 pub(in crate::service) const APPLICATION_SURFACE_GRAPH_KIND: &str = "application-surface-graph";
 /// CAS artifact kind for the read-only Surface Evidence Matrix.
 pub(in crate::service) const SURFACE_EVIDENCE_MATRIX_KIND: &str = "surface-evidence-matrix";
+/// CAS artifact kind for the read-only cheapest-evidence plan.
+pub(in crate::service) const CHEAPEST_EVIDENCE_PLAN_KIND: &str = "cheapest-evidence-plan";
 
 mod authoring;
 mod recovery;
@@ -47,6 +49,7 @@ mod persist_behavior;
 mod persist_evidence;
 mod persist_surface;
 mod persist_matrix;
+mod persist_plan;
 mod impact;
 mod protection_snapshot;
 mod protection_coverage;
@@ -92,6 +95,8 @@ pub(in crate::service) use selection_audit::*;
 pub(in crate::service) use execute::*;
 #[cfg(test)]
 pub(in crate::service) use persist_matrix::*;
+#[cfg(test)]
+pub(in crate::service) use persist_plan::*;
 #[cfg(test)]
 pub(in crate::service) use persist_surface::*;
 #[cfg(test)]
