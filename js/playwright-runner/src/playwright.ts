@@ -22,6 +22,8 @@ import {
 } from "./record.js";
 import {
   collectLayoutSnapshot,
+  freezeAnimations,
+  waitForFonts,
   type CollectionResult,
   type UiIntegrityConfig,
 } from "./ui_integrity.js";
@@ -539,7 +541,14 @@ export class PlaywrightDriver implements Driver {
         this.#config.evidence_dir,
         `${safeName(this.#program.id)}-${Date.now()}.png`,
       );
-      await this.#page.screenshot({ path, fullPage: true });
+      await freezeAnimations(this.#page);
+      await waitForFonts(this.#page, 2_000);
+      await this.#page.screenshot({
+        path,
+        fullPage: true,
+        animations: "disabled",
+        caret: "hide",
+      });
       observation.screenshot_path = path;
     }
     return observation;

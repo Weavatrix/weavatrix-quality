@@ -329,7 +329,8 @@ async function readResponsiveBreakpoints(page: Page): Promise<ResponsiveBreakpoi
  * ratchet reports a regression that is really an animation frame. The style is
  * additive and scoped to the automation run; it is never written to the app.
  */
-async function freezeAnimations(page: Page): Promise<void> {
+/** Freeze CSS time and hide the caret so a later screenshot is not a random frame. */
+export async function freezeAnimations(page: Page): Promise<void> {
   await page.addStyleTag({
     content: `*, *::before, *::after {
       animation-delay: -1ms !important;
@@ -349,7 +350,8 @@ async function freezeAnimations(page: Page): Promise<void> {
   });
 }
 
-async function waitForFonts(page: Page, timeoutMs: number): Promise<boolean> {
+/** Bounded wait for webfonts. False means the timeout won, not that fonts failed. */
+export async function waitForFonts(page: Page, timeoutMs: number): Promise<boolean> {
   try {
     return await page.evaluate(async (budget) => {
       const settled = await Promise.race([

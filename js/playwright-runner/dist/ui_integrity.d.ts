@@ -153,6 +153,17 @@ export declare function collectLayoutSnapshot(page: Page, identity: {
     step: number;
     stateDigest: string;
 }, config: UiIntegrityConfig | undefined): Promise<CollectionResult>;
+/**
+ * Stop time inside the page.
+ *
+ * Without this the same button is at two different places on two runs and the
+ * ratchet reports a regression that is really an animation frame. The style is
+ * additive and scoped to the automation run; it is never written to the app.
+ */
+/** Freeze CSS time and hide the caret so a later screenshot is not a random frame. */
+export declare function freezeAnimations(page: Page): Promise<void>;
+/** Bounded wait for webfonts. False means the timeout won, not that fonts failed. */
+export declare function waitForFonts(page: Page, timeoutMs: number): Promise<boolean>;
 /** Whether two reads of the same page agree on where everything is. */
 export declare function geometryMatches(left: UiNode[], right: UiNode[], tolerance: number): boolean;
 /**

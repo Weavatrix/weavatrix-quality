@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { installSemanticRecorder, } from "./record.js";
-import { collectLayoutSnapshot, } from "./ui_integrity.js";
+import { collectLayoutSnapshot, freezeAnimations, waitForFonts, } from "./ui_integrity.js";
 import { identifyRequestBytes, identityFromProfileEntry, mediaType, networkIdentity, requestPathIdentity, } from "./request_identity.js";
 const MAX_NETWORK_REQUESTS = 2_048;
 export class PlaywrightDriver {
@@ -331,7 +331,14 @@ export class PlaywrightDriver {
         if (captureScreenshot && captureAllowed(policy.screenshot, this.#failed)) {
             await mkdir(this.#config.evidence_dir, { recursive: true });
             const path = join(this.#config.evidence_dir, `${safeName(this.#program.id)}-${Date.now()}.png`);
-            await this.#page.screenshot({ path, fullPage: true });
+            await freezeAnimations(this.#page);
+            await waitForFonts(this.#page, 2_000);
+            await this.#page.screenshot({
+                path,
+                fullPage: true,
+                animations: "disabled",
+                caret: "hide",
+            });
             observation.screenshot_path = path;
         }
         return observation;

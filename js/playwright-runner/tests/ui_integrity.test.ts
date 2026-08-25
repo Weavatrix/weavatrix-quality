@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -266,6 +267,56 @@ test("collection reports zero runtime model tokens", async () => {
   );
   // The whole collector is geometry arithmetic; nothing here can spend tokens.
   assert.equal(JSON.stringify(snapshot).includes("model"), false);
+});
+
+test("two screenshots of a focused input match after visual settle", async () => {
+  const { server, port } = await serve(`<!doctype html>
+    <html><body>
+      <input id="name" value="Alice" autofocus>
+    </body></html>`);
+  const evidence = await mkdtemp(join(tmpdir(), "wvq-shot-"));
+  let driver;
+  try {
+    driver = await PlaywrightDriver.create(
+      {
+        id: "visual-settle",
+        obligations: ["rendered"],
+        steps: [{ action: "navigate", route: "/" }],
+        evidence_policy: {
+          screenshot: "always",
+          trace: "never",
+          network: "never",
+          console: "never",
+          storage: "never",
+        },
+      },
+      [{ obligation: "rendered", expected: { kind: "no_console_errors" } }],
+      {
+        base_url: `http://127.0.0.1:${port}`,
+        browser: "chromium",
+        headless: true,
+        timeout_ms: 15_000,
+        evidence_dir: evidence,
+      },
+    );
+    await driver.navigate("/");
+    const first = await driver.observe(false, true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const second = await driver.observe(false, true);
+    assert(first.screenshot_path, "first observation must capture a png");
+    assert(second.screenshot_path, "second observation must capture a png");
+    const left = createHash("sha256")
+      .update(await readFile(first.screenshot_path))
+      .digest("hex");
+    const right = createHash("sha256")
+      .update(await readFile(second.screenshot_path))
+      .digest("hex");
+    assert.equal(left, right);
+  } finally {
+    await driver?.finish();
+    await rm(evidence, { recursive: true, force: true });
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("config is clamped to the hard ceilings", () => {
