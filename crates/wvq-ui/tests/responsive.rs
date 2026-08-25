@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use wvq_domain::Severity;
 use wvq_ui::{
-    ResponsivePolicy, ResponsiveProbe, UiCheck, UiEvidence, UiFindingState, UiIntegrityDelta,
-    UiIntegrityFinding, next_responsive_probe, responsive_failure_intervals, responsive_probe_plan,
+    RESPONSIVE_SENTINEL_WIDTHS, ResponsivePolicy, ResponsiveProbe, UiCheck, UiEvidence,
+    UiFindingState, UiIntegrityDelta, UiIntegrityFinding, next_responsive_probe,
+    responsive_failure_intervals, responsive_probe_plan,
 };
 
 fn finding(width: u32) -> UiIntegrityFinding {
@@ -76,7 +77,7 @@ fn probe(width: u32, failing: bool) -> ResponsiveProbe {
 }
 
 #[test]
-fn seeds_css_boundaries_instead_of_a_fixed_viewport_list() {
+fn seeds_sentinels_and_css_neighbours_not_a_viewport_matrix() {
     let policy = ResponsivePolicy {
         min_width: 320,
         max_width: 1_440,
@@ -86,8 +87,60 @@ fn seeds_css_boundaries_instead_of_a_fixed_viewport_list() {
     let plan = responsive_probe_plan(&policy, &BTreeSet::from([768, 1_024]));
     assert_eq!(
         plan.widths,
-        vec![320, 767, 768, 769, 1_023, 1_024, 1_025, 1_440]
+        vec![
+            320, 360, 390, 414, 480, 640, 767, 768, 769, 1_023, 1_024, 1_025, 1_280, 1_440
+        ]
     );
+    assert!(!plan.truncated);
+    assert_eq!(RESPONSIVE_SENTINEL_WIDTHS, [360, 390, 414, 480, 640, 768, 1_024, 1_280]);
+}
+
+#[test]
+fn a_css_less_layout_still_measures_phone_and_tablet_sentinels() {
+    let policy = ResponsivePolicy::default();
+    let plan = responsive_probe_plan(&policy, &BTreeSet::new());
+    assert_eq!(
+        plan.widths,
+        vec![320, 360, 390, 414, 480, 640, 768, 1_024, 1_280, 1_440]
+    );
+    assert!(!plan.widths.contains(&391), "sentinels are points, not a matrix");
+    assert!(!plan.truncated);
+}
+
+#[test]
+fn sentinels_outside_the_configured_range_are_omitted() {
+    let policy = ResponsivePolicy {
+        min_width: 800,
+        max_width: 1_100,
+        ..ResponsivePolicy::default()
+    };
+    let plan = responsive_probe_plan(&policy, &BTreeSet::from([768]));
+    assert_eq!(plan.widths, vec![800, 1_024, 1_100]);
+    assert!(!plan.truncated);
+}
+
+#[test]
+fn a_tight_budget_keeps_range_bounds_before_extra_css_neighbours() {
+    let policy = ResponsivePolicy {
+        min_width: 320,
+        max_width: 1_440,
+        max_probes: 6,
+        ..ResponsivePolicy::default()
+    };
+    let plan = responsive_probe_plan(&policy, &BTreeSet::from([768]));
+    assert_eq!(plan.widths, vec![320, 360, 390, 414, 480, 1_440]);
+    assert!(plan.widths.contains(&policy.max_width));
+    assert!(plan.truncated);
+}
+
+#[test]
+fn disabled_search_produces_no_probes() {
+    let policy = ResponsivePolicy {
+        enabled: false,
+        ..ResponsivePolicy::default()
+    };
+    let plan = responsive_probe_plan(&policy, &BTreeSet::from([768]));
+    assert!(plan.widths.is_empty());
     assert!(!plan.truncated);
 }
 

@@ -5,8 +5,8 @@ use super::super::persist_ui::responsive_probe_incomplete;
 use super::LiveService;
 
 impl LiveService {
-    /// Probe the parsed CSS/container boundaries on base and head, then bisect
-    /// only intervals whose measured finding sets disagree.
+    /// Probe sentinels and parsed CSS/container boundaries on base and head,
+    /// then bisect only intervals whose measured finding sets disagree.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::service) fn measure_responsive_ui(
         &self,

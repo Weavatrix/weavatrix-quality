@@ -6,7 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ResponsivePolicy, UiFindingState, UiIntegrityDelta, UiIntegrityFinding};
 
-/// Initial widths derived from CSS/container breakpoints and configured bounds.
+/// Device and layout widths always seeded inside the configured range.
+///
+/// CSS/container breakpoints still get ±1 neighbours so a transition can be
+/// isolated to one pixel. These sentinels fill the holes a fluid layout has
+/// when the range bounds agree and bisection would otherwise never run.
+/// They are not a full viewport matrix: a width that is not a sentinel and
+/// not next to a parsed breakpoint is still unmeasured until two adjacent
+/// probes disagree.
+pub const RESPONSIVE_SENTINEL_WIDTHS: [u32; 8] =
+    [360, 390, 414, 480, 640, 768, 1_024, 1_280];
+
+/// Initial widths derived from sentinels, CSS/container breakpoints, and bounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponsiveProbePlan {
     /// Widths to measure in ascending order.
@@ -42,7 +53,11 @@ pub struct ResponsiveFailureInterval {
     pub finding: UiIntegrityFinding,
 }
 
-/// Build the bounded seed set around the browser's parsed breakpoints.
+/// Build the bounded seed set: range bounds, sentinels, then CSS ±1 neighbours.
+///
+/// Truncation never drops the configured min/max: those bounds are what make
+/// a failure interval exact at the edge of the search. Extra CSS neighbours
+/// go first when the probe budget is tight, then extra sentinels.
 #[must_use]
 pub fn responsive_probe_plan(
     policy: &ResponsivePolicy,
@@ -54,34 +69,58 @@ pub fn responsive_probe_plan(
             truncated: false,
         };
     }
-    let mut widths = BTreeSet::from([policy.min_width, policy.max_width]);
-    for breakpoint in breakpoints
-        .range(policy.min_width..=policy.max_width)
-        .copied()
-    {
-        for width in [
-            breakpoint.saturating_sub(1),
-            breakpoint,
-            breakpoint.saturating_add(1),
-        ] {
-            if (policy.min_width..=policy.max_width).contains(&width) {
-                widths.insert(width);
+    let range = policy.min_width..=policy.max_width;
+    let bounds = BTreeSet::from([policy.min_width, policy.max_width]);
+    let mut seeds = BTreeSet::new();
+    for width in RESPONSIVE_SENTINEL_WIDTHS {
+        if range.contains(&width) {
+            seeds.insert(width);
+        }
+    }
+    let mut neighbours = BTreeSet::new();
+    for breakpoint in breakpoints.range(range.clone()).copied() {
+        seeds.insert(breakpoint);
+        for width in [breakpoint.saturating_sub(1), breakpoint.saturating_add(1)] {
+            if range.contains(&width) {
+                neighbours.insert(width);
             }
         }
     }
+    for width in &bounds {
+        seeds.remove(width);
+        neighbours.remove(width);
+    }
+    for width in &seeds {
+        neighbours.remove(width);
+    }
+
     let limit = usize::try_from(policy.max_probes).unwrap_or(usize::MAX);
-    let truncated = widths.len() > limit;
+    let mut widths = BTreeSet::new();
+    let truncated = absorb(&mut widths, &bounds, limit)
+        || absorb(&mut widths, &seeds, limit)
+        || absorb(&mut widths, &neighbours, limit);
     ResponsiveProbePlan {
-        widths: widths.into_iter().take(limit).collect(),
+        widths: widths.into_iter().collect(),
         truncated,
     }
+}
+
+fn absorb(dest: &mut BTreeSet<u32>, source: &BTreeSet<u32>, limit: usize) -> bool {
+    for width in source {
+        if dest.len() >= limit {
+            return true;
+        }
+        dest.insert(*width);
+    }
+    false
 }
 
 /// Choose the next midpoint where two measured widths disagree.
 ///
 /// Repeating this until `None` isolates every observed transition to one CSS
-/// pixel. Equal endpoints are not recursively scanned: CSS/container seeds are
-/// what make the search cheap instead of a fixed full viewport matrix.
+/// pixel. Equal endpoints are not recursively scanned: sentinels and
+/// CSS/container seeds are what make the search cheap instead of a fixed
+/// full viewport matrix.
 #[must_use]
 pub fn next_responsive_probe(policy: &ResponsivePolicy, probes: &[ResponsiveProbe]) -> Option<u32> {
     if probes.len() >= usize::try_from(policy.max_probes).unwrap_or(usize::MAX) {

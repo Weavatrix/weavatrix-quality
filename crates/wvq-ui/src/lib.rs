@@ -42,8 +42,8 @@ pub use policy::{
 };
 pub use ratchet::{UiFindingState, UiIntegrityDelta, UiIntegritySnapshot, ratchet};
 pub use responsive::{
-    ResponsiveFailureInterval, ResponsiveProbe, ResponsiveProbePlan, next_responsive_probe,
-    responsive_failure_intervals, responsive_probe_plan,
+    RESPONSIVE_SENTINEL_WIDTHS, ResponsiveFailureInterval, ResponsiveProbe, ResponsiveProbePlan,
+    next_responsive_probe, responsive_failure_intervals, responsive_probe_plan,
 };
 pub use snapshot::{
     DocumentMetrics, HitTestSample, LAYOUT_SNAPSHOT_SCHEMA_V, LayoutSnapshot, MAX_HIT_TEST_SAMPLES,
