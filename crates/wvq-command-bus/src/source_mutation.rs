@@ -13,8 +13,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use wvq_proof::{
-    MutantEcosystem, MutantStatus, MutationSummary, SourceMutant, obligations_owning_path,
-    plan_go_source_mutants, plan_ts_js_source_mutants, surfaces_from_declared_paths,
+    MutantEcosystem, MutantStatus, MutationSummary, SourceMutant, authoritative_mutant_status,
+    obligations_owning_path, plan_go_source_mutants, plan_ts_js_source_mutants,
+    surfaces_from_declared_paths,
 };
 use wvq_runtime::{
     ExecutorId, ExecutorRegistry, PrepareRequest, ProcessLimits, TestStatus,
@@ -34,6 +35,8 @@ pub(crate) struct MutationBinding {
     pub runner: String,
     pub case: String,
     pub obligations: BTreeSet<String>,
+    /// Declared `flake_penalty` or historical pass+fail on this exact case.
+    pub known_flaky: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -426,6 +429,11 @@ pub(crate) fn execute_source_mutation(
             runtime_llm_tokens: 0,
         });
     }
+    if request.bindings.iter().any(|binding| binding.known_flaky) {
+        limitations.push(
+            "known flaky tests were excluded as mutation judges; a flake cannot independently produce killed".into(),
+        );
+    }
 
     let surfaces = surfaces_from_declared_paths(
         &request
@@ -555,10 +563,7 @@ fn execute_one(
     let mut invalid = false;
     let mut requests =
         BTreeMap::<(String, String, String, String), (&wvq_runtime::ExecutorTarget, &str)>::new();
-    for binding in bindings.iter().filter(|binding| {
-        binding.obligations.contains(obligation)
-            && binding_supported(mutant.ecosystem, &binding.runner)
-    }) {
+    for binding in mutation_judge_bindings(bindings, obligation, mutant.ecosystem) {
         let binding_path = workspace.join(&binding.path);
         let source_path = workspace.join(&mutant.path);
         let Some(target) = targets
@@ -654,13 +659,7 @@ fn execute_one(
     }
     tests_run.sort();
     tests_run.dedup();
-    let status = if saw_kill {
-        MutantStatus::Killed
-    } else if invalid {
-        MutantStatus::Invalid
-    } else {
-        MutantStatus::Survived
-    };
+    let status = authoritative_mutant_status(saw_kill, !saw_kill && !invalid);
     MutationResultRecord {
         id: format!("{}--{obligation}", mutant.id),
         ecosystem: match mutant.ecosystem {
@@ -681,6 +680,21 @@ fn execute_one(
         obligation: obligation.to_owned(),
         tests_run,
     }
+}
+
+fn mutation_judge_bindings<'a>(
+    bindings: &'a [MutationBinding],
+    obligation: &str,
+    ecosystem: MutantEcosystem,
+) -> Vec<&'a MutationBinding> {
+    bindings
+        .iter()
+        .filter(|binding| {
+            binding.obligations.contains(obligation)
+                && binding_supported(ecosystem, &binding.runner)
+                && !binding.known_flaky
+        })
+        .collect()
 }
 
 fn known_operator(operator: &str) -> bool {
@@ -1007,7 +1021,11 @@ fn unlink_directory(target: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{MutationPolicy, MutationResultRecord, MutationRunDocument};
+    use super::{
+        MutationBinding, MutationPolicy, MutationResultRecord, MutationRunDocument,
+        mutation_judge_bindings,
+    };
+    use wvq_proof::{MutantEcosystem, MutantStatus, authoritative_mutant_status};
 
     fn policy() -> MutationPolicy {
         let mut policy = MutationPolicy::default();
@@ -1110,6 +1128,36 @@ mod tests {
         assert_eq!(
             document.validate(&policy()).unwrap_err(),
             "mutation result counters do not match their records"
+        );
+    }
+
+    fn binding(case: &str, known_flaky: bool) -> MutationBinding {
+        MutationBinding {
+            path: "limit_test.go".into(),
+            runner: "go-test".into(),
+            case: case.into(),
+            obligations: ["admin".into()].into_iter().collect(),
+            known_flaky,
+        }
+    }
+
+    #[test]
+    fn a_known_flaky_binding_is_not_an_authoritative_mutation_judge() {
+        let bindings = [binding("TestAdmin", false), binding("TestFlakyAdmin", true)];
+        let judges = mutation_judge_bindings(&bindings, "admin", MutantEcosystem::Go);
+        assert_eq!(judges.len(), 1);
+        assert_eq!(judges[0].case, "TestAdmin");
+        assert!(!judges[0].known_flaky);
+    }
+
+    #[test]
+    fn a_flaky_only_kill_cannot_become_authoritative() {
+        let bindings = [binding("TestFlakyAdmin", true)];
+        let judges = mutation_judge_bindings(&bindings, "admin", MutantEcosystem::Go);
+        assert!(judges.is_empty());
+        assert_eq!(
+            authoritative_mutant_status(false, false),
+            MutantStatus::Invalid
         );
     }
 }

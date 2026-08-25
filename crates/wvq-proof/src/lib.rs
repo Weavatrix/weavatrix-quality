@@ -54,8 +54,8 @@ pub use model::{
 };
 pub use mutation::{
     Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationError,
-    MutationSummary, SourceMutant, go_mutants, plan_go_source_mutants, plan_ts_js_source_mutants,
-    run_selected_mutants, ts_js_mutants,
+    MutationSummary, SourceMutant, authoritative_mutant_status, go_mutants,
+    plan_go_source_mutants, plan_ts_js_source_mutants, run_selected_mutants, ts_js_mutants,
 };
 pub use protection::{
     FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,

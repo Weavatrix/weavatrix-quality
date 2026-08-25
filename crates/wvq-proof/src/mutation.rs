@@ -76,13 +76,32 @@ pub struct Mutant {
 /// Outcome of one mutant against the selected suite.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutantStatus {
-    /// A selected test failed.
+    /// An authoritative (non-flaky) exact-case judge failed.
     Killed,
-    /// All selected tests passed.
+    /// Every authoritative judge passed.
     Survived,
     /// The mutant could not produce normalized test evidence (for example a
-    /// compile error). Invalid is incomplete mutation evidence, never killed.
+    /// compile error, missing case, or only known-flaky judges). Invalid is
+    /// incomplete mutation evidence, never killed.
     Invalid,
+}
+
+/// Combine exact-case judges into a mutant status.
+///
+/// A known-flaky failure must not independently produce [`MutantStatus::Killed`].
+/// Callers exclude flaky judges before reporting `authoritative_failed`.
+#[must_use]
+pub fn authoritative_mutant_status(
+    authoritative_failed: bool,
+    authoritative_passed: bool,
+) -> MutantStatus {
+    if authoritative_failed {
+        MutantStatus::Killed
+    } else if authoritative_passed {
+        MutantStatus::Survived
+    } else {
+        MutantStatus::Invalid
+    }
 }
 
 /// Per-mutant result.

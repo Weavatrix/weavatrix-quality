@@ -81,18 +81,31 @@ impl LiveService {
             records.push(record);
         }
 
-        let mutation_bindings = live_selection
-            .bindings
-            .iter()
-            .filter_map(|binding| {
-                Some(MutationBinding {
-                    path: binding.path.clone(),
-                    runner: binding.runner.clone()?,
-                    case: binding.case.clone()?,
-                    obligations: binding.obligations.clone(),
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut mutation_bindings = Vec::new();
+        for binding in &live_selection.bindings {
+            let Some(runner) = binding.runner.clone() else {
+                continue;
+            };
+            let Some(case) = binding.case.clone() else {
+                continue;
+            };
+            let known_flaky = binding.flake_penalty > 0
+                || store
+                    .test_case_stats(
+                        &runner,
+                        binding.suite.as_deref().unwrap_or(&binding.path),
+                        &case,
+                    )
+                    .map_err(|err| BusError::Store(err.to_string()))?
+                    .flaky;
+            mutation_bindings.push(MutationBinding {
+                path: binding.path.clone(),
+                runner,
+                case,
+                obligations: binding.obligations.clone(),
+                known_flaky,
+            });
+        }
         let mutation_document = mutation_policy
             .as_ref()
             .map(|policy| {
