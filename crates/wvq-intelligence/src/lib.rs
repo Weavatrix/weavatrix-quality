@@ -8,12 +8,14 @@
 #![forbid(unsafe_code)]
 
 mod checks;
+mod coverage_autopilot;
 mod debt;
 mod flow;
 mod hypothesis;
 mod impact_union;
 mod risk;
 mod selection;
+mod surface_graph;
 mod test_lineage;
 mod weavatrix;
 
@@ -21,6 +23,13 @@ pub use checks::{
     CoverageMeasurement, NodeCoverage, gate_api, gate_architecture, gate_clones, gate_coverage,
     gate_dead_code, gate_history, gate_topology, map_architecture_report,
     map_architecture_violation, map_coverage_to_nodes,
+};
+pub use coverage_autopilot::{
+    CoverageAutopilot, SurfaceCoverage, SurfaceCoverageState, coverage_autopilot,
+};
+pub use surface_graph::{
+    ApplicationSurface, ApplicationSurfaceGraph, ApplicationSurfaceKind, MAX_APPLICATION_SURFACES,
+    SurfaceEvidenceKind, application_surface_graph,
 };
 pub use debt::{DebtBaseline, DebtDelta, DebtException, classify_debt};
 pub use flow::{
