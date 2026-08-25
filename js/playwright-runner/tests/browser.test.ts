@@ -216,3 +216,97 @@ test("records a redacted API profile and replays it without calling upstream", a
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("strict replay distinguishes two POSTs to the same path by body digest", async () => {
+  const seen: string[] = [];
+  const server = createServer((request, response) => {
+    if (request.url === "/api/save") {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk) => chunks.push(chunk as Buffer));
+      request.on("end", () => {
+        seen.push(Buffer.concat(chunks).toString("utf8"));
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ ok: true, n: seen.length }));
+      });
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(`<!doctype html><p role="status">idle</p><script>
+      fetch('/api/save', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({order:'42'})})
+        .then((r) => r.json())
+        .then(() => fetch('/api/save', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({theme:'dark'})}))
+        .then((r) => r.json())
+        .then((value) => { document.querySelector('[role=status]').textContent = 'saved:' + value.n; });
+    </script>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address === "object");
+  const evidence = await mkdtemp(join(tmpdir(), "wvq-body-identity-"));
+  const program = {
+    id: "body-identity",
+    obligations: ["saved"],
+    steps: [
+      { action: "navigate", route: "/" },
+      { action: "wait", condition: { kind: "visible", target: { role: "status" } } },
+      { action: "assert", obligation: "saved" },
+    ],
+    evidence_policy: {
+      screenshot: "never",
+      trace: "never",
+      network: "always",
+      console: "always",
+      storage: "never",
+    },
+  };
+  const oracles = [{
+    obligation: "saved",
+    expected: {
+      kind: "text_equals",
+      target: { role: "status" },
+      value: "saved:2",
+    },
+  }];
+  let recorder;
+  let replayer;
+  try {
+    recorder = await PlaywrightDriver.create(program, oracles, {
+      base_url: `http://127.0.0.1:${address.port}`,
+      browser: "chromium",
+      headless: true,
+      timeout_ms: 10_000,
+      evidence_dir: evidence,
+      network: { mode: "record" },
+    });
+    for (const action of program.steps) await executeStep(recorder, action);
+    const recorded = await recorder.finish();
+    recorder = undefined;
+    assert.equal(seen.length, 2);
+    assert.equal(recorded.network_profile?.schema_v, 2);
+    assert.equal(recorded.network_profile?.entries.length, 2);
+    const [first, second] = recorded.network_profile?.entries ?? [];
+    assert.equal(first?.path, "/api/save");
+    assert.equal(second?.path, "/api/save");
+    assert.notEqual(first?.request_body_digest, second?.request_body_digest);
+
+    replayer = await PlaywrightDriver.create(program, oracles, {
+      base_url: `http://127.0.0.1:${address.port}`,
+      browser: "chromium",
+      headless: true,
+      timeout_ms: 10_000,
+      evidence_dir: evidence,
+      network: { mode: "replay", profile: recorded.network_profile },
+    });
+    for (const action of program.steps) await executeStep(replayer, action);
+    assert.equal(seen.length, 2, "strict replay must not call either POST upstream");
+    assert.deepEqual(await replayer.evaluateRecordedOracles(), [{
+      obligation: "saved",
+      status: "passed",
+    }]);
+  } finally {
+    await recorder?.finish();
+    await replayer?.finish();
+    await rm(evidence, { recursive: true, force: true });
+    await new Promise((resolve) => server.close(resolve));
+  }
+});

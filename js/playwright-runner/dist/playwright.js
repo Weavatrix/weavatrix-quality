@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { installSemanticRecorder, } from "./record.js";
 import { collectLayoutSnapshot, } from "./ui_integrity.js";
+import { identifyRequestBytes, identityFromProfileEntry, mediaType, networkIdentity, requestPathIdentity, } from "./request_identity.js";
 const MAX_NETWORK_REQUESTS = 2_048;
 export class PlaywrightDriver {
     #browser;
@@ -859,133 +860,11 @@ function requestPath(url, redactedKeys) {
     }
     return `${parsed.pathname}${parsed.search}`;
 }
-function networkIdentity(method, path, identity) {
-    const parts = [`${method.toUpperCase()} ${path}`];
-    if (identity?.content_type)
-        parts.push(identity.content_type);
-    if (identity?.graphql) {
-        parts.push(`gql:${identity.graphql.operation_name || "-"}`);
-        parts.push(`q:${identity.graphql.query_digest}`);
-        parts.push(`v:${identity.graphql.variables_digest}`);
-    }
-    else if (identity?.body_digest) {
-        parts.push(`body:${identity.body_digest}`);
-    }
-    return parts.join(" ");
-}
-function identityFromProfileEntry(entry) {
-    return {
-        content_type: entry.request_content_type,
-        body_digest: entry.request_body_digest,
-        graphql: entry.graphql_query_digest || entry.graphql_variables_digest
-            ? {
-                operation_name: entry.graphql_operation_name,
-                query_digest: entry.graphql_query_digest,
-                variables_digest: entry.graphql_variables_digest,
-            }
-            : undefined,
-    };
-}
 function identifyRequest(request) {
     const headers = request.headers();
     const contentType = mediaType(headers["content-type"] ?? "");
-    const body = request.postDataBuffer();
+    const body = request.postDataBuffer() ?? undefined;
     return identifyRequestBytes(request.method(), requestPathIdentity(request.url()), contentType, body);
-}
-function requestPathIdentity(url) {
-    try {
-        const parsed = new URL(url);
-        return `${parsed.pathname}${parsed.search}` || "/";
-    }
-    catch {
-        return url;
-    }
-}
-function mediaType(contentType) {
-    return (contentType.split(";", 1)[0] ?? "").trim().toLowerCase();
-}
-function identifyRequestBytes(_method, path, contentType, body) {
-    const identity = {
-        content_type: contentType,
-        body_digest: undefined,
-        graphql: undefined,
-    };
-    if (!body || body.byteLength === 0)
-        return identity;
-    let parsed;
-    try {
-        parsed = JSON.parse(body.toString("utf8"));
-    }
-    catch {
-        parsed = undefined;
-    }
-    if (looksLikeGraphql(path, contentType, parsed, body)) {
-        const graphql = graphqlIdentity(contentType, body, parsed);
-        if (graphql) {
-            identity.graphql = graphql;
-            return identity;
-        }
-    }
-    identity.body_digest = parsed === undefined
-        ? sha256Hex(body)
-        : sha256Hex(Buffer.from(JSON.stringify(canonicalJson(parsed)), "utf8"));
-    return identity;
-}
-function looksLikeGraphql(path, contentType, json, body) {
-    if (contentType === "application/graphql" || contentType.startsWith("application/graphql+"))
-        return true;
-    const lower = path.toLowerCase();
-    const pathLooksGraphql = lower.includes("/graphql") || lower.endsWith("graphql");
-    return (json && typeof json.query === "string") || (pathLooksGraphql && body.byteLength > 0);
-}
-function graphqlIdentity(contentType, body, json) {
-    let query;
-    let operationName;
-    let variables = {};
-    if (contentType === "application/graphql" || contentType.startsWith("application/graphql+")) {
-        query = body.toString("utf8").trim();
-        if (!query)
-            return undefined;
-    }
-    else {
-        if (!json || typeof json.query !== "string" || !json.query.trim())
-            return undefined;
-        query = json.query;
-        if (typeof json.operationName === "string" && json.operationName.trim())
-            operationName = json.operationName.trim();
-        if (json.variables !== undefined)
-            variables = json.variables;
-    }
-    return {
-        operation_name: operationName ?? namedGraphqlOperation(query),
-        query_digest: sha256Hex(Buffer.from(normaliseGraphqlQuery(query), "utf8")),
-        variables_digest: sha256Hex(Buffer.from(JSON.stringify(canonicalJson(variables)), "utf8")),
-    };
-}
-function namedGraphqlOperation(query) {
-    const tokens = query.split(/\s+/).filter(Boolean);
-    for (let index = 0; index < tokens.length - 1; index += 1) {
-        if (!["query", "mutation", "subscription"].includes(tokens[index]))
-            continue;
-        const name = tokens[index + 1];
-        if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
-            return name;
-    }
-    return undefined;
-}
-function normaliseGraphqlQuery(query) {
-    return query.split(/\s+/).filter(Boolean).join(" ");
-}
-function canonicalJson(value) {
-    if (Array.isArray(value))
-        return value.map(canonicalJson);
-    if (value && typeof value === "object") {
-        return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
-    }
-    return value;
-}
-function sha256Hex(bytes) {
-    return createHash("sha256").update(bytes).digest("hex");
 }
 function redactJson(value, keys, parentKey = "") {
     if (keys.has(parentKey.toLowerCase()))

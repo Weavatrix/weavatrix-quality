@@ -121,9 +121,14 @@ export type NetworkReplayEntry = {
     status: number;
     content_type: string;
     body: string;
+    request_content_type?: string;
+    request_body_digest?: string;
+    graphql_operation_name?: string;
+    graphql_query_digest?: string;
+    graphql_variables_digest?: string;
 };
 export type NetworkReplayProfile = {
-    schema_v: 1;
+    schema_v: 1 | 2;
     entries: NetworkReplayEntry[];
 };
 export type NetworkPolicy = {

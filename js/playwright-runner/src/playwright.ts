@@ -25,6 +25,14 @@ import {
   type CollectionResult,
   type UiIntegrityConfig,
 } from "./ui_integrity.js";
+import {
+  identifyRequestBytes,
+  identityFromProfileEntry,
+  mediaType,
+  networkIdentity,
+  requestPathIdentity,
+  type RequestIdentity,
+} from "./request_identity.js";
 
 export type PredicateTarget = Omit<Target, "component_hint">;
 
@@ -106,10 +114,15 @@ export type NetworkReplayEntry = {
   status: number;
   content_type: string;
   body: string;
+  request_content_type?: string;
+  request_body_digest?: string;
+  graphql_operation_name?: string;
+  graphql_query_digest?: string;
+  graphql_variables_digest?: string;
 };
 
 export type NetworkReplayProfile = {
-  schema_v: 1;
+  schema_v: 1 | 2;
   entries: NetworkReplayEntry[];
 };
 
@@ -139,6 +152,11 @@ type NetworkEvent = {
   url: string;
   status?: number;
   resource_type?: string;
+  content_type?: string;
+  body_digest?: string;
+  graphql_operation?: string;
+  graphql_query_digest?: string;
+  graphql_variables_digest?: string;
 };
 type ConsoleEvent = { type: string; text: string };
 type ApiResult = { status: number; json?: unknown };
@@ -207,11 +225,23 @@ export class PlaywrightDriver implements Driver {
         this.#networkRequestsTruncated = true;
         return;
       }
+      const identity = identifyRequest(request);
       const event: NetworkEvent = {
         sequence: this.#network.length + 1,
         method: request.method().toUpperCase(),
         url: request.url(),
         resource_type: request.resourceType(),
+        ...(identity.content_type ? { content_type: identity.content_type } : {}),
+        ...(identity.body_digest ? { body_digest: identity.body_digest } : {}),
+        ...(identity.graphql?.operation_name
+          ? { graphql_operation: identity.graphql.operation_name }
+          : {}),
+        ...(identity.graphql?.query_digest
+          ? { graphql_query_digest: identity.graphql.query_digest }
+          : {}),
+        ...(identity.graphql?.variables_digest
+          ? { graphql_variables_digest: identity.graphql.variables_digest }
+          : {}),
       };
       this.#network.push(event);
       this.#requestEvents.set(request, event);
@@ -595,8 +625,12 @@ export class PlaywrightDriver implements Driver {
   async #installNetworkPolicy(): Promise<void> {
     const policy = this.#config.network;
     if (policy.mode !== "replay" && policy.mode !== "hybrid") return;
+    const schemaV = policy.profile?.schema_v ?? 1;
     for (const entry of policy.profile?.entries ?? []) {
-      const key = networkIdentity(entry.method, entry.path);
+      const key =
+        schemaV === 1
+          ? networkIdentity(entry.method, entry.path)
+          : networkIdentity(entry.method, entry.path, identityFromProfileEntry(entry));
       const queue = this.#replayEntries.get(key) ?? [];
       queue.push(entry);
       this.#replayEntries.set(key, queue);
@@ -608,7 +642,10 @@ export class PlaywrightDriver implements Driver {
         return;
       }
       const path = requestPath(request.url(), new Set(policy.redact_json_keys));
-      const key = networkIdentity(request.method(), path);
+      const key =
+        schemaV === 1
+          ? networkIdentity(request.method(), path)
+          : networkIdentity(request.method(), path, identifyRequest(request));
       const entry = this.#replayEntries.get(key)?.shift();
       if (entry) {
         await route.fulfill({
@@ -681,6 +718,7 @@ export class PlaywrightDriver implements Driver {
       return;
     }
     this.#recordedResponseBytes += bodyBytes;
+    const identity = identifyRequest(request);
     this.#recordedResponses.push({
       sequence,
       method: request.method().toUpperCase(),
@@ -688,6 +726,17 @@ export class PlaywrightDriver implements Driver {
       status: response.status(),
       content_type: contentType,
       body,
+      ...(identity.content_type ? { request_content_type: identity.content_type } : {}),
+      ...(identity.body_digest ? { request_body_digest: identity.body_digest } : {}),
+      ...(identity.graphql?.operation_name
+        ? { graphql_operation_name: identity.graphql.operation_name }
+        : {}),
+      ...(identity.graphql?.query_digest
+        ? { graphql_query_digest: identity.graphql.query_digest }
+        : {}),
+      ...(identity.graphql?.variables_digest
+        ? { graphql_variables_digest: identity.graphql.variables_digest }
+        : {}),
     });
   }
 
@@ -696,7 +745,7 @@ export class PlaywrightDriver implements Driver {
     const entries = this.#recordedResponses
       .sort((left, right) => left.sequence - right.sequence)
       .map(({ sequence: _sequence, ...entry }) => entry);
-    return { schema_v: 1, entries };
+    return { schema_v: 2, entries };
   }
 
   #locator(target: Target): Locator {
@@ -1013,7 +1062,7 @@ function validateNetworkProfile(
   maxBodyBytes: number,
   maxTotalBytes: number,
 ): void {
-  if (profile.schema_v !== 1 || !Array.isArray(profile.entries)) {
+  if ((profile.schema_v !== 1 && profile.schema_v !== 2) || !Array.isArray(profile.entries)) {
     throw new Error("unknown or malformed network replay profile");
   }
   if (profile.entries.length > maxEntries) {
@@ -1065,8 +1114,16 @@ function requestPath(url: string, redactedKeys: Set<string>): string {
   return `${parsed.pathname}${parsed.search}`;
 }
 
-function networkIdentity(method: string, path: string): string {
-  return `${method.toUpperCase()} ${path}`;
+function identifyRequest(request: Request): RequestIdentity {
+  const headers = request.headers();
+  const contentType = mediaType(headers["content-type"] ?? "");
+  const body = request.postDataBuffer() ?? undefined;
+  return identifyRequestBytes(
+    request.method(),
+    requestPathIdentity(request.url()),
+    contentType,
+    body,
+  );
 }
 
 function redactJson(value: unknown, keys: Set<string>, parentKey = ""): unknown {

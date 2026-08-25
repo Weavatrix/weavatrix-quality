@@ -17,6 +17,11 @@ export type Observation = {
         url: string;
         status?: number;
         resource_type?: string;
+        content_type?: string;
+        body_digest?: string;
+        graphql_operation?: string;
+        graphql_query_digest?: string;
+        graphql_variables_digest?: string;
     }>;
     network_requests_truncated: boolean;
     console: string[];
