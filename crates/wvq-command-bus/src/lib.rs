@@ -22,5 +22,6 @@ pub use replies::{
     DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, InitReply, ModelReply, PlanReply,
     ProofSummary, RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply,
     SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, estimate_tokens,
+    ApplicationSurfaceView,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};

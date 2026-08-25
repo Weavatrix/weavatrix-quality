@@ -203,6 +203,15 @@ export interface ChangeQualityVerdict {
     limitations: Limitation[]
 }
 
+export interface ApplicationSurfaceView {
+    /** False when the run never stored a surface graph. Missing is not empty. */
+    present: boolean
+    truncated: boolean
+    protected: string[]
+    partial: string[]
+    unmeasured: string[]
+}
+
 export interface VerifyReply {
     change: string
     /** Combined ProofVerdict token, kept for backward compatibility. */
@@ -212,6 +221,8 @@ export interface VerifyReply {
     proofs: ProofSummary[]
     state: ChangeVerdictState
     quality: ChangeQualityVerdict
+    /** Read-only surface projection. Never a gate. */
+    application_surface: ApplicationSurfaceView
 }
 
 export interface ExplainReply {

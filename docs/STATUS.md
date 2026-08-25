@@ -1,15 +1,13 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-25
-Session: command-bus service split — every `service/` file ≤300 lines
+Session: P1 — wire ApplicationSurfaceGraph as a read-only MCP/Studio view
 
 ## Now
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-The `wvq-command-bus` service split is done: every file under `crates/wvq-command-bus/src/service/` is at most 300 lines. `mod.rs` is a module map plus the names tests and nested helpers need; helpers import shared types through `access`, not a private unused barrel. `cargo clippy -p wvq-command-bus --all-targets -- -D warnings` is green. Bench and gap analysis in this crate are unblocked on file size.
-
-P0 soundness on the existing axes (not a new feature family) remains as landed in `20bfbd5`: the Playwright bridge materializes every committed `dist/*.js` module from a generated manifest; a11y truncation and axe-failed (as opposed to axe-absent) propagate into the layout snapshot; Coverage Autopilot treats a mixed surface as `measured_partial` and copies `ApplicationSurfaceGraph.truncated`; binding reach is directed, returns evidence paths, and a truncated walk is not a CodeDelta surface; a mutant with no owning obligation is unmeasured instead of being judged by every candidate.
+`ApplicationSurfaceGraph` is now a live run artifact (`application-surface-graph`) and a read-only MCP/Studio projection (`protected` / `partial` / `unmeasured`). It is not a gate: `quality_verify` still composes from the existing axes. Missing coverage stays unmeasured, never a clean empty graph; instrumented zeros fold into `unmeasured` on the product surface; unknown schema versions fail closed. `quality_explain` names a surface; Studio copies the same three lists onto the change summary.
 
 ### Maturity matrix
 
@@ -52,6 +50,7 @@ P0 soundness on the existing axes (not a new feature family) remains as landed i
 | Mutation | ✅ | ✅ | ✅ default Proof producer | ✅ changed-line Go/Vitest exact-case execution |
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
+| Application Surface Graph | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live run persist; not a gate |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
 | Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
 | Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
@@ -82,7 +81,7 @@ Every attempted measured browser step now owns exact start/end observation index
 
 Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
-Current validation: 96 `wvq-proof` tests, 34 `wvq-spec` tests, 73 `wvq-ui` tests, the 68-test runtime suite, 38 command-bus library tests, 36 general command-bus integration tests, 3 real source-mutation scenarios, all 12 real Chromium UI/Storybook scenarios, and 24 Playwright-runner tests pass. The mutation scenarios prove a surviving Go boundary mutant weakens an otherwise green high-risk proof, a boundary-specific Go case kills it and remains `PROVEN`, and one exact Vitest case judges a changed JavaScript line while an unbound case in the same file cannot claim the kill. The user's source stays byte-identical. One browser scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. A fifth keeps two requirements in one change folder and edits only the `Theme` requirement while a `Checkout`-bound program drifts: the unrelated OpenSpec edit does not authorize it, the reading stays `unintended_behavior_drift`, and `quality_verify` returns `BLOCKED`. A sixth changes `src/theme.ts` while checkout behavior drifts: the theme nodes are not in the checkout program's protected surface, so the code axis stays false and `WVQ-BEHAV-001` does not fire. Warnings-denied Clippy covers all targets in `wvq-runtime`, `wvq-proof`, and `wvq-command-bus` plus their transitive WVQ crates.
+Current validation: 96 `wvq-proof` tests, 34 `wvq-spec` tests, 73 `wvq-ui` tests, the 68-test runtime suite, 44 command-bus library tests, 36 general command-bus integration tests, 3 real source-mutation scenarios, all 12 real Chromium UI/Storybook scenarios, and 24 Playwright-runner tests pass. The mutation scenarios prove a surviving Go boundary mutant weakens an otherwise green high-risk proof, a boundary-specific Go case kills it and remains `PROVEN`, and one exact Vitest case judges a changed JavaScript line while an unbound case in the same file cannot claim the kill. The user's source stays byte-identical. One browser scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. A fifth keeps two requirements in one change folder and edits only the `Theme` requirement while a `Checkout`-bound program drifts: the unrelated OpenSpec edit does not authorize it, the reading stays `unintended_behavior_drift`, and `quality_verify` returns `BLOCKED`. A sixth changes `src/theme.ts` while checkout behavior drifts: the theme nodes are not in the checkout program's protected surface, so the code axis stays false and `WVQ-BEHAV-001` does not fire. Warnings-denied Clippy covers all targets in `wvq-runtime`, `wvq-proof`, and `wvq-command-bus` plus their transitive WVQ crates.
 
 ## Changed-region source mutation
 
@@ -285,10 +284,9 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **P1 — wire `ApplicationSurfaceGraph` read-only.** Persist `application-surface-graph` and expose the MCP/Studio projection (`protected` / `partial` / `unmeasured`). Not a gate. The library already classifies `measured_covered`, `measured_partial`, `measured_uncovered`, and `unmeasured`, and copies `truncated`.
-2. **Then Surface Evidence Matrix, gap classification, cheapest-evidence planner, observe-only calibration.** Coverage Autopilot closed-loop generation waits until those exist.
-3. **Bounded failure evidence** is already a library + bridge path (`failure_reel`); keep it diagnostic-only and never a verdict source.
-4. **Then breadth.** Continuous recorder package, extended cassette, Studio frontend, `wvq baseline` with `OBSERVED_ONLY`, and remaining first-class browser actions (upload/download/popup/tab). `wvq init` and hover/scroll/drag are already on `main`.
-5. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
+1. **Surface Evidence Matrix, gap classification, cheapest-evidence planner, observe-only calibration.** Coverage Autopilot closed-loop generation waits until those exist. The Application Surface Graph is now a read-only persisted projection, not a planner.
+2. **Bounded failure evidence** is already a library + bridge path (`failure_reel`); keep it diagnostic-only and never a verdict source.
+3. **Then breadth.** Continuous recorder package, extended cassette, Studio frontend, `wvq baseline` with `OBSERVED_ONLY`, and remaining first-class browser actions (upload/download/popup/tab). `wvq init` and hover/scroll/drag are already on `main`.
+4. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

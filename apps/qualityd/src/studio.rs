@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
-    AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
-    AuthorValidateCommand, BusError, ChangesCommand, DebtCommand, DebtReply, EvidenceCommand,
-    ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand, VerifyCommand,
+    ApplicationSurfaceView, AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand, DebtCommand, DebtReply,
+    EvidenceCommand, ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand,
+    VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -110,6 +111,8 @@ struct SummaryBody {
     limitations: Vec<Limitation>,
     /// Exception-only UI-integrity projection. Healthy elements are never listed.
     ui_integrity: UiIntegrityBody,
+    /// Read-only Application Surface Graph. Never a gate.
+    application_surface: ApplicationSurfaceView,
 }
 
 /// One axis reduced to its state for the dashboard header.
@@ -399,6 +402,7 @@ impl Studio {
             blocking_reasons: quality.blocking_reasons,
             limitations: quality.limitations,
             ui_integrity,
+            application_surface: verify.application_surface,
         })
     }
 

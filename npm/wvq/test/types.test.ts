@@ -43,3 +43,7 @@ verified.quality.ui_integrity.new satisfies Array<{
 verified.quality.ui_integrity.unmeasured_states satisfies string[]
 verified.quality.blocking_reasons satisfies Array<{ rank: number; code: string; axis: string }>
 verified.quality.limitations satisfies Array<{ axis: string; detail: string }>
+verified.application_surface.present satisfies boolean
+verified.application_surface.protected satisfies string[]
+verified.application_surface.partial satisfies string[]
+verified.application_surface.unmeasured satisfies string[]

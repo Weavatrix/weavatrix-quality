@@ -3,6 +3,7 @@
 use super::super::access::*;
 use super::super::persist_browser::persist_browser_runs;
 use super::super::persist_run::{obligation_execution_map, put_json_run_artifact, put_run_artifact};
+use super::super::persist_surface::persist_application_surface_graph;
 use super::super::persist_ui::persist_ui_integrity;
 use super::super::runner_coverage::stdout_kind;
 use super::super::selection_audit::live_selection_report;
@@ -74,6 +75,14 @@ impl LiveService {
             &format!("artifact-{}-protection-graph", run_id.as_str()),
             "weavatrix-protection-graph",
             protection_graph,
+            &mut handles,
+        )?;
+        persist_application_surface_graph(
+            store,
+            run_id,
+            before,
+            protection_graph,
+            records,
             &mut handles,
         )?;
         put_json_run_artifact(

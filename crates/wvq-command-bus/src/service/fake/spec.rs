@@ -132,11 +132,13 @@ impl FakeService {
         let inner = self.lock();
         let verdict = inner.verdict.clone();
         let proofs = inner.proofs.clone();
+        let application_surface = inner.application_surface.clone();
         drop(inner);
         let mut reply = verify_from_token(&cmd.change, &verdict);
         if !proofs.is_empty() {
             reply.proofs = proofs;
         }
+        reply.application_surface = application_surface;
         Ok(reply)
     }
 

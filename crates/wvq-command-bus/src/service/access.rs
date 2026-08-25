@@ -12,9 +12,10 @@ pub(in crate::service) use wvq_domain::{
     ArtifactId, ContentHash, OracleSealId, ProgramId, ProofId, RevisionId, RunId, Severity,
 };
 pub(in crate::service) use wvq_intelligence::{
-    CodeEvidenceProvider, CoverageMeasurement, GraphDelta, ObligationNeed, SelectionInput,
-    SurfaceDelta, TestCandidate, WeavatrixProvider, impacted_surface, map_coverage_to_nodes,
-    select_minimal_plan,
+    ApplicationSurfaceKind, CodeEvidenceProvider, CoverageMeasurement, GraphDelta, NodeCoverage,
+    ObligationNeed, SelectionInput, SurfaceCoverageState, SurfaceDelta, TestCandidate,
+    WeavatrixProvider, application_surface_graph, coverage_autopilot, impacted_surface,
+    map_coverage_to_nodes, select_minimal_plan,
 };
 pub(in crate::service) use wvq_proof::{
     AiAxis, AiCallKind, AiCostFirewall, AiUsage, AssemblyInput, AxisState, ChangeQualityVerdict,
@@ -59,7 +60,7 @@ pub(in crate::service) use crate::replies::{
     AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
     ExplainReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
     RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
-    VerifyReply,
+    VerifyReply, ApplicationSurfaceView,
 };
 pub(in crate::service) use crate::source_mutation::{
     MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest, execute_source_mutation,
@@ -75,5 +76,6 @@ pub(in crate::service) use super::policy::*;
 pub(in crate::service) use super::types::*;
 pub(in crate::service) use super::validate::*;
 pub(in crate::service) use super::{
-    DELTA_TRIANGLE_KIND, MUTATION_RESULTS_KIND, ORACLE_REPLACEMENT_KIND, UI_INTEGRITY_DELTA_KIND,
+    APPLICATION_SURFACE_GRAPH_KIND, DELTA_TRIANGLE_KIND, MUTATION_RESULTS_KIND,
+    ORACLE_REPLACEMENT_KIND, UI_INTEGRITY_DELTA_KIND,
 };

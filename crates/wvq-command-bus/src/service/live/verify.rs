@@ -185,6 +185,11 @@ impl LiveService {
             });
         }
         let quality = compose(&self.verdict_inputs(&compiled, run.as_ref(), outcomes)?);
-        Ok(combine_verify(&compiled.change, proofs, &verdicts, quality))
+        let mut reply = combine_verify(&compiled.change, proofs, &verdicts, quality);
+        reply.application_surface = match &run {
+            Some(run) => super::super::persist_surface::load_application_surface(&store, &run.id)?,
+            None => ApplicationSurfaceView::absent(),
+        };
+        Ok(reply)
     }
 }

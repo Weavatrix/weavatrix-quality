@@ -49,6 +49,7 @@ mod artifacts;
 mod artifacts_graph;
 mod paths;
 mod surface;
+mod surface_persist;
 mod policy;
 mod protection;
 mod init;

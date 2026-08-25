@@ -303,6 +303,29 @@ fn the_dashboard_shows_every_axis_state_and_what_was_not_measured() {
 }
 
 #[test]
+fn the_dashboard_projects_application_surfaces_without_gating() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("PROVEN");
+    fake.set_application_surface(wvq_command_bus::ApplicationSurfaceView {
+        present: true,
+        truncated: false,
+        protected: vec!["endpoint:POST /pay".into()],
+        partial: vec!["route:/checkout".into()],
+        unmeasured: vec!["endpoint:GET /idle".into()],
+    });
+    let studio = studio_with(&fake);
+
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["blocking"], false);
+    assert_eq!(body["verdict"], "PROVEN");
+    let surfaces = &body["application_surface"];
+    assert_eq!(surfaces["present"], true);
+    assert_eq!(surfaces["protected"][0], "endpoint:POST /pay");
+    assert_eq!(surfaces["partial"][0], "route:/checkout");
+    assert_eq!(surfaces["unmeasured"][0], "endpoint:GET /idle");
+}
+
+#[test]
 fn requirement_drill_down_still_shows_green_proofs() {
     let fake = Arc::new(FakeService::default());
     fake.set_proofs(vec![

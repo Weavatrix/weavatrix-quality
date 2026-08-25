@@ -199,6 +199,34 @@ pub struct StatusReply {
     pub handles: Vec<String>,
 }
 
+/// Read-only Application Surface Graph projection for MCP and Studio.
+///
+/// `protected` is fully measured and hit. `partial` is mixed. `unmeasured`
+/// covers both absent reports and instrumented zeros — Studio never calls
+/// missing coverage "uncovered". A missing artifact is [`Self::absent`], not
+/// an empty clean graph. This view is never a gate.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct ApplicationSurfaceView {
+    /// False when the run never stored a surface graph.
+    pub present: bool,
+    /// True when the Weavatrix projection hit its surface ceiling.
+    pub truncated: bool,
+    /// Surfaces whose every implementation node was hit.
+    pub protected: Vec<String>,
+    /// Surfaces with at least one hit and at least one gap.
+    pub partial: Vec<String>,
+    /// Surfaces with no complete measured report.
+    pub unmeasured: Vec<String>,
+}
+
+impl ApplicationSurfaceView {
+    /// No artifact. Missing evidence is not an empty surface list.
+    #[must_use]
+    pub fn absent() -> Self {
+        Self::default()
+    }
+}
+
 /// Multi-axis verdict. Not a quality percentage.
 ///
 /// `verdict` stays the combined [`wvq_proof::ProofVerdict`] token so existing
@@ -219,6 +247,8 @@ pub struct VerifyReply {
     pub state: String,
     /// Every measured axis with its own facts and provenance.
     pub quality: ChangeQualityVerdict,
+    /// Read-only Application Surface Graph projection. Never a gate.
+    pub application_surface: ApplicationSurfaceView,
 }
 
 impl VerifyReply {

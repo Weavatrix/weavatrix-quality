@@ -25,6 +25,7 @@ pub(in crate::service) struct FakeInner {
     pub(in crate::service) last_run: Option<RunState>,
     pub(in crate::service) explanations: BTreeMap<String, ExplainReply>,
     pub(in crate::service) proofs: Vec<ProofSummary>,
+    pub(in crate::service) application_surface: ApplicationSurfaceView,
 }
 
 impl Default for FakeService {
@@ -43,6 +44,7 @@ impl Default for FakeService {
                 last_run: None,
                 explanations: BTreeMap::new(),
                 proofs: Vec::new(),
+                application_surface: ApplicationSurfaceView::absent(),
             }),
         }
     }
@@ -74,6 +76,11 @@ impl FakeService {
     /// Empty (the default) keeps the single placeholder proof.
     pub fn set_proofs(&self, proofs: Vec<ProofSummary>) {
         self.lock().proofs = proofs;
+    }
+
+    /// Read-only Application Surface Graph projection [`QualityService::verify`] returns.
+    pub fn set_application_surface(&self, view: ApplicationSurfaceView) {
+        self.lock().application_surface = view;
     }
 
     /// Whether [`QualityService::run`] was invoked.

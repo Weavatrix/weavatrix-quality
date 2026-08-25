@@ -8,6 +8,9 @@ use super::LiveService;
 impl LiveService {
     pub(in crate::service) fn explain(&self, cmd: &ExplainCommand) -> Result<ExplainReply, BusError> {
         let store = self.store()?;
+        if let Some(reply) = super::super::persist_surface::explain_application_surface(&store, &cmd.id)? {
+            return Ok(reply);
+        }
         if let Some(reply) = explain_ui_finding(&store, &cmd.id)? {
             return Ok(reply);
         }
