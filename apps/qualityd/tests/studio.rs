@@ -428,8 +428,55 @@ fn unknown_route_is_404_and_wrong_method_is_405() {
         "method not allowed for this route"
     );
 
-    assert_eq!(get(&studio, "/").status, 404);
+    assert_eq!(post(&studio, "/", "{}").status, 405);
     assert_eq!(get(&studio, "/api/v1/human-decisions").status, 405);
+}
+
+#[test]
+fn cockpit_is_html_and_exception_first() {
+    let studio = default_studio();
+    let page = get(&studio, "/");
+    assert_eq!(page.status, 200, "{}", page.body);
+    assert_eq!(page.content_type, "text/html; charset=utf-8");
+    assert!(
+        page.body.contains("Weavatrix Quality"),
+        "product name must be visible: {}",
+        page.body
+    );
+    assert!(
+        page.body.contains("NEEDS HUMAN"),
+        "default view is the exception list: {}",
+        page.body
+    );
+    assert!(
+        !page.body.contains("accept_all"),
+        "the cockpit must not offer implicit accept-all"
+    );
+
+    let index = get(&studio, "/index.html");
+    assert_eq!(index.status, 200);
+    assert_eq!(index.content_type, "text/html; charset=utf-8");
+
+    let script = get(&studio, "/studio.js");
+    assert_eq!(script.status, 200, "{}", script.body);
+    assert_eq!(script.content_type, "text/javascript; charset=utf-8");
+    assert!(
+        script.body.contains("needs_attention"),
+        "the cockpit must project the exception list, not invent verdicts"
+    );
+    assert!(
+        script.body.contains("/api/v1/human-decisions"),
+        "a human decision must POST to the existing provenance endpoint"
+    );
+    assert!(
+        !script.body.contains("accept_all"),
+        "JavaScript must not invent a bulk accept"
+    );
+
+    let api = get(&studio, "/api/v1/changes");
+    assert_eq!(api.status, 200);
+    assert_eq!(api.content_type, "application/json");
+    assert_eq!(json(&api)["changes"][0], "sankey-others");
 }
 
 #[test]
@@ -651,4 +698,28 @@ fn studio_answers_over_a_real_socket() {
     let body = raw.split("\r\n\r\n").nth(1).expect("response body");
     let value: Value = serde_json::from_str(body).expect("json body");
     assert_eq!(value["changes"][0], "sankey-others");
+}
+
+#[test]
+fn cockpit_answers_html_over_a_real_socket() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let addr = listener.local_addr().expect("local addr");
+    let server = std::thread::spawn(move || {
+        let service: Arc<dyn QualityService> = Arc::new(FakeService::default());
+        let studio = Studio::new(service, temp_store());
+        serve(&listener, Some(1), |request| studio.handle(request)).expect("serve one request");
+    });
+
+    let mut stream = TcpStream::connect(addr).expect("connect");
+    stream
+        .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n")
+        .expect("write request");
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).expect("read response");
+    server.join().expect("server thread");
+
+    assert!(raw.starts_with("HTTP/1.1 200 OK"), "got: {raw}");
+    assert!(raw.contains("Content-Type: text/html; charset=utf-8"));
+    assert!(raw.contains("NEEDS HUMAN"));
+    assert!(!raw.contains("accept_all"));
 }

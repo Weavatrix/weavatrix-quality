@@ -1,4 +1,4 @@
-//! `qualityd` binary. Serves the local Quality Studio API.
+//! `qualityd` binary. Serves the local Quality Studio cockpit and API.
 
 #![forbid(unsafe_code)]
 
@@ -67,7 +67,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    println!("qualityd listening on http://{addr}");
+    println!("qualityd listening on http://{addr} (Quality Studio cockpit at /)");
     match serve(&listener, None, |request| studio.handle(request)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

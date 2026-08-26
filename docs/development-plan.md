@@ -127,7 +127,7 @@ Breadth (do not mix with Autopilot closed-loop):
 - [x] Remaining first-class browser actions (upload/download/popup/tab)
 - [x] Continuous recorder package
 - [x] Extended cassette
-- [ ] Studio frontend
+- [x] Studio frontend
 - [ ] `wvq baseline` with `OBSERVED_ONLY`
 
 The command-bus 300-line file split is done (`service/` ≤300, Clippy `-D warnings` green). Bench and gap analysis in `wvq-command-bus` are no longer blocked on file size.

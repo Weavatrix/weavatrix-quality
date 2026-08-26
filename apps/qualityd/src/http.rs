@@ -1,6 +1,6 @@
 //! Minimal blocking HTTP/1.1 transport.
 //!
-//! Studio is a local cockpit serving seven small JSON endpoints, so this is a
+//! Studio is a local cockpit: HTML for reviewers and JSON for the API, so this is a
 //! bounded `std::net` reader rather than an async stack. It parses a request,
 //! hands it to the router, and writes one response. No routing decision and no
 //! quality policy lives here.
@@ -24,12 +24,14 @@ pub struct HttpRequest {
     pub body: String,
 }
 
-/// One response. The body is always JSON.
+/// One response. JSON is the default; the cockpit is HTML/JavaScript.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpResponse {
     /// HTTP status code.
     pub status: u16,
-    /// JSON body.
+    /// Wire `Content-Type`. API replies stay `application/json`.
+    pub content_type: &'static str,
+    /// Response body.
     pub body: String,
 }
 
@@ -39,6 +41,27 @@ impl HttpResponse {
     pub fn new(status: u16, body: impl Into<String>) -> Self {
         Self {
             status,
+            content_type: "application/json",
+            body: body.into(),
+        }
+    }
+
+    /// Exception-first cockpit page.
+    #[must_use]
+    pub fn html(body: impl Into<String>) -> Self {
+        Self {
+            status: 200,
+            content_type: "text/html; charset=utf-8",
+            body: body.into(),
+        }
+    }
+
+    /// Cockpit script. Policy stays in the JSON API.
+    #[must_use]
+    pub fn javascript(body: impl Into<String>) -> Self {
+        Self {
+            status: 200,
+            content_type: "text/javascript; charset=utf-8",
             body: body.into(),
         }
     }
@@ -71,7 +94,7 @@ impl HttpResponse {
     pub fn to_wire(&self) -> String {
         format!(
             "HTTP/1.1 {} {}\r\n\
-             Content-Type: application/json\r\n\
+             Content-Type: {}\r\n\
              Content-Length: {}\r\n\
              Cache-Control: no-store\r\n\
              Connection: close\r\n\
@@ -79,6 +102,7 @@ impl HttpResponse {
              {}",
             self.status,
             self.reason(),
+            self.content_type,
             self.body.len(),
             self.body
         )

@@ -25,6 +25,8 @@ use crate::http::{HttpRequest, HttpResponse};
 /// One Studio endpoint and the single method it accepts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Route<'a> {
+    Cockpit,
+    StudioScript,
     Changes,
     Summary(&'a str),
     RequirementProofs(&'a str),
@@ -257,6 +259,8 @@ impl Studio {
             return HttpResponse::error(405, "method not allowed for this route");
         }
         match route {
+            Route::Cockpit => crate::frontend::cockpit(),
+            Route::StudioScript => crate::frontend::script(),
             Route::Changes => self.changes(),
             Route::Summary(change) => self.summary(change),
             Route::RequirementProofs(requirement) => self.requirement_proofs(requirement),
@@ -586,6 +590,8 @@ fn parse_json_body<T: serde::de::DeserializeOwned>(body: &str) -> Result<T, Http
 fn parse_route(path: &str) -> Option<Route<'_>> {
     let segments: Vec<&str> = path.split('/').collect();
     match segments.as_slice() {
+        ["" | "index.html"] => Some(Route::Cockpit),
+        ["studio.js"] => Some(Route::StudioScript),
         ["api", "v1", "recovery", "review"] => Some(Route::RecoveryReview),
         ["api", "v1", "recovery", "questions"] => Some(Route::RecoveryQuestions),
         ["api", "v1", "recovery", "patch"] => Some(Route::RecoveryPatch),

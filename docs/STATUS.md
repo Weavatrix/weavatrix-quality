@@ -1,19 +1,17 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-26
-Session: breadth — extended network cassette
+Session: breadth — Studio frontend
 
 ## Now
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-`wvq ingest-cassette` admits a HAR 1.1/1.2 archive as a privacy-safe `schema_v: 2` network replay profile. Only same-origin JSON responses are kept. Cookies, `Authorization`, request bodies, GraphQL query text, and non-JSON/cross-origin/encoded entries never enter the cassette; secrets in JSON keys or email/bearer/JWT-shaped strings are `[REDACTED]`. Unknown HAR versions fail closed. The command stores a CAS handle and does not enable replay, preview, promote, or seal. It is CLI/npm-only — not a default MCP tool. This is not Studio frontend, not `wvq baseline`, and not Coverage Autopilot.
+`qualityd` now serves an exception-first HTML cockpit at `GET /` (and `/index.html`) with `text/html`. Vanilla JavaScript at `/studio.js` fetches the existing JSON API and renders change counts, axis states, AI usage when measured, and the `needs_attention` list. Passing proofs stay behind `suppressed_passing`; they are not listed on the default view. A human decision POSTs one reviewer and one subject to `/api/v1/human-decisions`. There is no `accept_all`. The cockpit is a projection of the Studio API, not a second policy layer, and is not a default MCP tool. This is not `wvq baseline` and not Coverage Autopilot.
 
-Dogfood against this repository and Weavatrix: `wvq init` writes a fail-closed policy on both. `select`/`debt` fail closed without OpenSpec. `ingest-cassette` admitted a one-entry JSON HAR on both (`replay_enabled: false`). `recover --head WORKTREE` returned QA-gated candidates and spent zero model tokens; it did not seal. Neither repo has a product OpenSpec change yet, so `run`/`verify` are not a green-path dogfood.
+`wvq ingest-cassette` already admits a HAR 1.1/1.2 archive as a privacy-safe `schema_v: 2` network replay profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
 
-The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. The journal never claims obligations or APIs, never creates a recorded session, never previews or promotes, and cannot seal.
-
-`TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions, matching hover/scroll/drag. Upload may only name a registered `data` fixture `{ filename, text }` — not a filesystem path — and the text is capped at 64 KiB. Download waits for the browser download event and keeps bytes out of observations. Popup adopts the opened page; `switch_tab` fails closed on zero or ambiguous route matches. Heal may retarget those actions but cannot change the upload fixture. Unknown actions still fail closed.
+Dogfood against this repository and Weavatrix: `wvq init` writes a fail-closed policy on both. `select`/`debt` fail closed without OpenSpec. Neither repo has a product OpenSpec change yet, so `run`/`verify` are not a green-path dogfood.
 
 ### Maturity matrix
 
@@ -63,7 +61,7 @@ The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fa
 | Cheapest-evidence plan | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate; no generation |
 | Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 labelled corpus tests; no 30–50 live PR campaign |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
-| Studio frontend | ✅ idea | ❌ | ❌ | ❌ |
+| Studio frontend | ✅ | ✅ HTML+JS projection | ✅ `qualityd` `GET /` | ✅ local HTTP cockpit; no second policy layer |
 | Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
 | Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
 | Committed product fixture | ✅ A/B1–B5 | ✅ A/B1–B5 | ✅ CLI/MCP/Studio for B2/B4/B5 | ✅ A/B1–B5 |
@@ -295,7 +293,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **Then breadth.** Studio frontend and `wvq baseline` with `OBSERVED_ONLY`. `wvq init`, first-class browser actions, the continuous recorder package, and the extended network cassette are already on `main`. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
+1. **Then breadth.** `wvq baseline` with `OBSERVED_ONLY`. `wvq init`, first-class browser actions, the continuous recorder package, the extended network cassette, and the Quality Studio HTML cockpit are already on `main`. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 2. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

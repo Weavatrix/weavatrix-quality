@@ -5,6 +5,7 @@
 
 #![forbid(unsafe_code)]
 
+mod frontend;
 mod http;
 mod studio;
 

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weavatrix Quality</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1b1b1b;
+      --muted: #5c5c5c;
+      --line: #d6d6d6;
+      --need: #8a1f1f;
+      --bg: #f7f5f1;
+    }
+    body {
+      margin: 0;
+      font: 15px/1.45 ui-sans-serif, system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    header, main { max-width: 52rem; margin: 0 auto; padding: 1rem 1.25rem; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      border-bottom: 1px solid var(--line);
+    }
+    h1, h2 { font-size: 1rem; margin: 0 0 0.5rem; letter-spacing: 0.04em; }
+    h1 { text-transform: none; }
+    h2 { color: var(--need); }
+    dl { display: grid; grid-template-columns: 12rem 1fr; gap: 0.25rem 1rem; margin: 0 0 1rem; }
+    dt { color: var(--muted); }
+    dd { margin: 0; }
+    #needs-human { list-style: none; padding: 0; margin: 0 0 1rem; }
+    #needs-human li {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 0.75rem 1rem;
+      margin: 0 0 0.5rem;
+    }
+    #needs-human button { margin: 0.25rem 0.25rem 0 0; }
+    .muted { color: var(--muted); }
+    #status[data-kind="error"] { color: var(--need); }
+    label { display: inline-block; margin: 0 0.75rem 0.5rem 0; }
+    input, select { font: inherit; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Weavatrix Quality</h1>
+    <p id="ai" class="muted">AI: unmeasured</p>
+  </header>
+  <main>
+    <label>change
+      <select id="change"></select>
+    </label>
+    <p id="state" class="muted"></p>
+    <dl>
+      <dt>Requirements</dt><dd id="requirements">—</dd>
+      <dt>Proven</dt><dd id="proven">—</dd>
+      <dt>New quality debt</dt><dd id="debt">—</dd>
+      <dt>Passing hidden</dt><dd id="suppressed">—</dd>
+    </dl>
+    <p id="axes" class="muted"></p>
+    <h2>NEEDS HUMAN</h2>
+    <ul id="needs-human"></ul>
+    <section>
+      <h2>Record one decision</h2>
+      <p class="muted">One reviewer, one subject. There is no accept-all.</p>
+      <label>reviewer <input id="reviewer" name="reviewer" autocomplete="username" required></label>
+      <label>role
+        <select id="role">
+          <option value="qa">qa</option>
+          <option value="product">product</option>
+          <option value="developer">developer</option>
+        </select>
+      </label>
+      <label>artifact digest <input id="artifact-digest" name="artifact-digest" size="40" spellcheck="false"></label>
+    </section>
+    <section>
+      <h2>Requirement / Proof</h2>
+      <div id="detail" class="muted">Select an exception to inspect its requirement.</div>
+    </section>
+    <p id="status" class="muted"></p>
+  </main>
+  <script src="/studio.js"></script>
+</body>
+</html>
