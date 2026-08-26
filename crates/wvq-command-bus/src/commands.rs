@@ -33,6 +33,10 @@ fn default_head() -> String {
     "WORKTREE".to_owned()
 }
 
+fn default_observed_only() -> String {
+    "observed_only".to_owned()
+}
+
 fn default_authoring_token_budget() -> u64 {
     8_000
 }
@@ -392,6 +396,26 @@ pub struct IngestCassetteCommand {
     pub har: String,
 }
 
+/// Snapshot existing quality debt as `OBSERVED_ONLY` baseline evidence.
+///
+/// New debt is not swallowed. The snapshot cannot become a normative seal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BaselineCommand {
+    /// Change id, or `current`.
+    #[serde(default = "default_change")]
+    pub change: String,
+    /// Immutable Git base revision.
+    #[serde(default = "default_base")]
+    pub base: String,
+    /// `WORKTREE` or the checked-out clean head commit.
+    #[serde(default = "default_head")]
+    pub head: String,
+    /// Must be `observed_only`. Any other token fails closed.
+    #[serde(default = "default_observed_only")]
+    pub decision: String,
+}
+
 /// Every bus command. HTTP/CLI/MCP share this enum.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -443,6 +467,8 @@ pub enum Command {
     IngestJournal(IngestJournalCommand),
     /// [`IngestCassetteCommand`].
     IngestCassette(IngestCassetteCommand),
+    /// [`BaselineCommand`].
+    Baseline(BaselineCommand),
 }
 
 impl Command {
@@ -474,6 +500,7 @@ impl Command {
             Self::Init(_) => "init",
             Self::IngestJournal(_) => "ingest_journal",
             Self::IngestCassette(_) => "ingest_cassette",
+            Self::Baseline(_) => "baseline",
         }
     }
 }

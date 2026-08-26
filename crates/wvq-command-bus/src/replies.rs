@@ -760,6 +760,29 @@ pub struct IngestCassetteReply {
     pub runtime_llm_tokens: u64,
 }
 
+/// Result of snapshotting existing debt as `OBSERVED_ONLY` baseline evidence.
+///
+/// Never seals. New debt remains new.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BaselineReply {
+    /// Resolved `OpenSpec` change.
+    pub change: String,
+    /// Exact repository/Weavatrix revision at snapshot.
+    pub revision: String,
+    /// Existing fingerprints recorded. Sorted.
+    pub fingerprints: Vec<String>,
+    /// How many existing fingerprints were snapshotted.
+    pub recorded: u64,
+    /// Head-only fingerprints left unbaselined. They can still block.
+    pub new_unbaselined: u64,
+    /// Always true. Implementation evidence cannot establish intent.
+    pub observed_only: bool,
+    /// Always false. `OBSERVED_ONLY` cannot become a normative seal.
+    pub seal_eligible: bool,
+    /// Baseline never spends model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Tagged reply for CLI JSON.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "command", content = "body")]
@@ -837,6 +860,9 @@ pub enum Reply {
     /// [`IngestCassetteReply`].
     #[serde(rename = "ingest_cassette")]
     IngestCassette(IngestCassetteReply),
+    /// [`BaselineReply`].
+    #[serde(rename = "baseline")]
+    Baseline(BaselineReply),
 }
 
 impl Reply {

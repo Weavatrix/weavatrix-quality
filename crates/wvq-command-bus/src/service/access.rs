@@ -52,13 +52,13 @@ pub(in crate::service) use wvq_ui::{
 
 pub(in crate::service) use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, ContextCommand, DebtCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BaselineCommand, ChangesCommand, ContextCommand, DebtCommand,
     EvidenceCommand, ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
     RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 pub(in crate::service) use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply, AuthorPromoteReply,
-    AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply, DebtReply, EvidenceReply,
+    AuthorValidateReply, AuthoringObligation, BaselineReply, ChangesReply, ContextReply, DebtReply, EvidenceReply,
     ExplainReply, InitReply, IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
     RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
     VerifyReply, ApplicationSurfaceView, CheapestEvidencePlanView, SurfaceEvidenceMatrixView,

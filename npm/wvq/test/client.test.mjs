@@ -97,6 +97,14 @@ test('typed client maps methods to bounded native argv', async () => {
             '--har', '{"log":{"version":"1.2","entries":[]}}',
         ],
     })
+    assert.deepEqual(await client.baseline({ change: 'live' }), { ok: true })
+    assert.deepEqual(calls[5], {
+        binary: 'wvq-test',
+        args: [
+            '--repo', 'C:/repo', 'baseline', '--change', 'live', '--base', 'HEAD',
+            '--head', 'WORKTREE',
+        ],
+    })
 })
 
 test('client rejects unknown enum values before starting native code', async () => {

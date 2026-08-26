@@ -453,6 +453,17 @@ export interface IngestCassetteReply {
     runtime_llm_tokens: 0
 }
 
+export interface BaselineReply {
+    change: string
+    revision: string
+    fingerprints: string[]
+    recorded: number
+    new_unbaselined: number
+    observed_only: true
+    seal_eligible: false
+    runtime_llm_tokens: 0
+}
+
 export interface AuthorPromoteReply {
     change: string
     revision: string
@@ -510,6 +521,7 @@ export class WvqClient {
     }): Promise<RecordReply>
     ingestJournal(options?: RangeOptions & { file?: string; journal?: string }): Promise<IngestJournalReply>
     ingestCassette(options: { origin: string; file?: string; har?: string; signal?: AbortSignal }): Promise<IngestCassetteReply>
+    baseline(options?: RangeOptions): Promise<BaselineReply>
     status(options?: CallOptions): Promise<StatusReply>
     verify(options?: { change?: string; observeOnly?: boolean; signal?: AbortSignal }): Promise<VerifyReply>
     explain(id: string, options?: CallOptions): Promise<ExplainReply>

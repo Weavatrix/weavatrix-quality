@@ -6,13 +6,13 @@ use std::sync::Arc;
 use super::BusError;
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
-    AuthorValidateCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
+    AuthorValidateCommand, BaselineCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
     ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
     RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
-    ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply,
+    BaselineReply, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply,
     IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply, RecordReply, RecoveryReply, Reply, RunReply,
     SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
 };
@@ -245,6 +245,15 @@ pub trait QualityService: Send + Sync {
     ///
     /// Returns [`BusError`] when the HAR is malformed or the origin is unusable.
     fn ingest_cassette(&self, cmd: &IngestCassetteCommand) -> Result<IngestCassetteReply, BusError>;
+    /// Snapshot existing debt as `OBSERVED_ONLY` baseline evidence.
+    ///
+    /// New debt is not swallowed. The snapshot cannot become a normative seal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError`] when the decision is not `observed_only` or the
+    /// change cannot be resolved.
+    fn baseline(&self, cmd: &BaselineCommand) -> Result<BaselineReply, BusError>;
 }
 
 /// Dispatch a [`Command`] through any [`QualityService`].
@@ -284,6 +293,7 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
         Command::Init(cmd) => service.init(&cmd).map(Reply::Init),
         Command::IngestJournal(cmd) => service.ingest_journal(&cmd).map(Reply::IngestJournal),
         Command::IngestCassette(cmd) => service.ingest_cassette(&cmd).map(Reply::IngestCassette),
+        Command::Baseline(cmd) => service.baseline(&cmd).map(Reply::Baseline),
     }
 }
 

@@ -4,7 +4,6 @@ use wvq_spec::{EvidenceKind, ObligationKind, RiskLevel, TestObligation};
 
 use super::super::BusError;
 use crate::commands::SelectCommand;
-use crate::replies::DebtReply;
 
 pub(in crate::service) fn map_authoring_store_error(err: wvq_store::StoreError) -> BusError {
     match err {
@@ -101,22 +100,6 @@ pub(in crate::service) fn deterministic_checks() -> Vec<String> {
         "history".into(),
         "coverage".into(),
     ]
-}
-
-pub(in crate::service) fn empty_debt(base: &str, head: &str) -> DebtReply {
-    DebtReply {
-        base: base.to_owned(),
-        head: head.to_owned(),
-        revision: None,
-        comparison_present: false,
-        existing: 0,
-        new: 0,
-        fixed: 0,
-        returned: 0,
-        excepted: 0,
-        findings: Vec::new(),
-        limitations: Vec::new(),
-    }
 }
 
 pub(in crate::service) fn working_tree_selection(change: String) -> SelectCommand {

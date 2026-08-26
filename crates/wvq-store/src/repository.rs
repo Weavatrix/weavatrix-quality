@@ -987,6 +987,58 @@ impl Store {
         Ok(())
     }
 
+    /// Remember existing debt fingerprints as `OBSERVED_ONLY` baseline evidence.
+    ///
+    /// New debt is never stored here. Re-baselining the same fingerprint updates
+    /// the revision; the decision cannot become a seal.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the ledger write fails.
+    pub fn remember_observed_baseline(
+        &self,
+        fingerprints: &[String],
+        revision: &RevisionId,
+        change: &str,
+    ) -> Result<(), StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "INSERT INTO observed_debt_baselines (fingerprint, revision, change_id, decision)
+                 VALUES (?1, ?2, ?3, 'observed_only')
+                 ON CONFLICT(fingerprint) DO UPDATE
+                 SET revision = excluded.revision, change_id = excluded.change_id",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        for fingerprint in fingerprints {
+            statement
+                .execute(params![fingerprint, revision.as_str(), change])
+                .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Fingerprints snapshotted as observed-only baseline evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the ledger query fails.
+    pub fn observed_baseline_fingerprints(&self) -> Result<Vec<String>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT fingerprint FROM observed_debt_baselines
+                 WHERE decision = 'observed_only'
+                 ORDER BY fingerprint",
+            )
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|err| StoreError::Sqlite(err.to_string()))
+    }
+
     /// Every debt fingerprint recorded in a fixed bucket.
     ///
     /// # Errors

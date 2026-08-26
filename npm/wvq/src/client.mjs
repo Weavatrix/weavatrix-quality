@@ -117,6 +117,10 @@ export class WvqClient {
         return this.#call('ingest_cassette', args, signal)
     }
 
+    baseline({ change = 'current', base = 'HEAD', head = 'WORKTREE', signal } = {}) {
+        return this.#rangeCall('baseline', change, base, head, signal)
+    }
+
     status({ signal } = {}) {
         return this.#call('status', ['status'], signal)
     }

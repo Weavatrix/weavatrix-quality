@@ -196,7 +196,73 @@ impl FakeService {
     }
 
     pub(in crate::service) fn debt(&self, cmd: &DebtCommand) -> Result<DebtReply, BusError> {
-        Ok(empty_debt(&cmd.base, &cmd.head))
+        let inner = self.lock();
+        let existing: Vec<String> = inner
+            .existing_debt
+            .iter()
+            .filter(|id| !inner.observed_baseline.contains(*id))
+            .cloned()
+            .collect();
+        let excepted: Vec<String> = inner
+            .existing_debt
+            .iter()
+            .chain(inner.new_debt.iter())
+            .filter(|id| inner.observed_baseline.contains(*id))
+            .cloned()
+            .collect();
+        let new: Vec<String> = inner
+            .new_debt
+            .iter()
+            .filter(|id| !inner.observed_baseline.contains(*id))
+            .cloned()
+            .collect();
+        Ok(DebtReply {
+            base: cmd.base.clone(),
+            head: cmd.head.clone(),
+            revision: Some("fake-revision".into()),
+            comparison_present: true,
+            existing: u64::try_from(existing.len()).unwrap_or(u64::MAX),
+            new: u64::try_from(new.len()).unwrap_or(u64::MAX),
+            fixed: 0,
+            returned: 0,
+            excepted: u64::try_from(excepted.len()).unwrap_or(u64::MAX),
+            findings: existing
+                .into_iter()
+                .map(|id| format!("existing: {id}"))
+                .chain(new.into_iter().map(|id| format!("new: {id}")))
+                .chain(excepted.into_iter().map(|id| format!("excepted: {id}")))
+                .collect(),
+            limitations: Vec::new(),
+        })
+    }
+
+    pub(in crate::service) fn baseline(
+        &self,
+        cmd: &BaselineCommand,
+    ) -> Result<BaselineReply, BusError> {
+        if cmd.decision != "observed_only" {
+            return Err(BusError::Unknown {
+                field: "decision",
+                value: cmd.decision.clone(),
+            });
+        }
+        let mut inner = self.lock();
+        let fingerprints = inner.existing_debt.clone();
+        for fingerprint in &fingerprints {
+            inner.observed_baseline.insert(fingerprint.clone());
+        }
+        let recorded = u64::try_from(fingerprints.len()).unwrap_or(u64::MAX);
+        let new_unbaselined = u64::try_from(inner.new_debt.len()).unwrap_or(u64::MAX);
+        Ok(BaselineReply {
+            change: cmd.change.clone(),
+            revision: "fake-revision".into(),
+            fingerprints,
+            recorded,
+            new_unbaselined,
+            observed_only: true,
+            seal_eligible: false,
+            runtime_llm_tokens: 0,
+        })
     }
 
     pub(in crate::service) fn select(&self, cmd: &SelectCommand) -> Result<SelectReply, BusError> {

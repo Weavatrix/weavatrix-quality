@@ -46,7 +46,12 @@ impl LiveService {
             .map_err(|err| BusError::Store(err.to_string()))?
             .into_iter()
             .collect::<BTreeSet<_>>();
-        let exceptions = load_debt_exceptions(&self.repo)?;
+        let mut exceptions = load_debt_exceptions(&self.repo)?;
+        exceptions.active.extend(
+            store
+                .observed_baseline_fingerprints()
+                .map_err(|err| BusError::Store(err.to_string()))?,
+        );
         let head_ids = new_ids
             .iter()
             .chain(existing_ids.iter())

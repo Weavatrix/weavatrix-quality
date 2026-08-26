@@ -26,6 +26,7 @@ mod record_capture;
 mod record_persist;
 mod ingest_journal;
 mod ingest_cassette;
+mod baseline;
 mod run;
 mod run_types;
 mod run_prepare;
@@ -194,5 +195,8 @@ impl QualityService for LiveService {
         cmd: &IngestCassetteCommand,
     ) -> Result<IngestCassetteReply, BusError> {
         LiveService::ingest_cassette(self, cmd)
+    }
+    fn baseline(&self, cmd: &BaselineCommand) -> Result<BaselineReply, BusError> {
+        LiveService::baseline(self, cmd)
     }
 }

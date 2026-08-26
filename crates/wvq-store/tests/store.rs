@@ -24,7 +24,7 @@ fn open_temp() -> Store {
 #[test]
 fn schema_version_is_recorded() {
     let store = open_temp();
-    assert_eq!(store.schema_version().unwrap(), 12);
+    assert_eq!(store.schema_version().unwrap(), 13);
 }
 
 #[test]
@@ -658,5 +658,28 @@ fn fixed_debt_history_survives_later_runs() {
     assert_eq!(
         store.previously_fixed_debt().unwrap(),
         ["runtime.unwrap:src/lib.rs:add"]
+    );
+}
+
+#[test]
+fn observed_only_debt_baseline_survives_a_later_snapshot() {
+    let store = open_temp();
+    store
+        .remember_observed_baseline(
+            &["clone.family:src/lib.rs:add".into()],
+            &RevisionId::new("revision-b").unwrap(),
+            "sankey-others",
+        )
+        .unwrap();
+    store
+        .remember_observed_baseline(
+            &["clone.family:src/lib.rs:add".into()],
+            &RevisionId::new("revision-c").unwrap(),
+            "sankey-others",
+        )
+        .unwrap();
+    assert_eq!(
+        store.observed_baseline_fingerprints().unwrap(),
+        ["clone.family:src/lib.rs:add"]
     );
 }

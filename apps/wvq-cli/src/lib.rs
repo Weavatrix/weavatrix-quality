@@ -6,9 +6,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand, IngestCassetteCommand,
-    IngestJournalCommand, LiveService, ModelCommand, PlanCommand, QualityService, RecordCommand,
-    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, VerifyCommand, dispatch,
+    BaselineCommand, Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand,
+    IngestCassetteCommand, IngestJournalCommand, LiveService, ModelCommand, PlanCommand,
+    QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand,
+    VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -47,6 +48,7 @@ Usage:
   wvq [--repo PATH] record [--change ID] [--base REF] [--head REF|WORKTREE] [--route /PATH] [--idle-ms N] [--max-events N] [--headless true|false] [--fixtures-json JSON]
   wvq [--repo PATH] ingest-journal --file PATH [--change ID] [--base REF] [--head REF|WORKTREE]
   wvq [--repo PATH] ingest-cassette --file PATH --origin URL
+  wvq [--repo PATH] baseline [--change ID] [--base REF] [--head REF|WORKTREE] [--decision observed_only]
   wvq [--repo PATH] model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
   wvq [--repo PATH] run [--change ID] [--base REF] [--head REF|WORKTREE] [--scope impacted|all] [--evidence-policy standard|minimal|none]
   wvq [--repo PATH] verify [--change ID] [--observe-only true|false]
@@ -147,6 +149,15 @@ fn parse_command(
             )?,
         }),
         [cmd] if cmd == "ingest-cassette" => parse_ingest_cassette(flags)?,
+        [cmd] if cmd == "baseline" => Command::Baseline(BaselineCommand {
+            change,
+            base,
+            head,
+            decision: flags
+                .get("decision")
+                .cloned()
+                .unwrap_or_else(|| "observed_only".to_owned()),
+        }),
         [cmd] if cmd == "model" => Command::Model(ModelCommand {
             change,
             kind: required_flag(flags, "kind")?,
@@ -261,6 +272,7 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
             Some(&["repo", "change", "base", "head", "file", "journal"])
         }
         [cmd] if cmd == "ingest-cassette" => Some(&["repo", "file", "har", "origin"]),
+        [cmd] if cmd == "baseline" => Some(&["repo", "change", "base", "head", "decision"]),
         [cmd] if cmd == "verify" => Some(&["repo", "change", "observe-only"]),
         [cmd] if cmd == "plan" => Some(&["repo", "change"]),
         [cmd] if cmd == "init" => Some(&["repo", "force"]),

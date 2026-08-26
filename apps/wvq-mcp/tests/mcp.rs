@@ -286,6 +286,8 @@ fn default_profile_exposes_exactly_seven_tools() {
         "quality_explore",
         "quality_mutate",
         "quality_replay",
+        "quality_baseline",
+        "quality_debt",
         "browser_click",
         "shell",
     ] {

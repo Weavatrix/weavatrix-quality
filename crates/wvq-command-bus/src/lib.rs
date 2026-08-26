@@ -11,18 +11,19 @@ mod source_mutation;
 
 pub use commands::{
     AnalyzeCommand, AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, ChangesCommand, Command, ContextCommand,
-    DebtCommand, EvidenceCommand, ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand,
-    PlanCommand, RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand,
-    StatusCommand, VerifyCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BaselineCommand, ChangesCommand, Command,
+    ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand, InitCommand, IngestCassetteCommand,
+    IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand, RunCommand,
+    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 pub use replies::{
     AnalyzeReply, AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply,
-    AuthorPromoteReply, AuthorValidateReply, AuthoringObligation, ChangesReply, ContextReply,
-    DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, InitReply, IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply,
-    ProofSummary, RecordReply, RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply,
-    SpecSealReply, SpecValidateReply, StatusReply, VerifyReply, estimate_tokens,
-    ApplicationSurfaceView, CheapestEvidencePlanView, SurfaceEvidenceMatrixView,
+    AuthorPromoteReply, AuthorValidateReply, AuthoringObligation, BaselineReply, ChangesReply,
+    ContextReply, DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, InitReply, IngestCassetteReply,
+    IngestJournalReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply, Reply,
+    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
+    VerifyReply, estimate_tokens, ApplicationSurfaceView, CheapestEvidencePlanView,
+    SurfaceEvidenceMatrixView,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};
 pub use wvq_intelligence::{

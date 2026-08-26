@@ -1,15 +1,15 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-08-26
-Session: breadth — Studio frontend
+Session: breadth — observed-only debt baseline
 
 ## Now
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-`qualityd` now serves an exception-first HTML cockpit at `GET /` (and `/index.html`) with `text/html`. Vanilla JavaScript at `/studio.js` fetches the existing JSON API and renders change counts, axis states, AI usage when measured, and the `needs_attention` list. Passing proofs stay behind `suppressed_passing`; they are not listed on the default view. A human decision POSTs one reviewer and one subject to `/api/v1/human-decisions`. There is no `accept_all`. The cockpit is a projection of the Studio API, not a second policy layer, and is not a default MCP tool. This is not `wvq baseline` and not Coverage Autopilot.
+`wvq baseline` snapshots **existing** quality-debt fingerprints as `OBSERVED_ONLY` ledger evidence. The snapshot cannot become a normative seal. New debt stays new and can still block; there is no `accept_all` and `--decision` must be `observed_only`. Subsequent `wvq debt` treats those fingerprints as excepted. The command is CLI/npm-only — not a default MCP tool. This is not Coverage Autopilot.
 
-`wvq ingest-cassette` already admits a HAR 1.1/1.2 archive as a privacy-safe `schema_v: 2` network replay profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
+`qualityd` already serves an exception-first HTML cockpit. `wvq ingest-cassette` already admits a privacy-safe HAR profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
 
 Dogfood against this repository and Weavatrix: `wvq init` writes a fail-closed policy on both. `select`/`debt` fail closed without OpenSpec. Neither repo has a product OpenSpec change yet, so `run`/`verify` are not a green-path dogfood.
 
@@ -62,6 +62,7 @@ Dogfood against this repository and Weavatrix: `wvq init` writes a fail-closed p
 | Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 labelled corpus tests; no 30–50 live PR campaign |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
 | Studio frontend | ✅ | ✅ HTML+JS projection | ✅ `qualityd` `GET /` | ✅ local HTTP cockpit; no second policy layer |
+| Observed-only debt baseline | ✅ | ✅ | ✅ CLI/`wvq baseline` | ✅ existing fingerprints only; new debt stays new; not a seal |
 | Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
 | Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
 | Committed product fixture | ✅ A/B1–B5 | ✅ A/B1–B5 | ✅ CLI/MCP/Studio for B2/B4/B5 | ✅ A/B1–B5 |
@@ -293,7 +294,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 Correctness of the existing axes comes before any new feature family. In order:
 
-1. **Then breadth.** `wvq baseline` with `OBSERVED_ONLY`. `wvq init`, first-class browser actions, the continuous recorder package, the extended network cassette, and the Quality Studio HTML cockpit are already on `main`. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
+1. **Then breadth.** Breadth items on the plan are complete (`wvq init`, first-class browser actions, continuous recorder, extended cassette, Studio frontend, `wvq baseline` with `OBSERVED_ONLY`). Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 2. **Advanced producers.** Project metamorphic adapters and the browser-feedback exploration loop.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

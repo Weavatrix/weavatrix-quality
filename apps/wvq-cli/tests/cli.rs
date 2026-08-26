@@ -518,3 +518,39 @@ fn ingest_cassette_refuses_unknown_har_versions() {
     assert_eq!(output.code, 1, "{}", output.stdout);
     assert!(output.stderr.contains("1.3"), "{}", output.stderr);
 }
+
+#[test]
+fn baseline_is_a_first_class_cli_command_and_never_seals() {
+    let parsed = parse_args(&argv(&["baseline", "--change", "sankey-others"])).unwrap();
+    let Command::Baseline(command) = parsed.command else {
+        panic!("expected baseline command");
+    };
+    assert_eq!(command.change, "sankey-others");
+    assert_eq!(command.decision, "observed_only");
+
+    let output = run_with(
+        &argv(&["baseline", "--change", "sankey-others"]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"observed_only\": true"));
+    assert!(output.stdout.contains("\"seal_eligible\": false"));
+    assert!(output.stdout.contains("\"legacy-clone\""));
+    assert!(output.stdout.contains("\"new_unbaselined\": 1"));
+}
+
+#[test]
+fn baseline_refuses_a_seal_decision() {
+    let output = run_with(
+        &argv(&[
+            "baseline",
+            "--change",
+            "sankey-others",
+            "--decision",
+            "accept_as_intended",
+        ]),
+        &FakeService::default(),
+    );
+    assert_eq!(output.code, 1, "{}", output.stdout);
+    assert!(output.stderr.contains("decision"), "{}", output.stderr);
+}

@@ -15,7 +15,7 @@ use wvq_command_bus::{
     AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
     EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
     PlanCommand, QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch, estimate_tokens, IngestCassetteCommand, IngestJournalCommand,
+    VerifyCommand, dispatch, estimate_tokens, BaselineCommand, IngestCassetteCommand, IngestJournalCommand,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -2087,6 +2087,32 @@ fn live_ingest_cassette_stores_a_profile_without_enabling_replay() {
     assert!(!reply.seal_eligible);
     assert_eq!(reply.runtime_llm_tokens, 0);
     assert!(reply.profile_handle.is_some());
+}
+
+#[test]
+fn live_baseline_is_observed_only_and_does_not_seal() {
+    let repo = live_runner_repo();
+    let service = LiveService::new(&repo.0);
+    let reply = service
+        .baseline(&BaselineCommand {
+            change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            decision: "observed_only".into(),
+        })
+        .unwrap();
+    assert!(reply.observed_only);
+    assert!(!reply.seal_eligible);
+    assert_eq!(reply.runtime_llm_tokens, 0);
+    let err = service
+        .baseline(&BaselineCommand {
+            change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "WORKTREE".into(),
+            decision: "accept_as_intended".into(),
+        })
+        .unwrap_err();
+    assert!(err.to_string().contains("decision"), "{err}");
 }
 
 #[test]

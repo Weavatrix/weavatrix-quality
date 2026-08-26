@@ -28,6 +28,9 @@ pub(in crate::service) struct FakeInner {
     pub(in crate::service) application_surface: ApplicationSurfaceView,
     pub(in crate::service) surface_evidence: SurfaceEvidenceMatrixView,
     pub(in crate::service) evidence_plan: CheapestEvidencePlanView,
+    pub(in crate::service) existing_debt: Vec<String>,
+    pub(in crate::service) new_debt: Vec<String>,
+    pub(in crate::service) observed_baseline: BTreeSet<String>,
 }
 
 impl Default for FakeService {
@@ -49,6 +52,9 @@ impl Default for FakeService {
                 application_surface: ApplicationSurfaceView::absent(),
                 surface_evidence: SurfaceEvidenceMatrixView::absent(),
                 evidence_plan: CheapestEvidencePlanView::absent(),
+                existing_debt: vec!["legacy-clone".into()],
+                new_debt: vec!["fresh-dead".into()],
+                observed_baseline: BTreeSet::new(),
             }),
         }
     }
@@ -220,5 +226,8 @@ impl QualityService for FakeService {
         cmd: &IngestCassetteCommand,
     ) -> Result<IngestCassetteReply, BusError> {
         FakeService::ingest_cassette(self, cmd)
+    }
+    fn baseline(&self, cmd: &BaselineCommand) -> Result<BaselineReply, BusError> {
+        FakeService::baseline(self, cmd)
     }
 }

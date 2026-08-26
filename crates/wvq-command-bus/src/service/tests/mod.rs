@@ -57,3 +57,4 @@ mod protection;
 mod init;
 mod ingest_journal;
 mod ingest_cassette;
+mod baseline;
