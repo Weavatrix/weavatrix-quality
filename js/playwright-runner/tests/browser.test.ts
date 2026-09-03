@@ -140,9 +140,11 @@ test("records a redacted API profile and replays it without calling upstream", a
       return;
     }
     response.writeHead(200, { "content-type": "text/html" });
-    response.end(`<!doctype html><p role="status">loading</p><script>
+    response.end(`<!doctype html><p role="status" hidden>loading</p><script>
       fetch('/api/profile?email=private%40example.invalid&page=1').then((response) => response.json()).then((value) => {
-        document.querySelector('[role=status]').textContent = value.ok + ':' + value.version;
+        const status = document.querySelector('[role=status]');
+        status.hidden = false;
+        status.textContent = value.ok + ':' + value.version;
       });
     </script>`);
   });
@@ -231,12 +233,16 @@ test("strict replay distinguishes two POSTs to the same path by body digest", as
       return;
     }
     response.writeHead(200, { "content-type": "text/html" });
-    response.end(`<!doctype html><p role="status">idle</p><script>
+    response.end(`<!doctype html><p role="status" hidden>idle</p><script>
       fetch('/api/save', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({order:'42'})})
         .then((r) => r.json())
         .then(() => fetch('/api/save', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({theme:'dark'})}))
         .then((r) => r.json())
-        .then((value) => { document.querySelector('[role=status]').textContent = 'saved:' + value.n; });
+        .then((value) => {
+          const status = document.querySelector('[role=status]');
+          status.hidden = false;
+          status.textContent = 'saved:' + value.n;
+        });
     </script>`);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
