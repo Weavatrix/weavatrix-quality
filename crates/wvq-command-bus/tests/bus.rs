@@ -1262,7 +1262,10 @@ fn live_run_executes_persists_and_proves_a_real_registered_suite() {
     assert!(reply.executed);
     assert_eq!(reply.outcome, "passed");
     assert_eq!(reply.requested_scope, "impacted");
-    assert_eq!(reply.scope, "all", "incomplete selection must widen safely");
+    assert_eq!(
+        reply.scope, "impacted",
+        "exact cargo cases stay bounded instead of widening to the workspace suite"
+    );
     assert!(
         reply
             .artifact_handles
