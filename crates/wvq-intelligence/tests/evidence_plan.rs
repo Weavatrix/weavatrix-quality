@@ -4,9 +4,9 @@ use std::collections::BTreeSet;
 
 use serde_json::json;
 use wvq_intelligence::{
-    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidenceProducer, MeasuredColumn,
-    ProducerInventory, SurfaceEvidenceColumns, application_surface_graph, plan_cheapest_evidence,
-    plan_cheapest_evidence_with, surface_evidence_matrix,
+    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidenceNeed, EvidenceProducer,
+    MeasuredColumn, ProducerInventory, SurfaceEvidenceColumns, application_surface_graph,
+    plan_cheapest_evidence, plan_cheapest_evidence_with, surface_evidence_matrix,
 };
 
 fn pay_graph() -> wvq_intelligence::ApplicationSurfaceGraph {
@@ -35,11 +35,12 @@ fn checkout_graph() -> wvq_intelligence::ApplicationSurfaceGraph {
 }
 
 #[test]
-fn an_unmeasured_cell_is_not_a_gap() {
+fn an_unmeasured_cell_is_a_measurement_need() {
     let graph = pay_graph();
     let matrix = surface_evidence_matrix(&graph, &SurfaceEvidenceColumns::default());
     let plan = plan_cheapest_evidence(&matrix);
-    assert!(plan.gaps.is_empty());
+    assert!(plan.gaps.iter().all(|gap| gap.need == EvidenceNeed::Unmeasured));
+    assert!(plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Runtime));
 }
 
 #[test]
@@ -56,10 +57,15 @@ fn a_present_neighbour_does_not_hide_a_measured_gap() {
     };
     let matrix = surface_evidence_matrix(&graph, &columns);
     let plan = plan_cheapest_evidence(&matrix);
-    assert_eq!(plan.gaps.len(), 1);
-    let gap = &plan.gaps[0];
-    assert_eq!(gap.surface, "endpoint:GET /admin");
-    assert_eq!(gap.column, EvidenceColumn::Coverage);
+    let gap = plan
+        .gaps
+        .iter()
+        .find(|gap| {
+            gap.surface == "endpoint:GET /admin"
+                && gap.column == EvidenceColumn::Coverage
+                && gap.need == EvidenceNeed::MeasuredAbsent
+        })
+        .expect("admin coverage");
     assert_eq!(gap.cheapest, Some(EvidenceProducer::ExistingTestAdaptation));
     assert_eq!(gap.producers[0].cost, 1);
     assert_eq!(
@@ -82,11 +88,14 @@ fn intent_cannot_be_established_by_a_test_producer() {
     };
     let matrix = surface_evidence_matrix(&graph, &columns);
     let plan = plan_cheapest_evidence(&matrix);
-    assert_eq!(plan.gaps.len(), 1);
-    assert_eq!(plan.gaps[0].column, EvidenceColumn::Intent);
-    assert_eq!(plan.gaps[0].cheapest, Some(EvidenceProducer::SpecRecovery));
+    let intent = plan
+        .gaps
+        .iter()
+        .find(|gap| gap.column == EvidenceColumn::Intent && gap.need == EvidenceNeed::MeasuredAbsent)
+        .expect("intent");
+    assert_eq!(intent.cheapest, Some(EvidenceProducer::SpecRecovery));
     assert_eq!(
-        plan.gaps[0]
+        intent
             .producers
             .iter()
             .map(|offer| offer.producer)
@@ -133,15 +142,18 @@ fn runtime_on_an_endpoint_starts_at_a_recorded_session() {
     };
     let matrix = surface_evidence_matrix(&graph, &columns);
     let plan = plan_cheapest_evidence(&matrix);
-    assert_eq!(plan.gaps[0].cheapest, Some(EvidenceProducer::RecordedSession));
-    assert_eq!(plan.gaps[0].producers[0].cost, 2);
-    assert!(!plan
-        .gaps[0]
+    let runtime = plan
+        .gaps
+        .iter()
+        .find(|gap| gap.column == EvidenceColumn::Runtime)
+        .expect("runtime");
+    assert_eq!(runtime.cheapest, Some(EvidenceProducer::RecordedSession));
+    assert_eq!(runtime.producers[0].cost, 2);
+    assert!(!runtime
         .producers
         .iter()
         .any(|offer| offer.producer == EvidenceProducer::ExistingTestAdaptation));
-    assert!(!plan
-        .gaps[0]
+    assert!(!runtime
         .producers
         .iter()
         .any(|offer| offer.producer == EvidenceProducer::StorybookFlow));
@@ -161,11 +173,12 @@ fn a_route_ui_gap_can_use_storybook_before_explore_or_ai() {
     let matrix = surface_evidence_matrix(&graph, &columns);
     assert_eq!(matrix.surfaces[0].kind, ApplicationSurfaceKind::Route);
     let plan = plan_cheapest_evidence(&matrix);
-    let producers: Vec<_> = plan.gaps[0]
-        .producers
+    let ui = plan
+        .gaps
         .iter()
-        .map(|offer| offer.producer)
-        .collect();
+        .find(|gap| gap.column == EvidenceColumn::Ui)
+        .expect("ui");
+    let producers: Vec<_> = ui.producers.iter().map(|offer| offer.producer).collect();
     assert_eq!(
         producers,
         vec![
@@ -190,9 +203,13 @@ fn mutation_offers_source_mutation() {
     };
     let matrix = surface_evidence_matrix(&graph, &columns);
     let plan = plan_cheapest_evidence(&matrix);
-    assert_eq!(plan.gaps[0].column, EvidenceColumn::Mutation);
-    assert_eq!(plan.gaps[0].cheapest, Some(EvidenceProducer::SourceMutation));
-    assert_eq!(plan.gaps[0].producers[0].cost, 4);
+    let mutation = plan
+        .gaps
+        .iter()
+        .find(|gap| gap.column == EvidenceColumn::Mutation && gap.need == EvidenceNeed::MeasuredAbsent)
+        .expect("mutation");
+    assert_eq!(mutation.cheapest, Some(EvidenceProducer::SourceMutation));
+    assert_eq!(mutation.producers[0].cost, 4);
 }
 
 #[test]
@@ -202,7 +219,7 @@ fn a_truncated_matrix_marks_the_plan_incomplete() {
     let matrix = surface_evidence_matrix(&graph, &SurfaceEvidenceColumns::default());
     let plan = plan_cheapest_evidence(&matrix);
     assert!(plan.truncated);
-    assert!(plan.gaps.is_empty());
+    assert!(plan.gaps.iter().all(|gap| gap.need == EvidenceNeed::Unmeasured));
 }
 
 #[test]
@@ -222,7 +239,10 @@ fn present_cells_are_not_planned() {
         .surfaces
         .iter()
         .all(|row| row.test == EvidenceCell::Present));
-    assert!(plan_cheapest_evidence(&matrix).gaps.is_empty());
+    assert!(!plan_cheapest_evidence(&matrix)
+        .gaps
+        .iter()
+        .any(|gap| gap.column == EvidenceColumn::Test));
 }
 
 #[test]
@@ -248,11 +268,16 @@ fn missing_tests_are_not_adapted() {
         ..ProducerInventory::default()
     };
     let plan = plan_cheapest_evidence_with(&matrix, &inventory);
-    assert!(!plan.gaps[0]
+    let test = plan
+        .gaps
+        .iter()
+        .find(|gap| gap.column == EvidenceColumn::Test)
+        .expect("test");
+    assert!(!test
         .producers
         .iter()
         .any(|offer| offer.producer == EvidenceProducer::ExistingTestAdaptation));
-    assert!(!plan.gaps[0]
+    assert!(!test
         .producers
         .iter()
         .any(|offer| offer.producer == EvidenceProducer::StorybookFlow));
@@ -275,5 +300,10 @@ fn mutation_stays_empty_when_the_ecosystem_is_not_owned() {
         ..ProducerInventory::default()
     };
     let plan = plan_cheapest_evidence_with(&matrix, &inventory);
-    assert_eq!(plan.gaps[0].cheapest, None);
+    let mutation = plan
+        .gaps
+        .iter()
+        .find(|gap| gap.column == EvidenceColumn::Mutation)
+        .expect("mutation");
+    assert_eq!(mutation.cheapest, None);
 }

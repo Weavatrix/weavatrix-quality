@@ -370,6 +370,7 @@ fn the_dashboard_projects_the_cheapest_evidence_plan_without_gating() {
             surface: "endpoint:GET /admin".into(),
             kind: ApplicationSurfaceKind::Endpoint,
             column: EvidenceColumn::Protection,
+            need: wvq_intelligence::EvidenceNeed::MeasuredAbsent,
             cheapest: Some(EvidenceProducer::ExistingTestAdaptation),
             producers: vec![ProducerOffer {
                 producer: EvidenceProducer::ExistingTestAdaptation,

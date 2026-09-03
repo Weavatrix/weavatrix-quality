@@ -2,7 +2,7 @@
 
 use super::*;
 use super::super::verify_debt::verify_from_token;
-use wvq_intelligence::{EvidenceColumn, EvidenceProducer};
+use wvq_intelligence::{EvidenceColumn, EvidenceNeed, EvidenceProducer};
 
 fn pay_binding() -> TestBinding {
     TestBinding {
@@ -68,9 +68,18 @@ fn idle_coverage_gap_ranks_existing_test_adaptation_first() {
         .find(|gap| gap.surface == "endpoint:GET /idle" && gap.column == EvidenceColumn::Coverage)
         .expect("idle coverage");
     assert_eq!(idle.cheapest, Some(EvidenceProducer::ExistingTestAdaptation));
-    assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Mutation));
-    assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Runtime));
-    assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Protection));
+    assert!(!plan.gaps.iter().any(|gap| {
+        gap.column == EvidenceColumn::Mutation && gap.need == EvidenceNeed::MeasuredAbsent
+    }));
+    assert!(!plan.gaps.iter().any(|gap| {
+        gap.column == EvidenceColumn::Runtime && gap.need == EvidenceNeed::MeasuredAbsent
+    }));
+    assert!(!plan.gaps.iter().any(|gap| {
+        gap.column == EvidenceColumn::Protection && gap.need == EvidenceNeed::MeasuredAbsent
+    }));
+    assert!(plan.gaps.iter().any(|gap| {
+        gap.column == EvidenceColumn::Mutation && gap.need == EvidenceNeed::Unmeasured
+    }));
 }
 
 #[test]

@@ -125,7 +125,18 @@ pub struct ProducerOffer {
     pub cost: u64,
 }
 
-/// A measured-absent cell. Unmeasured is not a gap.
+/// Why the planner named this cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceNeed {
+    /// The producer ran and the cell is absent. Add evidence.
+    #[default]
+    MeasuredAbsent,
+    /// The producer did not run. Measure first.
+    Unmeasured,
+}
+
+/// A cell that needs measurement or evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EvidenceGap {
@@ -135,6 +146,9 @@ pub struct EvidenceGap {
     pub kind: ApplicationSurfaceKind,
     /// Missing evidence column.
     pub column: EvidenceColumn,
+    /// Unmeasured vs measured-absent.
+    #[serde(default)]
+    pub need: EvidenceNeed,
 }
 
 /// Ranked producers for one measured gap. Empty `producers` means none apply.
@@ -147,6 +161,9 @@ pub struct EvidencePlan {
     pub kind: ApplicationSurfaceKind,
     /// Missing evidence column.
     pub column: EvidenceColumn,
+    /// Unmeasured vs measured-absent.
+    #[serde(default)]
+    pub need: EvidenceNeed,
     /// Cheapest applicable producer, if any.
     pub cheapest: Option<EvidenceProducer>,
     /// All applicable producers, cheapest first.
@@ -163,24 +180,29 @@ pub struct CheapestEvidencePlan {
     pub truncated: bool,
 }
 
-/// Measured-absent cells only. Unmeasured is not classified as a gap.
+/// Measured-absent and unmeasured cells. Present cells are not planned.
 #[must_use]
 pub fn classify_evidence_gaps(matrix: &SurfaceEvidenceMatrix) -> Vec<EvidenceGap> {
     let mut gaps = Vec::new();
     for row in &matrix.surfaces {
         for (column, cell) in row.cells() {
-            if cell == EvidenceCell::Absent {
-                gaps.push(EvidenceGap {
-                    surface: row.surface.clone(),
-                    kind: row.kind,
-                    column,
-                });
-            }
+            let need = match cell {
+                EvidenceCell::Absent => EvidenceNeed::MeasuredAbsent,
+                EvidenceCell::Unmeasured => EvidenceNeed::Unmeasured,
+                EvidenceCell::Present => continue,
+            };
+            gaps.push(EvidenceGap {
+                surface: row.surface.clone(),
+                kind: row.kind,
+                column,
+                need,
+            });
         }
     }
     gaps.sort_by(|left, right| {
         left.surface
             .cmp(&right.surface)
+            .then(left.need.cmp(&right.need))
             .then(left.column.cmp(&right.column))
     });
     gaps
@@ -214,6 +236,7 @@ pub fn plan_cheapest_evidence_with(
                 surface: gap.surface,
                 kind: gap.kind,
                 column: gap.column,
+                need: gap.need,
                 cheapest: producers.first().map(|offer| offer.producer),
                 producers,
             }

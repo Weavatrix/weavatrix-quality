@@ -31,7 +31,7 @@ pub use coverage_autopilot::{
     CoverageAutopilot, SurfaceCoverage, SurfaceCoverageState, coverage_autopilot,
 };
 pub use evidence_plan::{
-    CheapestEvidencePlan, EvidenceColumn, EvidenceGap, EvidencePlan, EvidenceProducer,
+    CheapestEvidencePlan, EvidenceColumn, EvidenceGap, EvidenceNeed, EvidencePlan, EvidenceProducer,
     ProducerInventory, ProducerOffer, classify_evidence_gaps, plan_cheapest_evidence,
     plan_cheapest_evidence_with,
 };

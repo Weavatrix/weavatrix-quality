@@ -5,6 +5,8 @@ Session: P0 — Surface Evidence Matrix v2 authorities
 
 ## Now
 
+Unmeasured cells are a `MeasurementPlan` (`EvidenceNeed::Unmeasured`), not silent ignore. Measured-absent cells remain evidence gaps. Present cells are not planned.
+
 The cheapest-evidence planner now carries a `ProducerInventory`. `BrowserExplore` is compiled but `available=false` until the closed loop exists. Mutation gaps offer `SourceMutation`. Intent gaps offer `SpecRecovery` then `ProductReview`, never a test producer. Missing tests or stories are not recommended.
 
 The Surface Evidence Matrix is schema v2. Intent is no longer a copy of the test-binding column: a binding without obligations can mark Test present while Intent stays absent. Coverage is the former live "protection" producer (normalized hits on Weavatrix nodes). Protection Continuity is a separate unmeasured column until a ProtectionSnapshot producer is wired. v1 artifacts migrate old `protection` into `coverage`.
@@ -300,12 +302,11 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, and planner inventory are done on this tree.
+P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, planner inventory, and MeasurementPlan are done on this tree.
 
 1. **Populate real Runtime/Proof/Protection/UI/A11y/Mutation columns.**
-2. **MeasurementGap / MeasurementPlan** — unmeasured → cheapest measurement, not silent ignore.
-3. **Exact-head generated STATUS validation.**
-4. **Update README/CLI/product story** (`wvq init`, ingest, baseline, observe-only, Surface Graph/Matrix/planner).
+2. **Exact-head generated STATUS validation.**
+3. **Update README/CLI/product story** (`wvq init`, ingest, baseline, observe-only, Surface Graph/Matrix/planner).
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
