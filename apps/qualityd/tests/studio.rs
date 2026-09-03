@@ -224,7 +224,90 @@ fn dashboard_shows_exceptions_and_hides_pass_noise() {
         .expect("needs_attention array");
     assert_eq!(needs.len(), 1, "green proofs must not reach the dashboard");
     assert_eq!(needs[0]["obligation"], "dialog-on-refresh");
+    assert_eq!(needs[0]["intent"], "sankey.refresh");
+    assert_eq!(needs[0]["surface"], "unmeasured");
+    assert_eq!(needs[0]["protection"], "unmeasured");
+    assert_eq!(needs[0]["failure_reel"], Value::Null);
+    assert_eq!(needs[0]["cheapest_next"], Value::Null);
+    assert_eq!(needs[0]["visual_region"], "unmeasured");
     assert_eq!(body["ai"], Value::Null, "unmeasured AI usage is not zero");
+}
+
+#[test]
+fn exception_cards_project_a_matching_surface_and_never_invent_a_join() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_proofs(vec![proof(
+        "p-3",
+        "sankey.refresh",
+        "dialog-on-refresh",
+        "HUMAN_REQUIRED",
+    )]);
+    fake.set_surface_evidence(wvq_command_bus::SurfaceEvidenceMatrixView {
+        present: true,
+        truncated: false,
+        surfaces: vec![
+            SurfaceEvidenceRow {
+                surface: "dialog-on-refresh".into(),
+                kind: ApplicationSurfaceKind::Endpoint,
+                intent: EvidenceCell::Present,
+                runtime: EvidenceCell::Absent,
+                test: EvidenceCell::Present,
+                proof: EvidenceCell::Unmeasured,
+                coverage: EvidenceCell::Present,
+                protection: EvidenceCell::Absent,
+                ui: EvidenceCell::Unmeasured,
+                a11y: EvidenceCell::Unmeasured,
+                mutation: EvidenceCell::Absent,
+            },
+            SurfaceEvidenceRow {
+                surface: "endpoint:POST /pay".into(),
+                kind: ApplicationSurfaceKind::Endpoint,
+                intent: EvidenceCell::Present,
+                runtime: EvidenceCell::Present,
+                test: EvidenceCell::Present,
+                proof: EvidenceCell::Present,
+                coverage: EvidenceCell::Present,
+                protection: EvidenceCell::Present,
+                ui: EvidenceCell::Present,
+                a11y: EvidenceCell::Present,
+                mutation: EvidenceCell::Present,
+            },
+        ],
+    });
+    fake.set_evidence_plan(wvq_command_bus::CheapestEvidencePlanView {
+        present: true,
+        truncated: false,
+        gaps: vec![EvidencePlan {
+            surface: "dialog-on-refresh".into(),
+            kind: ApplicationSurfaceKind::Endpoint,
+            column: EvidenceColumn::Protection,
+            need: EvidenceNeed::MeasuredAbsent,
+            cheapest: Some(EvidenceProducer::ExistingTestAdaptation),
+            producers: vec![ProducerOffer {
+                producer: EvidenceProducer::ExistingTestAdaptation,
+                cost: 1,
+            }],
+        }],
+    });
+    let studio = studio_with(&fake);
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    let needs = body["needs_attention"]
+        .as_array()
+        .expect("needs_attention array");
+    assert_eq!(needs.len(), 1);
+    assert_eq!(needs[0]["surface"], "dialog-on-refresh");
+    assert_eq!(needs[0]["intent"], "sankey.refresh");
+    assert_eq!(needs[0]["protection"], "absent");
+    assert_eq!(needs[0]["proof"], "unmeasured");
+    assert_eq!(needs[0]["runtime"], "absent");
+    assert_eq!(needs[0]["cheapest_next"], "existing_test_adaptation");
+    assert_eq!(needs[0]["source_candidates"][0], "existing_test_adaptation");
+    assert_eq!(
+        needs[0]["code_impact"], "unmeasured",
+        "a neighbouring surface must not become this obligation's code impact"
+    );
+    assert_eq!(needs[0]["visual_region"], "unmeasured");
+    assert_eq!(needs[0]["failure_reel"], Value::Null);
 }
 
 /// The dashboard carries the composite verdict, not just the proof token.
@@ -465,6 +548,14 @@ fn cockpit_is_html_and_exception_first() {
     assert!(
         script.body.contains("needs_attention"),
         "the cockpit must project the exception list, not invent verdicts"
+    );
+    assert!(
+        script.body.contains("cheapest next"),
+        "exception cards must show the cheapest next evidence, not only the verdict"
+    );
+    assert!(
+        script.body.contains("failure reel"),
+        "exception cards must name the failure reel even when it is unmeasured"
     );
     assert!(
         script.body.contains("/api/v1/human-decisions"),

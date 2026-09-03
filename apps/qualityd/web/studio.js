@@ -176,6 +176,38 @@
         proof.requirement + ": " + proof.obligation + " · " + proof.verdict;
       item.appendChild(title);
 
+      var facts = document.createElement("dl");
+      [
+        ["intent", proof.intent],
+        ["surface", proof.surface],
+        ["protection", proof.protection],
+        ["proof", proof.proof],
+        ["runtime", proof.runtime],
+        ["coverage", proof.coverage],
+        ["ui", proof.ui],
+        ["a11y", proof.a11y],
+        ["mutation", proof.mutation],
+        ["code impact", proof.code_impact],
+        ["behavior delta", proof.behavior_delta],
+        ["visual region", proof.visual_region],
+        ["failure reel", proof.failure_reel || "unmeasured"],
+        ["cheapest next", proof.cheapest_next || "unmeasured"],
+        [
+          "source candidates",
+          Array.isArray(proof.source_candidates) && proof.source_candidates.length
+            ? proof.source_candidates.join(", ")
+            : "unmeasured",
+        ],
+      ].forEach(function (pair) {
+        var dt = document.createElement("dt");
+        dt.textContent = pair[0];
+        var dd = document.createElement("dd");
+        dd.textContent = pair[1] == null ? "unmeasured" : String(pair[1]);
+        facts.appendChild(dt);
+        facts.appendChild(dd);
+      });
+      item.appendChild(facts);
+
       var inspect = document.createElement("button");
       inspect.type = "button";
       inspect.textContent = "Inspect requirement";

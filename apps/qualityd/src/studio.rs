@@ -9,9 +9,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
     ApplicationSurfaceView, AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand, CheapestEvidencePlanView,
-    DebtCommand, DebtReply, EvidenceCommand, ExplainCommand, ProofSummary, QualityService,
-    RecordCommand, StatusCommand, SurfaceEvidenceMatrixView, VerifyCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand,
+    CheapestEvidencePlanView, DebtCommand, DebtReply, EvidenceCell, EvidenceCommand,
+    EvidenceProducer, ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand,
+    SurfaceEvidenceMatrixView, SurfaceEvidenceRow, VerifyCommand,
 };
 use wvq_domain::{
     ContentHash, HumanDecision, HumanDecisionId, HumanRole, NewDecision, VerificationDecision,
@@ -98,8 +99,8 @@ struct SummaryBody {
     requirements: usize,
     obligations: usize,
     proven: usize,
-    /// Only unresolved proofs reach the dashboard.
-    needs_attention: Vec<ProofSummary>,
+    /// Only unresolved proofs reach the dashboard, each as an exception card.
+    needs_attention: Vec<ExceptionCard>,
     /// How many green proofs were deliberately hidden.
     suppressed_passing: usize,
     debt: DebtReply,
@@ -119,6 +120,119 @@ struct SummaryBody {
     surface_evidence: SurfaceEvidenceMatrixView,
     /// Read-only cheapest-evidence plan. Never a gate.
     evidence_plan: CheapestEvidencePlanView,
+}
+
+/// One unresolved proof plus the measured evidence around it.
+///
+/// Missing matrix or plan data stays `unmeasured`. The card never invents a
+/// surface join, a failure reel, or a visual region.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ExceptionCard {
+    id: String,
+    requirement: String,
+    obligation: String,
+    verdict: String,
+    /// `OpenSpec` requirement identity. Intent is not the test column.
+    intent: String,
+    /// Matched Application Surface Graph id, or `unmeasured`.
+    surface: String,
+    protection: String,
+    proof: String,
+    runtime: String,
+    coverage: String,
+    ui: String,
+    a11y: String,
+    mutation: String,
+    code_impact: String,
+    behavior_delta: String,
+    visual_region: String,
+    failure_reel: Option<String>,
+    cheapest_next: Option<String>,
+    source_candidates: Vec<String>,
+}
+
+fn exception_card(
+    proof: ProofSummary,
+    matrix: &SurfaceEvidenceMatrixView,
+    plan: &CheapestEvidencePlanView,
+) -> ExceptionCard {
+    let row = matching_surface(&proof, matrix);
+    let (cheapest_next, source_candidates) = cheapest_for(&proof, row, plan);
+    ExceptionCard {
+        intent: proof.requirement.clone(),
+        surface: row.map_or_else(|| "unmeasured".into(), |row| row.surface.clone()),
+        protection: cell_token(row.map(|row| row.protection)),
+        proof: cell_token(row.map(|row| row.proof)),
+        runtime: cell_token(row.map(|row| row.runtime)),
+        coverage: cell_token(row.map(|row| row.coverage)),
+        ui: cell_token(row.map(|row| row.ui)),
+        a11y: cell_token(row.map(|row| row.a11y)),
+        mutation: cell_token(row.map(|row| row.mutation)),
+        code_impact: "unmeasured".into(),
+        behavior_delta: cell_token(row.map(|row| row.runtime)),
+        visual_region: "unmeasured".into(),
+        failure_reel: None,
+        cheapest_next,
+        source_candidates,
+        id: proof.id,
+        requirement: proof.requirement,
+        obligation: proof.obligation,
+        verdict: proof.verdict,
+    }
+}
+
+fn matching_surface<'a>(
+    proof: &ProofSummary,
+    matrix: &'a SurfaceEvidenceMatrixView,
+) -> Option<&'a SurfaceEvidenceRow> {
+    if !matrix.present {
+        return None;
+    }
+    matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == proof.obligation || row.surface == proof.requirement)
+}
+
+fn cheapest_for(
+    proof: &ProofSummary,
+    row: Option<&SurfaceEvidenceRow>,
+    plan: &CheapestEvidencePlanView,
+) -> (Option<String>, Vec<String>) {
+    if !plan.present {
+        return (None, Vec::new());
+    }
+    let surface = row.map(|row| row.surface.as_str());
+    let gap = plan.gaps.iter().find(|gap| {
+        Some(gap.surface.as_str()) == surface
+            || gap.surface == proof.obligation
+            || gap.surface == proof.requirement
+    });
+    let Some(gap) = gap else {
+        return (None, Vec::new());
+    };
+    let candidates = gap
+        .producers
+        .iter()
+        .map(|offer| producer_token(offer.producer))
+        .collect();
+    (gap.cheapest.map(producer_token), candidates)
+}
+
+fn cell_token(cell: Option<EvidenceCell>) -> String {
+    match cell {
+        Some(EvidenceCell::Present) => "present",
+        Some(EvidenceCell::Absent) => "absent",
+        Some(EvidenceCell::Unmeasured) | None => "unmeasured",
+    }
+    .to_owned()
+}
+
+fn producer_token(producer: EvidenceProducer) -> String {
+    serde_json::to_value(producer)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_else(|| "unmeasured".into())
 }
 
 /// One axis reduced to its state for the dashboard header.
@@ -384,6 +498,10 @@ impl Studio {
             .proofs
             .into_iter()
             .partition(ProofSummary::is_passing);
+        let needs_attention = needs_attention
+            .into_iter()
+            .map(|proof| exception_card(proof, &verify.surface_evidence, &verify.evidence_plan))
+            .collect();
         let quality = verify.quality;
         let axes = axes_of(&quality);
         let ui_integrity = UiIntegrityBody {

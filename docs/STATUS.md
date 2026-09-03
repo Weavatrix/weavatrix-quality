@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-09-03
-Session: P1 — product OpenSpec `wvq-invariants`
+Session: P1 — Studio exception cards
 
 ## Now
 
@@ -23,7 +23,7 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 
 `wvq doctor` is read-only onboarding discovery. It reports policy presence and `quality_policy_v` loadability, OpenSpec change folder names, ecosystems inferred from discovered manifests, registered executor targets, already-declared `test_bindings`, and the configured browser origin. `authority` is always false. Detection never writes `.weavatrix-quality/`, never seals, and never invents a binding or an OpenSpec change. Suggested next steps are CLI hints only (`wvq init`, fix the policy, add OpenSpec, declare known bindings). The command is CLI-only — not a default MCP tool. Unknown schema versions still fail closed.
 
-`qualityd` already serves an exception-first HTML cockpit. `wvq ingest-cassette` already admits a privacy-safe HAR profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
+`qualityd` already serves an exception-first HTML cockpit. Each `needs_attention` item is now an exception card: intent, matched surface, protection/proof/runtime/UI/a11y/mutation cells, cheapest next producer, and source candidates. A neighbouring matrix row is not a join. Missing data stays `unmeasured`. Green proofs stay hidden. `wvq ingest-cassette` already admits a privacy-safe HAR profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
 
 This repository now has a product OpenSpec change `wvq-invariants` and a committed fail-closed `.weavatrix-quality/config.yaml`. `wvq spec validate --change wvq-invariants` compiles nine invariant obligations with `runtime_tokens: 0`. Bindings are not invented: the policy has none, so a green Cargo suite remains `UNPROVEN` until exact cases are declared. `run`/`verify` on this repo are still not a green-path dogfood.
 
@@ -308,7 +308,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor` is on `main`. Product OpenSpec `wvq-invariants` compiles; remaining P1 is binding exact cases for self-dogfood `run`/`verify --observe-only`, the 30–50 PR campaign, and Studio exception cards.
+P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, and Studio exception cards are on `main`. Remaining P1 is binding exact cases for self-dogfood `run`/`verify --observe-only` and the 30–50 PR observe-only campaign.
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

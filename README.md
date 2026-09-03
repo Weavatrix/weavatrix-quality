@@ -124,7 +124,7 @@ wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt T
 
 Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1. Observe-only never changes that classification; it only changes the process exit for CI.
 
-`qualityd` serves the exception-first Studio cockpit on local HTTP. The Application Surface Graph, Surface Evidence Matrix, and cheapest-evidence plan are read-only artifacts on that cockpit and on MCP — they are not a second policy layer.
+`qualityd` serves the exception-first Studio cockpit on local HTTP. Each unresolved proof is an exception card: intent, matched surface, protection/proof/runtime/UI/a11y/mutation cells, cheapest next evidence, and source candidates. A neighbouring surface is not a join; missing cells stay `unmeasured`. The Application Surface Graph, Surface Evidence Matrix, and cheapest-evidence plan are read-only artifacts on that cockpit and on MCP — they are not a second policy layer.
 
 `wvq recover` is the bounded missing-intent path. When Weavatrix proves that an
 exported function or method and a test changed without an OpenSpec delta, WVQ
