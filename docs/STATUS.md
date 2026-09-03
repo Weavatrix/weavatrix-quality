@@ -306,7 +306,6 @@ P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 
 
 1. **Populate real Runtime/Proof/Protection/UI/A11y/Mutation columns.**
 2. **Exact-head generated STATUS validation.**
-3. **Update README/CLI/product story** (`wvq init`, ingest, baseline, observe-only, Surface Graph/Matrix/planner).
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

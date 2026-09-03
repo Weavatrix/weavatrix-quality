@@ -100,21 +100,30 @@ Measured coverage can teach later selections without replacing Weavatrix. WVQ at
 ## CLI
 
 ```text
+wvq init [--force true|false]
 wvq spec validate [--change ID]
 wvq spec seal [--change ID]
 wvq analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
 wvq debt [--change ID]
 wvq select [--change ID]
 wvq recover [--change ID] [--base REF] [--head REF|WORKTREE]
+wvq record [--change ID] [--route /PATH]
+wvq ingest-journal --file PATH
+wvq ingest-cassette --file PATH --origin URL
+wvq baseline [--change ID] [--decision observed_only]
 wvq run [--change ID] [--scope impacted|all] [--evidence-policy standard|minimal|none]
 wvq status
-wvq verify [--change ID]
+wvq verify [--change ID] [--observe-only true|false]
 wvq explain <id>
 wvq plan [--change ID]
 wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
 ```
 
-Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1.
+`wvq init` writes a fail-closed `.weavatrix-quality/config.yaml`. `wvq ingest-journal` admits a privacy-safe continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. `wvq ingest-cassette` admits a HAR as a privacy-safe network profile (replay stays off). `wvq baseline` snapshots existing debt fingerprints as `OBSERVED_ONLY`; `--decision` must be `observed_only` and there is no `accept_all`. `wvq verify --observe-only` keeps the composite verdict but exits 0 for Stage A calibration.
+
+Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1. Observe-only never changes that classification; it only changes the process exit for CI.
+
+`qualityd` serves the exception-first Studio cockpit on local HTTP. The Application Surface Graph, Surface Evidence Matrix, and cheapest-evidence plan are read-only artifacts on that cockpit and on MCP — they are not a second policy layer.
 
 `wvq recover` is the bounded missing-intent path. When Weavatrix proves that an
 exported function or method and a test changed without an OpenSpec delta, WVQ
