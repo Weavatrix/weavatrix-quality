@@ -16,7 +16,21 @@ const steps = {
   javascript: process.env.WVQ_STEP_JAVASCRIPT || "local",
   package: process.env.WVQ_STEP_PACKAGE || "local",
   clippy: process.env.WVQ_STEP_CLIPPY || "local",
+  spec: process.env.WVQ_STEP_SPEC || "local",
+  doctor: process.env.WVQ_STEP_DOCTOR || "local",
+  observe: process.env.WVQ_STEP_OBSERVE || "local",
 };
+
+const blockingSteps = [
+  "playwright",
+  "recorder",
+  "workspace",
+  "javascript",
+  "package",
+  "clippy",
+  "spec",
+  "doctor",
+];
 
 const document = {
   schema_v: 1,
@@ -26,7 +40,7 @@ const document = {
   ref: process.env.GITHUB_REF || null,
   generated_at: new Date().toISOString(),
   steps,
-  blocking: Object.values(steps).some((outcome) => outcome === "failure"),
+  blocking: blockingSteps.some((name) => steps[name] === "failure"),
 };
 
 await mkdir(dirname(out), { recursive: true });

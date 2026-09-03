@@ -1,11 +1,11 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-09-03
-Session: P1 — bounded cargo-test case filters
+Session: P1 — Linux CI observe-only self-dogfood
 
 ## Now
 
-Linux CI writes an exact-head validation manifest (`target/exact-head-validation.json`, uploaded as `exact-head-validation`) naming this commit, the workflow run, and each test-job step outcome. STATUS claims are not that artifact. A failed Playwright/workspace/Clippy step marks the manifest `blocking`.
+Linux CI writes an exact-head validation manifest (`target/exact-head-validation.json`, uploaded as `exact-head-validation`) naming this commit, the workflow run, and each test-job step outcome. STATUS claims are not that artifact. A failed Playwright/workspace/Clippy/spec/doctor step marks the manifest `blocking`. An observe-only verify failure is recorded and not blocking.
 
 The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations, Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
@@ -25,7 +25,9 @@ The 35 development-plan tasks are implemented, but task completion is not used a
 
 `qualityd` already serves an exception-first HTML cockpit. Each `needs_attention` item is now an exception card: intent, matched surface, protection/proof/runtime/UI/a11y/mutation cells, cheapest next producer, and source candidates. A neighbouring matrix row is not a join. Missing data stays `unmeasured`. Green proofs stay hidden. `wvq ingest-cassette` already admits a privacy-safe HAR profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
 
-This repository now has a product OpenSpec change `wvq-invariants` and a committed fail-closed `.weavatrix-quality/config.yaml`. `wvq spec validate --change wvq-invariants` compiles nine invariant obligations with `runtime_tokens: 0`. Each obligation is bound to one existing exact Cargo case (path + `cargo-test` suite + case name). The binding test fails if the file or `fn` disappears. An impacted `wvq run` maps those bindings to one `cargo test --workspace --all-targets <exact-case>` process per case instead of widening to the whole suite. `verify --observe-only` on this repo is still not a default CI gate.
+This repository now has a product OpenSpec change `wvq-invariants` and a committed fail-closed `.weavatrix-quality/config.yaml`. `wvq spec validate --change wvq-invariants` compiles nine invariant obligations with `runtime_tokens: 0`. Each obligation is bound to one existing exact Cargo case (path + `cargo-test` suite + case name). The binding test fails if the file or `fn` disappears. An impacted `wvq run` maps those bindings to one `cargo test --workspace --all-targets <exact-case>` process per case instead of widening to the whole suite.
+
+Linux CI now self-dogfoods after a green workspace build: `wvq spec validate` and `wvq doctor` are blocking, then `wvq verify --observe-only` records `UNPROVEN` / `NOT_ENOUGH_EVIDENCE` without failing the job. The observe JSON is uploaded as `wvq-observe-only` and posted as GitHub notices. That is Stage A on this repository, not a 30–50 PR campaign and not a merge gate.
 
 ### Maturity matrix
 
@@ -73,7 +75,7 @@ This repository now has a product OpenSpec change `wvq-invariants` and a committ
 | Application Surface Graph | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live run persist; not a gate |
 | Surface Evidence Matrix | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate |
 | Cheapest-evidence plan | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate; no generation |
-| Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 labelled corpus tests; no 30–50 live PR campaign |
+| Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 Linux CI on this repo; labelled corpus tests; no 30–50 live PR campaign |
 | Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
 | Studio frontend | ✅ | ✅ HTML+JS projection | ✅ `qualityd` `GET /` | ✅ local HTTP cockpit; no second policy layer |
 | Observed-only debt baseline | ✅ | ✅ | ✅ CLI/`wvq baseline` | ✅ existing fingerprints only; new debt stays new; not a seal |
@@ -308,7 +310,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, Studio exception cards, exact product test bindings, and bounded cargo-test case filters are on `main`. Remaining P1 is the 30–50 PR observe-only campaign.
+P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, Studio exception cards, exact product test bindings, bounded cargo-test case filters, and Linux CI observe-only self-dogfood are on `main`. Remaining P1 is the 30–50 PR observe-only campaign across other repositories.
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

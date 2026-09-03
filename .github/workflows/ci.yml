@@ -45,6 +45,7 @@ jobs:
         run: |
           npm --prefix npm/wvq test
           node js/playwright-runner/node_modules/typescript/bin/tsc --project npm/wvq/test/tsconfig.json
+          node --test scripts/wvq-observe-report.test.mjs scripts/exact-head-validation.test.mjs
       - name: Assemble and smoke-test the installable package
         id: package
         shell: bash
@@ -59,6 +60,21 @@ jobs:
       - name: Clippy
         id: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Product spec validate
+        id: spec
+        if: ${{ always() && steps.workspace.outcome == 'success' }}
+        run: target/debug/wvq spec validate --change wvq-invariants
+      - name: Product doctor
+        id: doctor
+        if: ${{ always() && steps.workspace.outcome == 'success' }}
+        run: mkdir -p target && target/debug/wvq doctor | tee target/wvq-doctor.json
+      - name: Product observe-only verify
+        id: observe
+        if: ${{ always() && steps.workspace.outcome == 'success' }}
+        run: |
+          mkdir -p target
+          target/debug/wvq verify --change wvq-invariants --observe-only true | tee target/wvq-observe.json
+          node scripts/wvq-observe-report.mjs target/wvq-observe.json
       - name: Exact-head validation manifest
         if: always()
         env:
@@ -68,6 +84,9 @@ jobs:
           WVQ_STEP_JAVASCRIPT: ${{ steps.javascript.outcome }}
           WVQ_STEP_PACKAGE: ${{ steps.package.outcome }}
           WVQ_STEP_CLIPPY: ${{ steps.clippy.outcome }}
+          WVQ_STEP_SPEC: ${{ steps.spec.outcome }}
+          WVQ_STEP_DOCTOR: ${{ steps.doctor.outcome }}
+          WVQ_STEP_OBSERVE: ${{ steps.observe.outcome }}
         run: node scripts/exact-head-validation.mjs
       - name: Upload exact-head validation
         if: always()
@@ -76,6 +95,13 @@ jobs:
           name: exact-head-validation
           path: target/exact-head-validation.json
           if-no-files-found: error
+      - name: Upload observe-only verdict
+        if: ${{ always() && steps.observe.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wvq-observe-only
+          path: target/wvq-observe.json
+          if-no-files-found: ignore
 
   # Full suite stays Linux. Path, process-tree, and worktree code also has to
   # run where Job Objects and non-POSIX paths exist. This job is deliberately
