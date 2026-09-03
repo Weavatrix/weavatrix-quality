@@ -3,14 +3,18 @@
 use super::super::access::*;
 use super::super::analytics::persist_test_analytics;
 use super::super::persist_behavior::persist_browser_behavior;
-use super::super::persist_matrix::{persist_surface_evidence_from, SurfaceEvidenceSources};
+use super::super::persist_matrix::{
+    load_continuous_journals, persist_surface_evidence_from, SurfaceEvidenceSources,
+};
 use super::super::persist_plan::persist_cheapest_evidence_from;
 use super::super::persist_run::{put_json_run_artifact, put_run_artifact};
 use super::super::persist_ui_analyse::analyse_ui_snapshots;
-use super::super::protection_snapshot::{live_protection_snapshot, persist_dynamic_coverage_history};
+use super::super::protection_snapshot::{
+    live_protection_snapshot, persist_dynamic_coverage_history,
+};
 use super::super::runner::execution_summary;
-use super::LiveService;
 use super::run_types::{ExecutedControlledRun, PersistedControlledRun, PreparedControlledRun};
+use super::LiveService;
 
 impl LiveService {
     #[allow(clippy::too_many_lines)]
@@ -111,6 +115,7 @@ impl LiveService {
                 &mut handles,
             )?;
         }
+        let journals = load_continuous_journals(store)?;
         let evidence_sources = SurfaceEvidenceSources {
             graph: protection_graph,
             records,
@@ -119,6 +124,7 @@ impl LiveService {
             browser_runs,
             ui: head_ui.as_ref(),
             protection: protection.as_ref(),
+            journals: &journals,
         };
         persist_surface_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
         persist_cheapest_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;

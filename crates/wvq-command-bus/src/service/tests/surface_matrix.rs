@@ -1,10 +1,12 @@
 //! Surface Evidence Matrix persist: measured gaps are absent, missing producers are not.
 
-use super::*;
 use super::super::verify_debt::verify_from_token;
+use super::*;
 use crate::source_mutation::{MutationResultRecord, MutationRunDocument};
+use wvq_domain::ArtifactId;
 use wvq_intelligence::EvidenceCell;
 use wvq_proof::{FlowProtection, ProtectionSnapshot};
+use wvq_runtime::ContinuousJournal;
 
 fn pay_binding() -> TestBinding {
     TestBinding {
@@ -63,7 +65,8 @@ fn pay_graph() -> Value {
 
 #[test]
 fn intent_and_coverage_are_measured_while_protection_stays_unmeasured() {
-    let matrix = surface_evidence_document(&pay_graph(), &[coverage_record()], &[pay_binding()]).unwrap();
+    let matrix =
+        surface_evidence_document(&pay_graph(), &[coverage_record()], &[pay_binding()]).unwrap();
     let pay = matrix
         .surfaces
         .iter()
@@ -153,6 +156,7 @@ fn live_producers_fill_protection_and_mutation_without_calling_them_coverage() {
         browser_runs: &[],
         ui: None,
         protection: Some(&protection),
+        journals: &[],
     };
     let matrix = surface_evidence_from(&sources).unwrap();
     let pay = matrix
@@ -206,11 +210,10 @@ fn persisting_the_matrix_does_not_invent_a_clean_empty_table() {
     .unwrap();
     let view = load_surface_evidence_matrix(&store, &run).unwrap();
     assert!(view.present);
-    assert!(
-        view.surfaces
-            .iter()
-            .any(|row| row.surface == "endpoint:POST /pay" && row.intent == EvidenceCell::Present)
-    );
+    assert!(view
+        .surfaces
+        .iter()
+        .any(|row| row.surface == "endpoint:POST /pay" && row.intent == EvidenceCell::Present));
     let reply = verify_from_token("surface-change", "PROVEN");
     assert!(!reply.blocking);
     assert!(!reply.surface_evidence.present);
@@ -294,7 +297,105 @@ fn unknown_matrix_schema_fails_closed() {
     .unwrap();
     let err = load_surface_evidence_matrix(&store, &run).unwrap_err();
     assert!(
-        err.to_string().contains("unknown surface-evidence-matrix schema"),
+        err.to_string()
+            .contains("unknown surface-evidence-matrix schema"),
         "{err}"
     );
+}
+
+fn checkout_graph() -> Value {
+    json!({
+        "endpoints": [
+            { "id": "POST /pay", "handler": "symbol:src/payment.ts#charge" }
+        ],
+        "nodes": [
+            { "id": "route:/checkout", "kind": "route", "label": "/checkout" },
+            { "id": "route:/idle", "kind": "route", "label": "/idle" },
+            {
+                "id": "symbol:src/payment.ts#charge",
+                "span": {"file": "src/payment.ts", "start_line": 1, "end_line": 4}
+            }
+        ]
+    })
+}
+
+fn checkout_journal() -> ContinuousJournal {
+    ContinuousJournal::from_json(checkout_journal_raw()).unwrap()
+}
+
+#[test]
+fn a_continuous_journal_fills_runtime_and_does_not_claim_intent_or_proof() {
+    let journal = checkout_journal();
+    let graph = checkout_graph();
+    let sources = SurfaceEvidenceSources {
+        graph: &graph,
+        records: &[],
+        bindings: &[],
+        mutation: None,
+        browser_runs: &[],
+        ui: None,
+        protection: None,
+        journals: std::slice::from_ref(&journal),
+    };
+    let matrix = surface_evidence_from(&sources).unwrap();
+    let checkout = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "route:/checkout")
+        .expect("checkout");
+    let idle = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "route:/idle")
+        .expect("idle");
+    let pay = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "endpoint:POST /pay")
+        .expect("pay");
+    assert_eq!(checkout.runtime, EvidenceCell::Present);
+    assert_eq!(idle.runtime, EvidenceCell::Absent);
+    assert_eq!(
+        pay.runtime,
+        EvidenceCell::Absent,
+        "a journal action is not an API identity and must not invent an endpoint hit"
+    );
+    assert_ne!(checkout.intent, EvidenceCell::Present);
+    assert_ne!(pay.intent, EvidenceCell::Present);
+    assert_eq!(checkout.proof, EvidenceCell::Unmeasured);
+    assert_eq!(pay.proof, EvidenceCell::Unmeasured);
+    assert_eq!(checkout.test, EvidenceCell::Absent);
+}
+
+#[test]
+fn stored_journals_are_loaded_for_the_runtime_column() {
+    let root = TempDir::new("journal-runtime");
+    let store = Store::open(&root.0).unwrap();
+    let id = ArtifactId::new("artifact-session-staging-checkout-journal").unwrap();
+    store
+        .put_artifact(
+            &id,
+            CONTINUOUS_OBSERVATION_JOURNAL_KIND,
+            checkout_journal_raw().as_bytes(),
+        )
+        .unwrap();
+    let loaded = load_continuous_journals(&store).unwrap();
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded[0].session_id, "staging-checkout");
+}
+
+fn checkout_journal_raw() -> &'static str {
+    r#"{
+        "schema_v": 1,
+        "source": "continuous",
+        "observed_only": true,
+        "session_id": "staging-checkout",
+        "initial": { "route": "/checkout" },
+        "events": [
+            {
+                "action": { "action": "activate", "target": { "test_id": "pay" } },
+                "after": { "route": "/checkout" }
+            }
+        ]
+    }"#
 }

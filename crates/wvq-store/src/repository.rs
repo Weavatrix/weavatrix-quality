@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use wvq_domain::{
     ArtifactId, ContentHash, HumanDecision, ObligationId, OracleSealId, ProofId, RevisionId, RunId,
 };
@@ -951,6 +951,27 @@ impl Store {
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         let rows = statement
             .query_map([run.as_str()], |row| row.get::<_, String>(0))
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let raw = row.map_err(|err| StoreError::Sqlite(err.to_string()))?;
+            out.push(ArtifactId::new(raw).map_err(|err| StoreError::Invalid(err.to_string()))?);
+        }
+        Ok(out)
+    }
+
+    /// Artifact ids of one kind, in stable order. Bytes stay in CAS.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] for SQL or identity failures.
+    pub fn artifact_ids_by_kind(&self, kind: &str) -> Result<Vec<ArtifactId>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT id FROM artifacts WHERE kind = ?1 ORDER BY id")
+            .map_err(|err| StoreError::Sqlite(err.to_string()))?;
+        let rows = statement
+            .query_map([kind], |row| row.get::<_, String>(0))
             .map_err(|err| StoreError::Sqlite(err.to_string()))?;
         let mut out = Vec::new();
         for row in rows {

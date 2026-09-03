@@ -28,6 +28,23 @@ fn schema_version_is_recorded() {
 }
 
 #[test]
+fn artifact_ids_by_kind_are_stable_and_do_not_cross_kinds() {
+    let store = open_temp();
+    let journal = ArtifactId::new("artifact-session-a-journal").unwrap();
+    let other = ArtifactId::new("artifact-run-1-summary").unwrap();
+    store
+        .put_artifact(&journal, "continuous-observation-journal", b"{\"ok\":true}")
+        .unwrap();
+    store
+        .put_artifact(&other, "execution-summary", br#"{"passed":true}"#)
+        .unwrap();
+    let ids = store
+        .artifact_ids_by_kind("continuous-observation-journal")
+        .unwrap();
+    assert_eq!(ids, [journal]);
+}
+
+#[test]
 fn defensive_selection_miss_is_queryable_and_idempotent() {
     let store = open_temp();
     let revision = RevisionId::new("rev-selection-audit").unwrap();
