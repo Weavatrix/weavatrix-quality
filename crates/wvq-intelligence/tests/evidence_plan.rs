@@ -48,7 +48,7 @@ fn a_present_neighbour_does_not_hide_a_measured_gap() {
     let pay = "endpoint:POST /pay".to_string();
     let admin = "endpoint:GET /admin".to_string();
     let columns = SurfaceEvidenceColumns {
-        protection: Some(MeasuredColumn {
+        coverage: Some(MeasuredColumn {
             present: BTreeSet::from([pay]),
             absent: BTreeSet::from([admin]),
         }),
@@ -59,7 +59,7 @@ fn a_present_neighbour_does_not_hide_a_measured_gap() {
     assert_eq!(plan.gaps.len(), 1);
     let gap = &plan.gaps[0];
     assert_eq!(gap.surface, "endpoint:GET /admin");
-    assert_eq!(gap.column, EvidenceColumn::Protection);
+    assert_eq!(gap.column, EvidenceColumn::Coverage);
     assert_eq!(gap.cheapest, Some(EvidenceProducer::ExistingTestAdaptation));
     assert_eq!(gap.producers[0].cost, 1);
     assert_eq!(

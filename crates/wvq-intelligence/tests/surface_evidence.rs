@@ -31,6 +31,7 @@ fn a_missing_column_is_unmeasured_not_absent() {
         assert_eq!(row.runtime, EvidenceCell::Unmeasured);
         assert_eq!(row.test, EvidenceCell::Unmeasured);
         assert_eq!(row.proof, EvidenceCell::Unmeasured);
+        assert_eq!(row.coverage, EvidenceCell::Unmeasured);
         assert_eq!(row.protection, EvidenceCell::Unmeasured);
         assert_eq!(row.ui, EvidenceCell::Unmeasured);
         assert_eq!(row.a11y, EvidenceCell::Unmeasured);
@@ -71,6 +72,7 @@ fn a_measured_gap_is_absent_and_does_not_hide_a_present_neighbour() {
         .expect("admin");
     assert_eq!(pay_row.intent, EvidenceCell::Present);
     assert_eq!(admin_row.intent, EvidenceCell::Absent);
+    assert_eq!(pay_row.coverage, EvidenceCell::Unmeasured);
     assert_eq!(pay_row.protection, EvidenceCell::Present);
     assert_eq!(admin_row.protection, EvidenceCell::Absent);
     assert_eq!(pay_row.mutation, EvidenceCell::Absent);

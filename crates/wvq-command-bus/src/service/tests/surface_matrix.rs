@@ -60,7 +60,7 @@ fn pay_graph() -> Value {
 }
 
 #[test]
-fn intent_and_protection_are_measured_while_mutation_stays_unmeasured() {
+fn intent_and_coverage_are_measured_while_protection_stays_unmeasured() {
     let matrix = surface_evidence_document(&pay_graph(), &[coverage_record()], &[pay_binding()]).unwrap();
     let pay = matrix
         .surfaces
@@ -74,12 +74,31 @@ fn intent_and_protection_are_measured_while_mutation_stays_unmeasured() {
         .expect("idle");
     assert_eq!(pay.intent, EvidenceCell::Present);
     assert_eq!(pay.test, EvidenceCell::Present);
-    assert_eq!(pay.protection, EvidenceCell::Present);
+    assert_eq!(pay.coverage, EvidenceCell::Present);
+    assert_eq!(pay.protection, EvidenceCell::Unmeasured);
     assert_eq!(idle.intent, EvidenceCell::Absent);
-    assert_eq!(idle.protection, EvidenceCell::Absent);
+    assert_eq!(idle.test, EvidenceCell::Absent);
+    assert_eq!(idle.coverage, EvidenceCell::Absent);
+    assert_eq!(idle.protection, EvidenceCell::Unmeasured);
     assert_eq!(pay.mutation, EvidenceCell::Unmeasured);
     assert_eq!(pay.ui, EvidenceCell::Unmeasured);
     assert_eq!(pay.runtime, EvidenceCell::Unmeasured);
+}
+
+#[test]
+fn a_binding_without_obligations_is_test_not_intent() {
+    let mut binding = pay_binding();
+    binding.obligations.clear();
+    let matrix = surface_evidence_document(&pay_graph(), &[coverage_record()], &[binding]).unwrap();
+    let pay = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "endpoint:POST /pay")
+        .expect("pay");
+    assert_eq!(pay.intent, EvidenceCell::Absent);
+    assert_eq!(pay.test, EvidenceCell::Present);
+    assert_eq!(pay.coverage, EvidenceCell::Present);
+    assert_eq!(pay.protection, EvidenceCell::Unmeasured);
 }
 
 #[test]
@@ -122,6 +141,57 @@ fn persisting_the_matrix_does_not_invent_a_clean_empty_table() {
     let reply = verify_from_token("surface-change", "PROVEN");
     assert!(!reply.blocking);
     assert!(!reply.surface_evidence.present);
+}
+
+#[test]
+fn a_v1_matrix_treats_old_protection_as_coverage() {
+    let root = TempDir::new("matrix-v1");
+    let store = Store::open(&root.0).unwrap();
+    let run = RunId::new("run-matrix-v1").unwrap();
+    store
+        .put_run(&wvq_store::StoredRun {
+            id: run.clone(),
+            change_id: "surface".into(),
+            revision: RevisionId::new("rev-matrix-v1").unwrap(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    let mut handles = Vec::new();
+    put_json_run_artifact(
+        &store,
+        &run,
+        "artifact-run-matrix-v1-surface-evidence-matrix",
+        SURFACE_EVIDENCE_MATRIX_KIND,
+        &json!({
+            "schema_v": 1,
+            "revision": "rev",
+            "truncated": false,
+            "surfaces": [{
+                "surface": "endpoint:POST /pay",
+                "kind": "endpoint",
+                "intent": "present",
+                "runtime": "unmeasured",
+                "test": "present",
+                "proof": "unmeasured",
+                "protection": "present",
+                "ui": "unmeasured",
+                "a11y": "unmeasured",
+                "mutation": "unmeasured"
+            }]
+        }),
+        &mut handles,
+    )
+    .unwrap();
+    let view = load_surface_evidence_matrix(&store, &run).unwrap();
+    let pay = view
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "endpoint:POST /pay")
+        .expect("pay");
+    assert_eq!(pay.coverage, EvidenceCell::Present);
+    assert_eq!(pay.protection, EvidenceCell::Unmeasured);
 }
 
 #[test]

@@ -60,16 +60,17 @@ fn pay_graph() -> Value {
 }
 
 #[test]
-fn idle_protection_gap_ranks_existing_test_adaptation_first() {
+fn idle_coverage_gap_ranks_existing_test_adaptation_first() {
     let plan = cheapest_evidence_document(&pay_graph(), &[coverage_record()], &[pay_binding()]).unwrap();
     let idle = plan
         .gaps
         .iter()
-        .find(|gap| gap.surface == "endpoint:GET /idle" && gap.column == EvidenceColumn::Protection)
-        .expect("idle protection");
+        .find(|gap| gap.surface == "endpoint:GET /idle" && gap.column == EvidenceColumn::Coverage)
+        .expect("idle coverage");
     assert_eq!(idle.cheapest, Some(EvidenceProducer::ExistingTestAdaptation));
     assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Mutation));
     assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Runtime));
+    assert!(!plan.gaps.iter().any(|gap| gap.column == EvidenceColumn::Protection));
 }
 
 #[test]
@@ -106,7 +107,7 @@ fn persisting_the_plan_does_not_invent_a_clean_empty_table() {
     assert!(view.present);
     assert!(view.gaps.iter().any(|gap| {
         gap.surface == "endpoint:GET /idle"
-            && gap.column == EvidenceColumn::Protection
+            && gap.column == EvidenceColumn::Coverage
             && gap.cheapest == Some(EvidenceProducer::ExistingTestAdaptation)
     }));
     let reply = verify_from_token("surface-change", "PROVEN");

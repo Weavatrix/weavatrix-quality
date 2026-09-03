@@ -34,7 +34,7 @@ pub(in crate::service) fn persist_surface_evidence_matrix(
 ) -> Result<(), BusError> {
     let matrix = surface_evidence_document(graph, records, bindings)?;
     let document = SurfaceEvidenceDocument {
-        schema_v: 1,
+        schema_v: 2,
         revision: revision.to_string(),
         truncated: matrix.truncated,
         surfaces: matrix.surfaces,
@@ -57,15 +57,16 @@ pub(in crate::service) fn surface_evidence_document(
     let surface_graph = application_surface_graph(graph);
     let coverage = coverage_from_records(graph, records)?;
     let autopilot = coverage_autopilot(&surface_graph, &coverage);
-    let (intent_test, reach_truncated) = binding_column(&surface_graph, graph, bindings);
+    let (test, test_truncated) = binding_column(&surface_graph, graph, bindings);
+    let (intent, intent_truncated) = intent_column(&surface_graph, graph, bindings);
     let columns = SurfaceEvidenceColumns {
-        intent: Some(intent_test.clone()),
-        test: Some(intent_test),
-        protection: Some(protection_column(&autopilot)),
+        intent: Some(intent),
+        test: Some(test),
+        coverage: Some(coverage_column(&autopilot)),
         ..SurfaceEvidenceColumns::default()
     };
     let mut matrix = surface_evidence_matrix(&surface_graph, &columns);
-    matrix.truncated = matrix.truncated || reach_truncated;
+    matrix.truncated = matrix.truncated || test_truncated || intent_truncated;
     Ok(matrix)
 }
 
@@ -86,12 +87,15 @@ fn view_from_json(value: &Value) -> Result<SurfaceEvidenceMatrixView, BusError> 
     let schema_v = value.get("schema_v").and_then(Value::as_u64).ok_or_else(|| {
         BusError::Store("surface-evidence-matrix omitted schema_v".into())
     })?;
-    if schema_v != 1 {
+    let mut value = value.clone();
+    if schema_v == 1 {
+        migrate_v1_matrix(&mut value);
+    } else if schema_v != 2 {
         return Err(BusError::Store(format!(
             "unknown surface-evidence-matrix schema version {schema_v}"
         )));
     }
-    let document: SurfaceEvidenceDocument = serde_json::from_value(value.clone()).map_err(|err| {
+    let document: SurfaceEvidenceDocument = serde_json::from_value(value).map_err(|err| {
         BusError::Store(format!("malformed surface-evidence-matrix: {err}"))
     })?;
     Ok(SurfaceEvidenceMatrixView {
@@ -101,7 +105,26 @@ fn view_from_json(value: &Value) -> Result<SurfaceEvidenceMatrixView, BusError> 
     })
 }
 
-fn protection_column(autopilot: &CoverageAutopilot) -> MeasuredColumn {
+fn migrate_v1_matrix(value: &mut Value) {
+    if let Some(surfaces) = value.get_mut("surfaces").and_then(Value::as_array_mut) {
+        for row in surfaces {
+            let Some(object) = row.as_object_mut() else {
+                continue;
+            };
+            let old_protection = object
+                .get("protection")
+                .cloned()
+                .unwrap_or_else(|| json!("unmeasured"));
+            object.insert("coverage".into(), old_protection);
+            object.insert("protection".into(), json!("unmeasured"));
+        }
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert("schema_v".into(), json!(2));
+    }
+}
+
+fn coverage_column(autopilot: &CoverageAutopilot) -> MeasuredColumn {
     let mut present = BTreeSet::new();
     let mut absent = BTreeSet::new();
     for row in &autopilot.surfaces {
@@ -116,6 +139,19 @@ fn protection_column(autopilot: &CoverageAutopilot) -> MeasuredColumn {
         }
     }
     MeasuredColumn { present, absent }
+}
+
+fn intent_column(
+    surface_graph: &ApplicationSurfaceGraph,
+    graph: &Value,
+    bindings: &[TestBinding],
+) -> (MeasuredColumn, bool) {
+    let obligated = bindings
+        .iter()
+        .filter(|binding| !binding.obligations.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    binding_column(surface_graph, graph, &obligated)
 }
 
 fn binding_column(

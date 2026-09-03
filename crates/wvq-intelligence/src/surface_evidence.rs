@@ -45,7 +45,9 @@ pub struct SurfaceEvidenceColumns {
     pub test: Option<MeasuredColumn>,
     /// An assembled Proof for an obligation on the surface.
     pub proof: Option<MeasuredColumn>,
-    /// Protection / coverage measurement.
+    /// Normalized coverage mapped onto Weavatrix nodes.
+    pub coverage: Option<MeasuredColumn>,
+    /// Protection continuity — not coverage hits.
     pub protection: Option<MeasuredColumn>,
     /// UI-integrity measurement.
     pub ui: Option<MeasuredColumn>,
@@ -83,7 +85,9 @@ pub struct SurfaceEvidenceRow {
     pub test: EvidenceCell,
     /// Assembled Proof.
     pub proof: EvidenceCell,
-    /// Protection / coverage.
+    /// Normalized coverage.
+    pub coverage: EvidenceCell,
+    /// Protection continuity.
     pub protection: EvidenceCell,
     /// UI integrity.
     pub ui: EvidenceCell,
@@ -96,13 +100,14 @@ pub struct SurfaceEvidenceRow {
 impl SurfaceEvidenceRow {
     /// Column cells in planner order.
     #[must_use]
-    pub fn cells(&self) -> [(crate::evidence_plan::EvidenceColumn, EvidenceCell); 8] {
+    pub fn cells(&self) -> [(crate::evidence_plan::EvidenceColumn, EvidenceCell); 9] {
         use crate::evidence_plan::EvidenceColumn as Column;
         [
             (Column::Intent, self.intent),
             (Column::Runtime, self.runtime),
             (Column::Test, self.test),
             (Column::Proof, self.proof),
+            (Column::Coverage, self.coverage),
             (Column::Protection, self.protection),
             (Column::Ui, self.ui),
             (Column::A11y, self.a11y),
@@ -137,6 +142,7 @@ pub fn surface_evidence_matrix(
             runtime: cell(columns.runtime.as_ref(), &surface.id),
             test: cell(columns.test.as_ref(), &surface.id),
             proof: cell(columns.proof.as_ref(), &surface.id),
+            coverage: cell(columns.coverage.as_ref(), &surface.id),
             protection: cell(columns.protection.as_ref(), &surface.id),
             ui: cell(columns.ui.as_ref(), &surface.id),
             a11y: cell(columns.a11y.as_ref(), &surface.id),

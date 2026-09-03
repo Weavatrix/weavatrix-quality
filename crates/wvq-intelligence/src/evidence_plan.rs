@@ -21,7 +21,9 @@ pub enum EvidenceColumn {
     Test,
     /// Assembled Proof.
     Proof,
-    /// Protection / coverage.
+    /// Normalized coverage mapped onto Weavatrix nodes.
+    Coverage,
+    /// Protection continuity — not coverage hits.
     Protection,
     /// UI integrity.
     Ui,
@@ -199,7 +201,7 @@ fn offers(
                 producers.push(EvidenceProducer::AiTestProgram);
             }
         }
-        EvidenceColumn::Protection => {
+        EvidenceColumn::Coverage | EvidenceColumn::Protection => {
             producers.push(EvidenceProducer::ExistingTestAdaptation);
             if ui {
                 producers.push(EvidenceProducer::StorybookFlow);
