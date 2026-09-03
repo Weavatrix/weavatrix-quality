@@ -679,6 +679,58 @@ pub struct AuthorHealReply {
     pub created: bool,
 }
 
+/// One discovered registered executor. Detection, not authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DoctorRunner {
+    /// Frozen registry id.
+    pub executor: String,
+    /// Repository-relative working directory, or `.`.
+    pub cwd: String,
+}
+
+/// An existing policy binding. Doctor never invents these.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DoctorBinding {
+    /// Repository-relative test or source path.
+    pub path: String,
+    /// Declared runner, when present.
+    pub runner: Option<String>,
+    /// Obligation ids the binding names.
+    pub obligations: Vec<String>,
+}
+
+/// Read-only discovery. `authority` is always false.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DoctorReply {
+    /// Always false. Detection is not product authority.
+    pub authority: bool,
+    /// Whether `.weavatrix-quality/config.yaml` exists.
+    pub policy_present: bool,
+    /// Whether that policy loaded as `quality_policy_v: 1`.
+    pub policy_loadable: bool,
+    /// Load error when the file exists but is not usable.
+    pub policy_error: Option<String>,
+    /// Whether `openspec/changes` exists.
+    pub openspec_present: bool,
+    /// Change folder names. Not compiled obligations.
+    pub openspec_changes: Vec<String>,
+    /// Ecosystems inferred from discovered manifests.
+    pub ecosystems: Vec<String>,
+    /// Registered executors `discover_executor_targets` named.
+    pub runners: Vec<DoctorRunner>,
+    /// Bindings already declared in policy. Empty when none exist.
+    pub bindings: Vec<DoctorBinding>,
+    /// True when policy names a browser origin.
+    pub browser_configured: bool,
+    /// Configured origin, when present.
+    pub browser_origin: Option<String>,
+    /// CLI next steps. Never a generated test or seal.
+    pub suggested_next: Vec<String>,
+    /// Discovery spends no model tokens.
+    pub runtime_llm_tokens: u64,
+}
+
 /// Files written by `wvq init`. Never a proof or a seal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InitReply {
@@ -854,6 +906,9 @@ pub enum Reply {
     /// [`InitReply`].
     #[serde(rename = "init")]
     Init(InitReply),
+    /// [`DoctorReply`].
+    #[serde(rename = "doctor")]
+    Doctor(DoctorReply),
     /// [`IngestJournalReply`].
     #[serde(rename = "ingest_journal")]
     IngestJournal(IngestJournalReply),

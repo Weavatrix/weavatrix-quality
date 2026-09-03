@@ -12,18 +12,19 @@ mod source_mutation;
 pub use commands::{
     AnalyzeCommand, AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
     AuthorPromoteCommand, AuthorValidateCommand, BaselineCommand, ChangesCommand, Command,
-    ContextCommand, DebtCommand, EvidenceCommand, ExplainCommand, InitCommand, IngestCassetteCommand,
-    IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand, RunCommand,
-    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    ContextCommand, DebtCommand, DoctorCommand, EvidenceCommand, ExplainCommand,
+    IngestCassetteCommand, IngestJournalCommand, InitCommand, ModelCommand, PlanCommand,
+    RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand,
+    VerifyCommand,
 };
 pub use replies::{
-    AnalyzeReply, AuthorDraftReply, AuthorHealReply, AuthorModelUsage, AuthorPreviewReply,
-    AuthorPromoteReply, AuthorValidateReply, AuthoringObligation, BaselineReply, ChangesReply,
-    ContextReply, DebtReply, EvidenceReply, ExplainReply, INLINE_LIMIT, InitReply, IngestCassetteReply,
-    IngestJournalReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply, Reply,
-    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
-    VerifyReply, estimate_tokens, ApplicationSurfaceView, CheapestEvidencePlanView,
-    SurfaceEvidenceMatrixView,
+    AnalyzeReply, ApplicationSurfaceView, AuthorDraftReply, AuthorHealReply, AuthorModelUsage,
+    AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply, AuthoringObligation,
+    BaselineReply, ChangesReply, CheapestEvidencePlanView, ContextReply, DebtReply, DoctorBinding,
+    DoctorReply, DoctorRunner, EvidenceReply, ExplainReply, INLINE_LIMIT, IngestCassetteReply,
+    IngestJournalReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
+    Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply,
+    StatusReply, SurfaceEvidenceMatrixView, VerifyReply, estimate_tokens,
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};
 pub use wvq_intelligence::{

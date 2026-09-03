@@ -3,37 +3,38 @@
 
 use std::sync::Mutex;
 
-use super::access::*;
 use super::QualityService;
+use super::access::*;
 
-mod repo;
-mod recovery;
-mod protection;
-mod protection_store;
-mod protection_axes;
-mod ui;
-mod ui_replay;
-mod ui_responsive;
-mod spec;
-mod verify;
-mod explain;
-mod debt;
-mod model;
 mod author;
+mod baseline;
+mod debt;
+mod doctor;
+mod explain;
+mod ingest_cassette;
+mod ingest_journal;
+mod init;
+mod model;
 mod promote;
+mod protection;
+mod protection_axes;
+mod protection_store;
 mod record;
 mod record_capture;
 mod record_persist;
-mod ingest_journal;
-mod ingest_cassette;
-mod baseline;
+mod recovery;
+mod repo;
 mod run;
-mod run_types;
-mod run_prepare;
 mod run_execute;
-mod run_persist;
 mod run_finish;
-mod init;
+mod run_persist;
+mod run_prepare;
+mod run_types;
+mod spec;
+mod ui;
+mod ui_replay;
+mod ui_responsive;
+mod verify;
 
 /// Filesystem-backed service with registered bounded executors and a persistent evidence ledger.
 #[derive(Debug)]
@@ -186,6 +187,9 @@ impl QualityService for LiveService {
     }
     fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError> {
         LiveService::init(self, cmd)
+    }
+    fn doctor(&self, cmd: &DoctorCommand) -> Result<DoctorReply, BusError> {
+        LiveService::doctor(self, cmd)
     }
     fn ingest_journal(&self, cmd: &IngestJournalCommand) -> Result<IngestJournalReply, BusError> {
         LiveService::ingest_journal(self, cmd)

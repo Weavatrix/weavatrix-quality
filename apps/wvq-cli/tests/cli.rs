@@ -5,7 +5,7 @@ use std::process::Command as ProcessCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use wvq_cli::{parse_args, run_with};
-use wvq_command_bus::{Command, FakeService, InitCommand};
+use wvq_command_bus::{Command, DoctorCommand, FakeService, InitCommand};
 
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
@@ -121,11 +121,7 @@ fn init_parses_and_scaffolds_an_empty_repository() {
         std::fs::create_dir_all(&root).unwrap();
         root
     });
-    let output = wvq_cli::run(&argv(&[
-        "--repo",
-        empty.0.to_str().unwrap(),
-        "init",
-    ]));
+    let output = wvq_cli::run(&argv(&["--repo", empty.0.to_str().unwrap(), "init"]));
     assert_eq!(output.code, 0, "{}", output.stderr);
     assert!(output.stdout.contains("\"command\": \"init\""));
     assert!(output.stdout.contains("config.yaml"));
@@ -134,13 +130,37 @@ fn init_parses_and_scaffolds_an_empty_repository() {
     assert!(empty.0.join(".weavatrix-quality/config.yaml").is_file());
     assert!(!empty.0.join(".weavatrix-quality/quality.db").exists());
 
-    let again = wvq_cli::run(&argv(&[
-        "--repo",
-        empty.0.to_str().unwrap(),
-        "init",
-    ]));
+    let again = wvq_cli::run(&argv(&["--repo", empty.0.to_str().unwrap(), "init"]));
     assert_ne!(again.code, 0);
     assert!(again.stderr.contains("already exists"));
+}
+
+#[test]
+fn doctor_parses_and_does_not_write() {
+    let parsed = parse_args(&argv(&["doctor"])).unwrap();
+    assert_eq!(parsed.command, Command::Doctor(DoctorCommand {}));
+
+    let empty = TempRepo({
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("wvq-cli-doctor-{nanos}"));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    });
+    let output = wvq_cli::run(&argv(&["--repo", empty.0.to_str().unwrap(), "doctor"]));
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"command\": \"doctor\""));
+    assert!(output.stdout.contains("\"authority\": false"));
+    assert!(output.stdout.contains("\"runtime_llm_tokens\": 0"));
+    assert!(!empty.0.join(".weavatrix-quality").exists());
+}
+
+#[test]
+fn doctor_rejects_unknown_flags() {
+    let err = parse_args(&argv(&["doctor", "--change", "current"])).unwrap_err();
+    assert!(err.contains("unknown flag --change"), "{err}");
 }
 
 #[test]
@@ -277,8 +297,16 @@ fn observe_only_verify_never_fails_ci() {
     );
     assert_eq!(output.code, 0, "Stage A observe-only must not fail CI");
     assert!(output.stdout.contains("CONTRADICTED"), "{}", output.stdout);
-    assert!(output.stdout.contains("\"observe_only\": true"), "{}", output.stdout);
-    assert!(output.stdout.contains("\"blocking\": true"), "{}", output.stdout);
+    assert!(
+        output.stdout.contains("\"observe_only\": true"),
+        "{}",
+        output.stdout
+    );
+    assert!(
+        output.stdout.contains("\"blocking\": true"),
+        "{}",
+        output.stdout
+    );
 }
 
 #[test]

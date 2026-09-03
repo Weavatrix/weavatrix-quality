@@ -101,6 +101,7 @@ Measured coverage can teach later selections without replacing Weavatrix. WVQ at
 
 ```text
 wvq init [--force true|false]
+wvq doctor
 wvq spec validate [--change ID]
 wvq spec seal [--change ID]
 wvq analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
@@ -119,7 +120,7 @@ wvq plan [--change ID]
 wvq model [--change ID] --kind planning|runtime|browser_escape|vision --prompt TEXT
 ```
 
-`wvq init` writes a fail-closed `.weavatrix-quality/config.yaml`. `wvq ingest-journal` admits a privacy-safe continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. `wvq ingest-cassette` admits a HAR as a privacy-safe network profile (replay stays off). `wvq baseline` snapshots existing debt fingerprints as `OBSERVED_ONLY`; `--decision` must be `observed_only` and there is no `accept_all`. `wvq verify --observe-only` keeps the composite verdict but exits 0 for Stage A calibration.
+`wvq init` writes a fail-closed `.weavatrix-quality/config.yaml`. `wvq doctor` is read-only discovery: it names detected ecosystems, registered runners, existing OpenSpec change folders, policy loadability, and already-declared bindings. Detection is not authority — doctor never writes, never seals, and never invents a binding or an OpenSpec change. It is CLI-only, not a default MCP tool. `wvq ingest-journal` admits a privacy-safe continuous observation journal as `OBSERVED_ONLY` BehaviorGraph evidence. `wvq ingest-cassette` admits a HAR as a privacy-safe network profile (replay stays off). `wvq baseline` snapshots existing debt fingerprints as `OBSERVED_ONLY`; `--decision` must be `observed_only` and there is no `accept_all`. `wvq verify --observe-only` keeps the composite verdict but exits 0 for Stage A calibration.
 
 Unknown and duplicate flags fail instead of being silently ignored. A blocking `CONTRADICTED` verify verdict exits with code 2; unresolved evidence exits with code 1. Observe-only never changes that classification; it only changes the process exit for CI.
 
@@ -357,7 +358,7 @@ quality_context  quality_plan  quality_run  quality_status
 quality_verify   quality_explain  quality_evidence
 ```
 
-It has controlled concurrency, cooperative cancellation, no arbitrary shell, and handle-only delivery for large artifacts. Recovery, protection, and authoring servers are opt-in profiles, so the default coding-agent schema footprint remains seven tools.
+It has controlled concurrency, cooperative cancellation, no arbitrary shell, and handle-only delivery for large artifacts. Recovery, protection, and authoring servers are opt-in profiles, so the default coding-agent schema footprint remains seven tools. `wvq doctor`, `wvq init`, and `wvq baseline` stay CLI/npm-only so an agent cannot treat detection or an observed baseline as authority.
 
 The authoring profile is fixed at startup to one change and Git range:
 

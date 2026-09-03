@@ -6,10 +6,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use wvq_command_bus::{
-    BaselineCommand, Command, ContextCommand, DebtCommand, ExplainCommand, InitCommand,
-    IngestCassetteCommand, IngestJournalCommand, LiveService, ModelCommand, PlanCommand,
-    QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch,
+    BaselineCommand, Command, ContextCommand, DebtCommand, DoctorCommand, ExplainCommand,
+    IngestCassetteCommand, IngestJournalCommand, InitCommand, LiveService, ModelCommand,
+    PlanCommand, QualityService, RecordCommand, RecoveryCommand, RunCommand, SelectCommand,
+    SpecCommand, VerifyCommand, dispatch,
 };
 
 /// Parsed invocation.
@@ -39,6 +39,7 @@ pub fn usage() -> String {
 
 Usage:
   wvq [--repo PATH] init [--force true|false]
+  wvq [--repo PATH] doctor
   wvq [--repo PATH] spec validate [--change ID]
   wvq [--repo PATH] spec seal [--change ID]
   wvq [--repo PATH] analyze [--change ID] [--purpose spec|implementation|review] [--token-budget N]
@@ -106,38 +107,27 @@ fn parse_command(
     flags: &BTreeMap<String, String>,
     positionals: &[String],
 ) -> Result<Command, String> {
-    let change = flags
-        .get("change")
-        .cloned()
-        .unwrap_or_else(|| "current".to_owned());
-    let base = flags
-        .get("base")
-        .cloned()
-        .unwrap_or_else(|| "HEAD".to_owned());
-    let head = flags
-        .get("head")
-        .cloned()
-        .unwrap_or_else(|| "WORKTREE".to_owned());
-    let command = match positionals {
+    let (change, base, head) = revision_flags(flags);
+    match positionals {
         [spec, action] if spec == "spec" && action == "validate" => {
-            Command::SpecValidate(SpecCommand { change })
+            Ok(Command::SpecValidate(SpecCommand { change }))
         }
         [spec, action] if spec == "spec" && action == "seal" => {
-            Command::SpecSeal(SpecCommand { change })
+            Ok(Command::SpecSeal(SpecCommand { change }))
         }
-        [cmd] if cmd == "analyze" => Command::Analyze(ContextCommand {
+        [cmd] if cmd == "analyze" => Ok(Command::Analyze(ContextCommand {
             change,
             purpose: flags
                 .get("purpose")
                 .cloned()
                 .unwrap_or_else(|| "implementation".to_owned()),
             token_budget: parse_budget(flags.get("token-budget"))?,
-        }),
-        [cmd] if cmd == "debt" => Command::Debt(DebtCommand { change, base, head }),
-        [cmd] if cmd == "select" => Command::Select(SelectCommand { change, base, head }),
-        [cmd] if cmd == "recover" => Command::Recovery(RecoveryCommand { change, base, head }),
-        [cmd] if cmd == "record" => parse_record_command(change, base, head, flags)?,
-        [cmd] if cmd == "ingest-journal" => Command::IngestJournal(IngestJournalCommand {
+        })),
+        [cmd] if cmd == "debt" => Ok(Command::Debt(DebtCommand { change, base, head })),
+        [cmd] if cmd == "select" => Ok(Command::Select(SelectCommand { change, base, head })),
+        [cmd] if cmd == "recover" => Ok(Command::Recovery(RecoveryCommand { change, base, head })),
+        [cmd] if cmd == "record" => parse_record_command(change, base, head, flags),
+        [cmd] if cmd == "ingest-journal" => Ok(Command::IngestJournal(IngestJournalCommand {
             change,
             base,
             head,
@@ -147,9 +137,9 @@ fn parse_command(
                 "journal",
                 1_048_576,
             )?,
-        }),
-        [cmd] if cmd == "ingest-cassette" => parse_ingest_cassette(flags)?,
-        [cmd] if cmd == "baseline" => Command::Baseline(BaselineCommand {
+        })),
+        [cmd] if cmd == "ingest-cassette" => parse_ingest_cassette(flags),
+        [cmd] if cmd == "baseline" => Ok(Command::Baseline(BaselineCommand {
             change,
             base,
             head,
@@ -157,13 +147,13 @@ fn parse_command(
                 .get("decision")
                 .cloned()
                 .unwrap_or_else(|| "observed_only".to_owned()),
-        }),
-        [cmd] if cmd == "model" => Command::Model(ModelCommand {
+        })),
+        [cmd] if cmd == "model" => Ok(Command::Model(ModelCommand {
             change,
             kind: required_flag(flags, "kind")?,
             prompt: required_flag(flags, "prompt")?,
-        }),
-        [cmd] if cmd == "run" => Command::Run(RunCommand {
+        })),
+        [cmd] if cmd == "run" => Ok(Command::Run(RunCommand {
             change,
             scope: flags
                 .get("scope")
@@ -175,37 +165,52 @@ fn parse_command(
                 .unwrap_or_else(|| "standard".to_owned()),
             base,
             head,
-        }),
-        [cmd] if cmd == "verify" => Command::Verify(VerifyCommand {
+        })),
+        [cmd] if cmd == "verify" => Ok(Command::Verify(VerifyCommand {
             change,
             observe_only: flags
                 .get("observe-only")
                 .map(|value| parse_bool_flag(value, "observe-only"))
                 .transpose()?
                 .unwrap_or(false),
-        }),
-        [cmd] if cmd == "init" => Command::Init(InitCommand {
+        })),
+        [cmd] if cmd == "init" => Ok(Command::Init(InitCommand {
             force: flags
                 .get("force")
                 .map(|value| parse_bool_flag(value, "force"))
                 .transpose()?
                 .unwrap_or(false),
-        }),
-        [cmd] if cmd == "plan" => Command::Plan(PlanCommand { change }),
-        [cmd] if cmd == "status" => {
-            Command::Status(wvq_command_bus::StatusCommand { run_id: None })
-        }
-        [cmd, id] if cmd == "explain" => Command::Explain(ExplainCommand { id: id.clone() }),
-        [] => return Err(usage()),
-        other => {
-            return Err(format!(
-                "unknown command `{}`\n{}",
-                other.join(" "),
-                usage()
-            ));
-        }
-    };
-    Ok(command)
+        })),
+        [cmd] if cmd == "doctor" => Ok(Command::Doctor(DoctorCommand {})),
+        [cmd] if cmd == "plan" => Ok(Command::Plan(PlanCommand { change })),
+        [cmd] if cmd == "status" => Ok(Command::Status(wvq_command_bus::StatusCommand {
+            run_id: None,
+        })),
+        [cmd, id] if cmd == "explain" => Ok(Command::Explain(ExplainCommand { id: id.clone() })),
+        [] => Err(usage()),
+        other => Err(format!(
+            "unknown command `{}`\n{}",
+            other.join(" "),
+            usage()
+        )),
+    }
+}
+
+fn revision_flags(flags: &BTreeMap<String, String>) -> (String, String, String) {
+    (
+        flags
+            .get("change")
+            .cloned()
+            .unwrap_or_else(|| "current".to_owned()),
+        flags
+            .get("base")
+            .cloned()
+            .unwrap_or_else(|| "HEAD".to_owned()),
+        flags
+            .get("head")
+            .cloned()
+            .unwrap_or_else(|| "WORKTREE".to_owned()),
+    )
 }
 
 fn parse_record_command(
@@ -276,11 +281,11 @@ fn allowed_flags(positionals: &[String]) -> Option<&'static [&'static str]> {
         [cmd] if cmd == "verify" => Some(&["repo", "change", "observe-only"]),
         [cmd] if cmd == "plan" => Some(&["repo", "change"]),
         [cmd] if cmd == "init" => Some(&["repo", "force"]),
+        [cmd] if matches!(cmd.as_str(), "doctor" | "status") => Some(&["repo"]),
         [cmd] if cmd == "model" => Some(&["repo", "change", "kind", "prompt"]),
         [cmd] if cmd == "run" => {
             Some(&["repo", "change", "base", "head", "scope", "evidence-policy"])
         }
-        [cmd] if cmd == "status" => Some(&["repo"]),
         [cmd, _] if cmd == "explain" => Some(&["repo"]),
         _ => None,
     }
@@ -335,8 +340,8 @@ fn read_bounded_payload(
             Ok(body.clone())
         }
         (Some(path), None) => {
-            let metadata =
-                std::fs::metadata(path).map_err(|err| format!("cannot read {name} {path}: {err}"))?;
+            let metadata = std::fs::metadata(path)
+                .map_err(|err| format!("cannot read {name} {path}: {err}"))?;
             if metadata.len() > max_bytes {
                 return Err(format!("{name} exceeds {max_bytes} bytes"));
             }

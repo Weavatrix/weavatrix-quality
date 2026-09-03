@@ -1,7 +1,7 @@
 //! In-memory QualityService for tests. No filesystem, no subprocesses.
 
-mod spec;
 mod author;
+mod spec;
 
 use std::sync::Mutex;
 
@@ -215,6 +215,24 @@ impl QualityService for FakeService {
             ],
             skipped: Vec::new(),
             config: ".weavatrix-quality/config.yaml".into(),
+            runtime_llm_tokens: 0,
+        })
+    }
+    fn doctor(&self, cmd: &DoctorCommand) -> Result<DoctorReply, BusError> {
+        let _ = cmd;
+        Ok(DoctorReply {
+            authority: false,
+            policy_present: false,
+            policy_loadable: false,
+            policy_error: None,
+            openspec_present: false,
+            openspec_changes: Vec::new(),
+            ecosystems: Vec::new(),
+            runners: Vec::new(),
+            bindings: Vec::new(),
+            browser_configured: false,
+            browser_origin: None,
+            suggested_next: vec!["wvq init".into()],
             runtime_llm_tokens: 0,
         })
     }

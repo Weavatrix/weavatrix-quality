@@ -365,6 +365,11 @@ pub struct InitCommand {
     pub force: bool,
 }
 
+/// Read-only repository discovery. Never writes, never seals, never invents bindings.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DoctorCommand {}
+
 /// Admit a continuous observation journal as `OBSERVED_ONLY` `BehaviorGraph` evidence.
 ///
 /// Never previews, promotes, or seals. The journal body is JSON, not a path.
@@ -463,6 +468,8 @@ pub enum Command {
     Recovery(RecoveryCommand),
     /// [`InitCommand`].
     Init(InitCommand),
+    /// [`DoctorCommand`].
+    Doctor(DoctorCommand),
     /// [`IngestJournalCommand`].
     IngestJournal(IngestJournalCommand),
     /// [`IngestCassetteCommand`].
@@ -498,6 +505,7 @@ impl Command {
             Self::Changes(_) => "changes",
             Self::Recovery(_) => "recovery",
             Self::Init(_) => "init",
+            Self::Doctor(_) => "doctor",
             Self::IngestJournal(_) => "ingest_journal",
             Self::IngestCassette(_) => "ingest_cassette",
             Self::Baseline(_) => "baseline",

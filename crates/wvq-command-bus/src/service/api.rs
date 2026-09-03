@@ -1,20 +1,22 @@
 //! Shared QualityService trait and command dispatch.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use super::BusError;
 use crate::commands::{
     AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand, AuthorPromoteCommand,
-    AuthorValidateCommand, BaselineCommand, ChangesCommand, Command, ContextCommand, DebtCommand, EvidenceCommand,
-    ExplainCommand, InitCommand, IngestCassetteCommand, IngestJournalCommand, ModelCommand, PlanCommand, RecordCommand,
-    RecoveryCommand, RunCommand, SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
+    AuthorValidateCommand, BaselineCommand, ChangesCommand, Command, ContextCommand, DebtCommand,
+    DoctorCommand, EvidenceCommand, ExplainCommand, IngestCassetteCommand, IngestJournalCommand,
+    InitCommand, ModelCommand, PlanCommand, RecordCommand, RecoveryCommand, RunCommand,
+    SelectCommand, SpecCommand, StatusCommand, VerifyCommand,
 };
 use crate::replies::{
     AuthorDraftReply, AuthorHealReply, AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply,
-    BaselineReply, ChangesReply, ContextReply, DebtReply, EvidenceReply, ExplainReply, InitReply,
-    IngestCassetteReply, IngestJournalReply, ModelReply, PlanReply, RecordReply, RecoveryReply, Reply, RunReply,
-    SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply, VerifyReply,
+    BaselineReply, ChangesReply, ContextReply, DebtReply, DoctorReply, EvidenceReply, ExplainReply,
+    IngestCassetteReply, IngestJournalReply, InitReply, ModelReply, PlanReply, RecordReply,
+    RecoveryReply, Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply,
+    SpecValidateReply, StatusReply, VerifyReply,
 };
 
 /// Shared facade for every host.
@@ -229,6 +231,15 @@ pub trait QualityService: Send + Sync {
     /// Returns [`BusError::InvalidInput`] when a policy already exists and
     /// `force` is false, or when the repository path is not a directory.
     fn init(&self, cmd: &InitCommand) -> Result<InitReply, BusError>;
+    /// Read-only discovery of runners, policy, and OpenSpec. Never writes.
+    ///
+    /// Detection is not authority. Doctor does not invent bindings or seals.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BusError::InvalidInput`] when the repository path is not a
+    /// directory. A missing or malformed policy is reported in the reply.
+    fn doctor(&self, cmd: &DoctorCommand) -> Result<DoctorReply, BusError>;
     /// Admit a continuous observation journal as `OBSERVED_ONLY` graph evidence.
     ///
     /// Never previews, promotes, or seals. Unknown schema and illegal actions fail closed.
@@ -244,7 +255,8 @@ pub trait QualityService: Send + Sync {
     /// # Errors
     ///
     /// Returns [`BusError`] when the HAR is malformed or the origin is unusable.
-    fn ingest_cassette(&self, cmd: &IngestCassetteCommand) -> Result<IngestCassetteReply, BusError>;
+    fn ingest_cassette(&self, cmd: &IngestCassetteCommand)
+    -> Result<IngestCassetteReply, BusError>;
     /// Snapshot existing debt as `OBSERVED_ONLY` baseline evidence.
     ///
     /// New debt is not swallowed. The snapshot cannot become a normative seal.
@@ -291,9 +303,9 @@ pub fn dispatch(service: &dyn QualityService, command: Command) -> Result<Reply,
             .recovery(&cmd)
             .map(|reply| Reply::Recovery(Box::new(reply))),
         Command::Init(cmd) => service.init(&cmd).map(Reply::Init),
+        Command::Doctor(cmd) => service.doctor(&cmd).map(Reply::Doctor),
         Command::IngestJournal(cmd) => service.ingest_journal(&cmd).map(Reply::IngestJournal),
         Command::IngestCassette(cmd) => service.ingest_cassette(&cmd).map(Reply::IngestCassette),
         Command::Baseline(cmd) => service.baseline(&cmd).map(Reply::Baseline),
     }
 }
-
