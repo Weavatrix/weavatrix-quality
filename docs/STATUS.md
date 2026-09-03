@@ -5,6 +5,8 @@ Session: P0 — Surface Evidence Matrix v2 authorities
 
 ## Now
 
+The cheapest-evidence planner now carries a `ProducerInventory`. `BrowserExplore` is compiled but `available=false` until the closed loop exists. Mutation gaps offer `SourceMutation`. Intent gaps offer `SpecRecovery` then `ProductReview`, never a test producer. Missing tests or stories are not recommended.
+
 The Surface Evidence Matrix is schema v2. Intent is no longer a copy of the test-binding column: a binding without obligations can mark Test present while Intent stays absent. Coverage is the former live "protection" producer (normalized hits on Weavatrix nodes). Protection Continuity is a separate unmeasured column until a ProtectionSnapshot producer is wired. v1 artifacts migrate old `protection` into `coverage`.
 
 Mutation ownership no longer treats a test-file binding as production code. `build_obligation_code_surfaces()` is the single authority: exact per-case coverage, measured traces, directed Weavatrix test→production reach (`include_tests` on the mutation graph query), protection flows, reviewed mappings, then bounded heuristics. `CodeDelta` and source mutation both consume it. A test binding such as `limit/limit_test.go` owns `limit/limit.go` only when Weavatrix records a directed reach; missing owners stay `UNMEASURED` with no fallback to every candidate. The three real Go/Vitest mutation scenarios pass again on this tree.
@@ -298,13 +300,12 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit, in order. Mutation ownership and Surface Matrix v2 authorities (Intent ≠ Test, Coverage ≠ Protection) are done on this tree.
+P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, and planner inventory are done on this tree.
 
 1. **Populate real Runtime/Proof/Protection/UI/A11y/Mutation columns.**
 2. **MeasurementGap / MeasurementPlan** — unmeasured → cheapest measurement, not silent ignore.
-3. **Planner capability inventory** — disable unavailable `BrowserExplore`; add `SourceMutation`; add SpecRecovery/ProductReview for Intent.
-4. **Exact-head generated STATUS validation.**
-5. **Update README/CLI/product story** (`wvq init`, ingest, baseline, observe-only, Surface Graph/Matrix/planner).
+3. **Exact-head generated STATUS validation.**
+4. **Update README/CLI/product story** (`wvq init`, ingest, baseline, observe-only, Surface Graph/Matrix/planner).
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

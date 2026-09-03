@@ -32,7 +32,8 @@ pub use coverage_autopilot::{
 };
 pub use evidence_plan::{
     CheapestEvidencePlan, EvidenceColumn, EvidenceGap, EvidencePlan, EvidenceProducer,
-    ProducerOffer, classify_evidence_gaps, plan_cheapest_evidence,
+    ProducerInventory, ProducerOffer, classify_evidence_gaps, plan_cheapest_evidence,
+    plan_cheapest_evidence_with,
 };
 pub use surface_evidence::{
     EvidenceCell, MeasuredColumn, SurfaceEvidenceColumns, SurfaceEvidenceMatrix,

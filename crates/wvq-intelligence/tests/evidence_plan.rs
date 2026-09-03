@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use serde_json::json;
 use wvq_intelligence::{
     ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidenceProducer, MeasuredColumn,
-    SurfaceEvidenceColumns, application_surface_graph, plan_cheapest_evidence,
-    surface_evidence_matrix,
+    ProducerInventory, SurfaceEvidenceColumns, application_surface_graph, plan_cheapest_evidence,
+    plan_cheapest_evidence_with, surface_evidence_matrix,
 };
 
 fn pay_graph() -> wvq_intelligence::ApplicationSurfaceGraph {
@@ -84,8 +84,15 @@ fn intent_cannot_be_established_by_a_test_producer() {
     let plan = plan_cheapest_evidence(&matrix);
     assert_eq!(plan.gaps.len(), 1);
     assert_eq!(plan.gaps[0].column, EvidenceColumn::Intent);
-    assert_eq!(plan.gaps[0].cheapest, None);
-    assert!(plan.gaps[0].producers.is_empty());
+    assert_eq!(plan.gaps[0].cheapest, Some(EvidenceProducer::SpecRecovery));
+    assert_eq!(
+        plan.gaps[0]
+            .producers
+            .iter()
+            .map(|offer| offer.producer)
+            .collect::<Vec<_>>(),
+        [EvidenceProducer::SpecRecovery, EvidenceProducer::ProductReview]
+    );
 }
 
 #[test]
@@ -164,14 +171,14 @@ fn a_route_ui_gap_can_use_storybook_before_explore_or_ai() {
         vec![
             EvidenceProducer::RecordedSession,
             EvidenceProducer::StorybookFlow,
-            EvidenceProducer::BrowserExplore,
             EvidenceProducer::AiTestProgram,
         ]
     );
+    assert!(!producers.contains(&EvidenceProducer::BrowserExplore));
 }
 
 #[test]
-fn mutation_has_no_generation_producer() {
+fn mutation_offers_source_mutation() {
     let graph = pay_graph();
     let pay = "endpoint:POST /pay".to_string();
     let columns = SurfaceEvidenceColumns {
@@ -184,7 +191,8 @@ fn mutation_has_no_generation_producer() {
     let matrix = surface_evidence_matrix(&graph, &columns);
     let plan = plan_cheapest_evidence(&matrix);
     assert_eq!(plan.gaps[0].column, EvidenceColumn::Mutation);
-    assert_eq!(plan.gaps[0].cheapest, None);
+    assert_eq!(plan.gaps[0].cheapest, Some(EvidenceProducer::SourceMutation));
+    assert_eq!(plan.gaps[0].producers[0].cost, 4);
 }
 
 #[test]
@@ -215,4 +223,57 @@ fn present_cells_are_not_planned() {
         .iter()
         .all(|row| row.test == EvidenceCell::Present));
     assert!(plan_cheapest_evidence(&matrix).gaps.is_empty());
+}
+
+#[test]
+fn browser_explore_is_not_offered_until_the_closed_loop_exists() {
+    assert!(!EvidenceProducer::BrowserExplore.available());
+}
+
+#[test]
+fn missing_tests_are_not_adapted() {
+    let graph = pay_graph();
+    let admin = "endpoint:GET /admin".to_string();
+    let columns = SurfaceEvidenceColumns {
+        test: Some(MeasuredColumn {
+            present: BTreeSet::new(),
+            absent: BTreeSet::from([admin]),
+        }),
+        ..SurfaceEvidenceColumns::default()
+    };
+    let matrix = surface_evidence_matrix(&graph, &columns);
+    let inventory = ProducerInventory {
+        matching_tests: false,
+        stories: false,
+        ..ProducerInventory::default()
+    };
+    let plan = plan_cheapest_evidence_with(&matrix, &inventory);
+    assert!(!plan.gaps[0]
+        .producers
+        .iter()
+        .any(|offer| offer.producer == EvidenceProducer::ExistingTestAdaptation));
+    assert!(!plan.gaps[0]
+        .producers
+        .iter()
+        .any(|offer| offer.producer == EvidenceProducer::StorybookFlow));
+}
+
+#[test]
+fn mutation_stays_empty_when_the_ecosystem_is_not_owned() {
+    let graph = pay_graph();
+    let pay = "endpoint:POST /pay".to_string();
+    let columns = SurfaceEvidenceColumns {
+        mutation: Some(MeasuredColumn {
+            present: BTreeSet::new(),
+            absent: BTreeSet::from([pay]),
+        }),
+        ..SurfaceEvidenceColumns::default()
+    };
+    let matrix = surface_evidence_matrix(&graph, &columns);
+    let inventory = ProducerInventory {
+        mutation_available: false,
+        ..ProducerInventory::default()
+    };
+    let plan = plan_cheapest_evidence_with(&matrix, &inventory);
+    assert_eq!(plan.gaps[0].cheapest, None);
 }

@@ -43,8 +43,14 @@ pub enum EvidenceProducer {
     RecordedSession,
     /// A Storybook/Vitest flow. Cost 3.
     StorybookFlow,
-    /// Deterministic browser explore. Cost 5.
+    /// Changed-line source mutation. Cost 4.
+    SourceMutation,
+    /// Deterministic browser explore. Cost 5. Not available until closed-loop exists.
     BrowserExplore,
+    /// Brownfield spec recovery for missing intent. Cost 5.
+    SpecRecovery,
+    /// Product-owner review of recovered or missing intent. Cost 8.
+    ProductReview,
     /// `TestProgram` draft through the AI Cost Firewall. Cost 10. Never first.
     AiTestProgram,
 }
@@ -57,8 +63,54 @@ impl EvidenceProducer {
             Self::ExistingTestAdaptation => 1,
             Self::RecordedSession => 2,
             Self::StorybookFlow => 3,
-            Self::BrowserExplore => 5,
+            Self::SourceMutation => 4,
+            Self::BrowserExplore | Self::SpecRecovery => 5,
+            Self::ProductReview => 8,
             Self::AiTestProgram => 10,
+        }
+    }
+
+    /// Whether this producer has a live runtime capability.
+    ///
+    /// `BrowserExplore` is planned but has no browser-feedback loop yet.
+    #[must_use]
+    pub const fn available(self) -> bool {
+        !matches!(self, Self::BrowserExplore)
+    }
+}
+
+/// Which live producers actually exist for this repository.
+///
+/// The planner must not recommend a Storybook flow when there is no story,
+/// or an existing-test adaptation when there is no matching test. Each flag is
+/// an independent capability, not a state machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
+#[serde(deny_unknown_fields)]
+pub struct ProducerInventory {
+    /// A matching test or binding exists for the surface.
+    pub matching_tests: bool,
+    /// A recorded session exists that could be promoted.
+    pub recorded_sessions: bool,
+    /// A Storybook story exists for the surface.
+    pub stories: bool,
+    /// Source mutation is authorized for the owned ecosystem.
+    pub mutation_available: bool,
+    /// Spec recovery / QA review can run.
+    pub spec_recovery_available: bool,
+    /// AI Cost Firewall still has budget for a planning call.
+    pub ai_budget: bool,
+}
+
+impl Default for ProducerInventory {
+    fn default() -> Self {
+        Self {
+            matching_tests: true,
+            recorded_sessions: true,
+            stories: true,
+            mutation_available: true,
+            spec_recovery_available: true,
+            ai_budget: true,
         }
     }
 }
@@ -137,8 +189,18 @@ pub fn classify_evidence_gaps(matrix: &SurfaceEvidenceMatrix) -> Vec<EvidenceGap
 /// Rank the cheapest producer that can fill each measured-absent cell.
 ///
 /// This does not generate evidence, preview a program, or call a model.
+/// Uses a default inventory where every implemented producer is available.
 #[must_use]
 pub fn plan_cheapest_evidence(matrix: &SurfaceEvidenceMatrix) -> CheapestEvidencePlan {
+    plan_cheapest_evidence_with(matrix, &ProducerInventory::default())
+}
+
+/// Rank producers against the live capability inventory.
+#[must_use]
+pub fn plan_cheapest_evidence_with(
+    matrix: &SurfaceEvidenceMatrix,
+    inventory: &ProducerInventory,
+) -> CheapestEvidencePlan {
     let gaps = classify_evidence_gaps(matrix)
         .into_iter()
         .map(|gap| {
@@ -147,7 +209,7 @@ pub fn plan_cheapest_evidence(matrix: &SurfaceEvidenceMatrix) -> CheapestEvidenc
                 .iter()
                 .find(|row| row.surface == gap.surface)
                 .is_some_and(|row| row.intent == EvidenceCell::Present);
-            let producers = offers(gap.column, gap.kind, intent_present);
+            let producers = offers(gap.column, gap.kind, intent_present, inventory);
             EvidencePlan {
                 surface: gap.surface,
                 kind: gap.kind,
@@ -167,6 +229,7 @@ fn offers(
     column: EvidenceColumn,
     kind: ApplicationSurfaceKind,
     intent_present: bool,
+    inventory: &ProducerInventory,
 ) -> Vec<ProducerOffer> {
     let ui = matches!(
         kind,
@@ -174,49 +237,88 @@ fn offers(
     );
     let mut producers = Vec::new();
     match column {
-        EvidenceColumn::Intent | EvidenceColumn::Mutation => {}
+        EvidenceColumn::Intent => {
+            if inventory.spec_recovery_available {
+                producers.push(EvidenceProducer::SpecRecovery);
+                producers.push(EvidenceProducer::ProductReview);
+            }
+        }
+        EvidenceColumn::Mutation => {
+            if inventory.mutation_available {
+                producers.push(EvidenceProducer::SourceMutation);
+            }
+        }
         EvidenceColumn::Runtime => {
-            producers.push(EvidenceProducer::RecordedSession);
-            if ui {
-                producers.push(EvidenceProducer::BrowserExplore);
-            }
-            producers.push(EvidenceProducer::AiTestProgram);
-        }
-        EvidenceColumn::Test => {
-            producers.push(EvidenceProducer::ExistingTestAdaptation);
-            producers.push(EvidenceProducer::RecordedSession);
-            if ui {
-                producers.push(EvidenceProducer::StorybookFlow);
-                producers.push(EvidenceProducer::BrowserExplore);
-            }
-            producers.push(EvidenceProducer::AiTestProgram);
-        }
-        EvidenceColumn::Proof => {
-            if intent_present {
-                producers.push(EvidenceProducer::ExistingTestAdaptation);
+            if inventory.recorded_sessions {
                 producers.push(EvidenceProducer::RecordedSession);
-                if ui {
-                    producers.push(EvidenceProducer::StorybookFlow);
-                }
+            }
+            if ui {
+                producers.push(EvidenceProducer::BrowserExplore);
+            }
+            if inventory.ai_budget {
                 producers.push(EvidenceProducer::AiTestProgram);
             }
         }
-        EvidenceColumn::Coverage | EvidenceColumn::Protection => {
-            producers.push(EvidenceProducer::ExistingTestAdaptation);
-            if ui {
+        EvidenceColumn::Test => {
+            if inventory.matching_tests {
+                producers.push(EvidenceProducer::ExistingTestAdaptation);
+            }
+            if inventory.recorded_sessions {
+                producers.push(EvidenceProducer::RecordedSession);
+            }
+            if ui && inventory.stories {
                 producers.push(EvidenceProducer::StorybookFlow);
             }
-            producers.push(EvidenceProducer::AiTestProgram);
-        }
-        EvidenceColumn::Ui | EvidenceColumn::A11y => {
-            producers.push(EvidenceProducer::RecordedSession);
             if ui {
-                producers.push(EvidenceProducer::StorybookFlow);
                 producers.push(EvidenceProducer::BrowserExplore);
             }
-            producers.push(EvidenceProducer::AiTestProgram);
+            if inventory.ai_budget {
+                producers.push(EvidenceProducer::AiTestProgram);
+            }
+        }
+        EvidenceColumn::Proof => {
+            if intent_present {
+                if inventory.matching_tests {
+                    producers.push(EvidenceProducer::ExistingTestAdaptation);
+                }
+                if inventory.recorded_sessions {
+                    producers.push(EvidenceProducer::RecordedSession);
+                }
+                if ui && inventory.stories {
+                    producers.push(EvidenceProducer::StorybookFlow);
+                }
+                if inventory.ai_budget {
+                    producers.push(EvidenceProducer::AiTestProgram);
+                }
+            }
+        }
+        EvidenceColumn::Coverage | EvidenceColumn::Protection => {
+            if inventory.matching_tests {
+                producers.push(EvidenceProducer::ExistingTestAdaptation);
+            }
+            if ui && inventory.stories {
+                producers.push(EvidenceProducer::StorybookFlow);
+            }
+            if inventory.ai_budget {
+                producers.push(EvidenceProducer::AiTestProgram);
+            }
+        }
+        EvidenceColumn::Ui | EvidenceColumn::A11y => {
+            if inventory.recorded_sessions {
+                producers.push(EvidenceProducer::RecordedSession);
+            }
+            if ui && inventory.stories {
+                producers.push(EvidenceProducer::StorybookFlow);
+            }
+            if ui {
+                producers.push(EvidenceProducer::BrowserExplore);
+            }
+            if inventory.ai_budget {
+                producers.push(EvidenceProducer::AiTestProgram);
+            }
         }
     }
+    producers.retain(|producer| producer.available());
     producers.sort_by_key(|producer| (producer.cost(), *producer));
     producers
         .into_iter()
