@@ -27,8 +27,9 @@ node_modules/
 !js/playwright-runner/dist/
 !js/playwright-runner/dist/**
 
-# Local quality store / CAS
-.weavatrix-quality/
+# Local quality store / CAS. Keep the fail-closed policy committed.
+.weavatrix-quality/*
+!.weavatrix-quality/config.yaml
 *.db
 *.db-journal
 

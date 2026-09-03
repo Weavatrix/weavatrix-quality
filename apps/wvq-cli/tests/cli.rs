@@ -20,6 +20,10 @@ fn fixture_repo() -> PathBuf {
         .join("repo")
 }
 
+fn product_repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+}
+
 struct TempRepo(PathBuf);
 
 impl Drop for TempRepo {
@@ -161,6 +165,38 @@ fn doctor_parses_and_does_not_write() {
 fn doctor_rejects_unknown_flags() {
     let err = parse_args(&argv(&["doctor", "--change", "current"])).unwrap_err();
     assert!(err.contains("unknown flag --change"), "{err}");
+}
+
+#[test]
+fn spec_validate_succeeds_on_product_invariants() {
+    let repo = product_repo();
+    let output = wvq_cli::run(&argv(&[
+        "--repo",
+        repo.to_str().expect("utf-8 path"),
+        "spec",
+        "validate",
+        "--change",
+        "wvq-invariants",
+    ]));
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("spec_validate"));
+    assert!(output.stdout.contains("wvq-invariants"));
+    assert!(output.stdout.contains("\"obligations\": 9"));
+}
+
+#[test]
+fn doctor_on_product_repo_is_not_authority() {
+    let repo = product_repo();
+    let output = wvq_cli::run(&argv(&[
+        "--repo",
+        repo.to_str().expect("utf-8 path"),
+        "doctor",
+    ]));
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert!(output.stdout.contains("\"authority\": false"));
+    assert!(output.stdout.contains("wvq-invariants"));
+    assert!(output.stdout.contains("cargo-test"));
+    assert!(output.stdout.contains("\"runtime_llm_tokens\": 0"));
 }
 
 #[test]

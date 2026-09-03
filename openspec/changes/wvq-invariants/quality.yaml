@@ -1,0 +1,74 @@
+quality_contract_v: 1
+change: wvq-invariants
+
+risk:
+  default: critical
+
+ai:
+  planning_tokens: 0
+  runtime_tokens: 0
+
+requirements:
+  - capability: quality
+    requirement: unmeasured-never-clean
+    scenarios:
+      - scenario: missing-evidence-is-not-absence
+        obligations:
+          - id: unmeasured-never-clean
+            kind: invariant
+  - capability: quality
+    requirement: observed-only-never-seals
+    scenarios:
+      - scenario: observed-baseline-cannot-become-a-seal
+        obligations:
+          - id: observed-only-never-seals
+            kind: invariant
+  - capability: quality
+    requirement: test-node-cannot-satisfy-production-code-delta
+    scenarios:
+      - scenario: test-binding-is-not-a-production-surface
+        obligations:
+          - id: test-node-not-production-code-delta
+            kind: invariant
+  - capability: quality
+    requirement: revision-drift-invalidates-proof
+    scenarios:
+      - scenario: drifted-revision-is-not-the-same-proof
+        obligations:
+          - id: revision-drift-invalidates-proof
+            kind: invariant
+  - capability: quality
+    requirement: raw-secret-never-enters-evidence
+    scenarios:
+      - scenario: evidence-ledger-never-stores-a-raw-secret
+        obligations:
+          - id: raw-secret-never-enters-evidence
+            kind: invariant
+  - capability: quality
+    requirement: lost-critical-protection-blocks
+    scenarios:
+      - scenario: lost-critical-protection-is-a-blocking-verdict
+        obligations:
+          - id: lost-critical-protection-blocks
+            kind: invariant
+  - capability: quality
+    requirement: green-path-spends-zero-model-tokens
+    scenarios:
+      - scenario: normal-verification-spends-no-model-tokens
+        obligations:
+          - id: green-path-zero-runtime-tokens
+            kind: invariant
+  - capability: quality
+    requirement: unowned-mutant-cannot-strengthen-proof
+    scenarios:
+      - scenario: unowned-mutant-stays-unmeasured
+        obligations:
+          - id: unowned-mutant-cannot-strengthen-proof
+            kind: invariant
+  - capability: quality
+    requirement: aggregate-coverage-cannot-claim-exact-case
+    scenarios:
+      - scenario: aggregate-coverage-stays-executor-level
+        obligations:
+          - id: aggregate-coverage-not-exact-case
+            kind: invariant

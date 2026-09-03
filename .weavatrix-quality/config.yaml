@@ -1,0 +1,8 @@
+quality_policy_v: 1
+
+ratchet:
+  mode: no_new_debt
+  returned_debt: error
+
+ui_integrity:
+  enabled: true
