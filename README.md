@@ -53,7 +53,7 @@ Weavatrix Loom     COMPOSE      capabilities into ordinary Rust
 Cortex Loom        optional     agent context and model routing
 ```
 
-WVQ CI does not depend on Cortex and uses zero runtime LLM tokens on the ordinary green path.
+WVQ CI does not depend on Cortex and uses zero runtime LLM tokens on the ordinary green path. Each Linux workspace run uploads an exact-head validation manifest so STATUS claims can be checked against the commit that produced them.
 
 ## Live verification loop
 

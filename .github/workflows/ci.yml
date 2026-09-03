@@ -26,6 +26,7 @@ jobs:
           rustup toolchain install 1.89.0 --profile minimal --component clippy
           rustup default 1.89.0
       - name: Install Playwright bridge and browser
+        id: playwright
         working-directory: js/playwright-runner
         run: |
           npm ci
@@ -33,15 +34,19 @@ jobs:
           npm test
           git diff --exit-code -- dist
       - name: Test continuous recorder package
+        id: recorder
         working-directory: js/recorder
         run: npm test
       - name: Test workspace
+        id: workspace
         run: cargo test --workspace --locked
       - name: Test typed JavaScript boundary
+        id: javascript
         run: |
           npm --prefix npm/wvq test
           node js/playwright-runner/node_modules/typescript/bin/tsc --project npm/wvq/test/tsconfig.json
       - name: Assemble and smoke-test the installable package
+        id: package
         shell: bash
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
@@ -52,7 +57,25 @@ jobs:
           node npm/dist/wvq/bin/wvq.mjs mcp --help
           node npm/dist/wvq/bin/wvq.mjs bench --help
       - name: Clippy
+        id: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Exact-head validation manifest
+        if: always()
+        env:
+          WVQ_STEP_PLAYWRIGHT: ${{ steps.playwright.outcome }}
+          WVQ_STEP_RECORDER: ${{ steps.recorder.outcome }}
+          WVQ_STEP_WORKSPACE: ${{ steps.workspace.outcome }}
+          WVQ_STEP_JAVASCRIPT: ${{ steps.javascript.outcome }}
+          WVQ_STEP_PACKAGE: ${{ steps.package.outcome }}
+          WVQ_STEP_CLIPPY: ${{ steps.clippy.outcome }}
+        run: node scripts/exact-head-validation.mjs
+      - name: Upload exact-head validation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-head-validation
+          path: target/exact-head-validation.json
+          if-no-files-found: error
 
   # Full suite stays Linux. Path, process-tree, and worktree code also has to
   # run where Job Objects and non-POSIX paths exist. This job is deliberately

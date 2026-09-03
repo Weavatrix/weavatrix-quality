@@ -5,6 +5,8 @@ Session: P0 — live Surface Matrix producers + Playwright replay flake
 
 ## Now
 
+Linux CI writes an exact-head validation manifest (`target/exact-head-validation.json`, uploaded as `exact-head-validation`) naming this commit, the workflow run, and each test-job step outcome. STATUS claims are not that artifact. A failed Playwright/workspace/Clippy step marks the manifest `blocking`.
+
 The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations, Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
 Unmeasured cells are a `MeasurementPlan` (`EvidenceNeed::Unmeasured`), not silent ignore. Measured-absent cells remain evidence gaps. Present cells are not planned.
@@ -304,9 +306,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, live column producers, planner inventory, and MeasurementPlan are done on this tree.
-
-1. **Exact-head generated STATUS validation.**
+P0 from the 2026-09-02 reaudit is implemented on this tree. Remaining work is P1 (self-dogfood, observe-only campaign, Studio exception cards, `wvq doctor`).
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
