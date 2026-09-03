@@ -39,49 +39,19 @@ pub(in crate::service) fn build_execution_requests(
             executed.insert(selected.clone());
             continue;
         }
-        let absolute = repo.join(selected);
-        if !absolute.is_file() {
-            return full_execution_requests(
-                targets,
-                &format!("impacted selection widened: selected test `{selected}` is missing"),
-            );
+        match map_selected_filters(repo, targets, selected, &selection.bindings) {
+            Err(reason) => return full_execution_requests(targets, &reason),
+            Ok((target, filters)) => {
+                let cwd = target.cwd.display().to_string();
+                let group = grouped
+                    .entry((target.executor.as_str().to_owned(), cwd))
+                    .or_insert_with(|| (target.clone(), Vec::new()));
+                for filter in filters {
+                    group.1.push((filter, selected.clone()));
+                }
+                executed.insert(selected.clone());
+            }
         }
-        let mut matching = targets
-            .iter()
-            .filter(|target| absolute.starts_with(&target.cwd))
-            .collect::<Vec<_>>();
-        matching.sort_by_key(|target| std::cmp::Reverse(target.cwd.components().count()));
-        let Some(target) = matching
-            .into_iter()
-            .find(|target| target_accepts_filter(target, selected))
-        else {
-            return full_execution_requests(
-                targets,
-                &format!(
-                    "impacted selection widened: selected test `{selected}` has no filterable registered executor"
-                ),
-            );
-        };
-        let filter = absolute
-            .strip_prefix(&target.cwd)
-            .ok()
-            .map(|path| normalize_path(&path.to_string_lossy()))
-            .filter(|path| !path.is_empty());
-        let Some(filter) = filter else {
-            return full_execution_requests(
-                targets,
-                &format!(
-                    "impacted selection widened: selected test `{selected}` cannot be expressed as a safe runner filter"
-                ),
-            );
-        };
-        let cwd = target.cwd.display().to_string();
-        grouped
-            .entry((target.executor.as_str().to_owned(), cwd))
-            .or_insert_with(|| (target.clone(), Vec::new()))
-            .1
-            .push((filter, selected.clone()));
-        executed.insert(selected.clone());
     }
     let requests = batch_filter_groups(grouped);
     if requests.len() > MAX_FILTERED_PROCESSES {
@@ -119,14 +89,18 @@ pub(in crate::service) fn batch_filter_groups(grouped: FilterGroups) -> Vec<Exec
 
     let mut requests = Vec::new();
     for (_, (target, pairs)) in grouped {
+        let max_filters = if target.executor.as_str() == "cargo-test" {
+            1
+        } else {
+            MAX_FILTERS_PER_PROCESS
+        };
         let mut filters = Vec::new();
         let mut selected_tests = Vec::new();
         let mut filter_bytes = 0;
         for (filter, selected) in pairs {
             let next_bytes = filter_bytes + filter.len() + 1;
             if !filters.is_empty()
-                && (filters.len() >= MAX_FILTERS_PER_PROCESS
-                    || next_bytes > MAX_FILTER_BYTES_PER_PROCESS)
+                && (filters.len() >= max_filters || next_bytes > MAX_FILTER_BYTES_PER_PROCESS)
             {
                 requests.push(ExecutionRequest {
                     target: target.clone(),
@@ -148,6 +122,60 @@ pub(in crate::service) fn batch_filter_groups(grouped: FilterGroups) -> Vec<Exec
         }
     }
     requests
+}
+
+fn map_selected_filters(
+    repo: &Path,
+    targets: &[ExecutorTarget],
+    selected: &str,
+    bindings: &[TestBinding],
+) -> Result<(ExecutorTarget, Vec<String>), String> {
+    let absolute = repo.join(selected);
+    if !absolute.is_file() {
+        return Err(format!(
+            "impacted selection widened: selected test `{selected}` is missing"
+        ));
+    }
+    let mut matching = targets
+        .iter()
+        .filter(|target| absolute.starts_with(&target.cwd))
+        .collect::<Vec<_>>();
+    matching.sort_by_key(|target| std::cmp::Reverse(target.cwd.components().count()));
+    let cargo_cases = cargo_exact_cases(selected, bindings);
+    let Some(target) = matching.into_iter().find(|target| {
+        target_accepts_filter(target, selected)
+            || (target.executor.as_str() == "cargo-test" && !cargo_cases.is_empty())
+    }) else {
+        return Err(format!(
+            "impacted selection widened: selected test `{selected}` has no filterable registered executor"
+        ));
+    };
+    if target.executor.as_str() == "cargo-test" && !cargo_cases.is_empty() {
+        return Ok((target.clone(), cargo_cases));
+    }
+    let filter = absolute
+        .strip_prefix(&target.cwd)
+        .ok()
+        .map(|path| normalize_path(&path.to_string_lossy()))
+        .filter(|path| !path.is_empty());
+    let Some(filter) = filter else {
+        return Err(format!(
+            "impacted selection widened: selected test `{selected}` cannot be expressed as a safe runner filter"
+        ));
+    };
+    Ok((target.clone(), vec![filter]))
+}
+
+fn cargo_exact_cases(path: &str, bindings: &[TestBinding]) -> Vec<String> {
+    bindings
+        .iter()
+        .filter(|binding| {
+            binding.path == path
+                && binding.runner.as_deref() == Some("cargo-test")
+                && binding.case.as_deref().is_some_and(|case| !case.is_empty())
+        })
+        .filter_map(|binding| binding.case.clone())
+        .collect()
 }
 
 pub(in crate::service) fn supports_path_filters(executor: &str) -> bool {

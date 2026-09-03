@@ -47,3 +47,50 @@ fn product_invariants_bindings_name_existing_exact_cases() {
         );
     }
 }
+
+#[test]
+fn product_invariants_impacted_run_uses_exact_cargo_cases_instead_of_widening() {
+    let root = product_root();
+    let bindings = load_test_bindings(&root).unwrap();
+    let mut selected = bindings
+        .iter()
+        .map(|binding| binding.path.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    selected.sort();
+    let selection = LiveSelection {
+        explanations: vec![Vec::new(); selected.len()],
+        selected,
+        uncovered_mandatory: Vec::new(),
+        uncovered_all: Vec::new(),
+        bindings: bindings.clone(),
+    };
+    let targets = vec![ExecutorTarget {
+        executor: wvq_runtime::ExecutorId::new("cargo-test").unwrap(),
+        cwd: root.clone(),
+    }];
+    let (requests, scope, reason, executed) =
+        build_execution_requests(&root, &targets, &selection, &BTreeSet::new(), "impacted");
+    assert_eq!(scope, "impacted", "{reason}");
+    assert_eq!(requests.len(), bindings.len(), "{reason}");
+    assert!(
+        requests.iter().all(|request| {
+            request.filters.len() == 1 && request.target.executor.as_str() == "cargo-test"
+        }),
+        "each cargo-test process must carry exactly one case name"
+    );
+    let cases = requests
+        .iter()
+        .map(|request| request.filters[0].clone())
+        .collect::<BTreeSet<_>>();
+    let expected = bindings
+        .iter()
+        .map(|binding| binding.case.clone().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(cases, expected);
+    assert_eq!(
+        executed.as_ref().map(BTreeSet::len),
+        Some(selection.selected.len())
+    );
+}

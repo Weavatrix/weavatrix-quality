@@ -1,14 +1,14 @@
 //! Task 11: unknown ids fail; argv is frozen; no user-injected executable.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 #[cfg(windows)]
 use std::time::Duration;
 
 use wvq_runtime::{
-    Executor, ExecutorId, ExecutorRegistry, PrepareRequest, RuntimeError, default_limits,
-    discover_executor_targets,
+    default_limits, discover_executor_targets, Executor, ExecutorId, ExecutorRegistry,
+    PrepareRequest, RuntimeError,
 };
 #[cfg(windows)]
 use wvq_runtime::{ExecutorSpec, ProcessLimits};
@@ -44,6 +44,25 @@ fn cargo_test_disables_color_for_machine_readable_case_evidence() {
     assert_eq!(
         prepared.args,
         ["test", "--color", "never", "--workspace", "--all-targets"]
+    );
+}
+
+#[test]
+fn cargo_test_name_filter_is_a_positional_testname() {
+    let registry = ExecutorRegistry::production().unwrap();
+    let mut req = request("cargo-test", BTreeMap::new());
+    req.filters = vec!["an_unmeasured_axis_never_becomes_clean".into()];
+    let prepared = registry.prepare(req).unwrap();
+    assert_eq!(
+        prepared.args,
+        [
+            "test",
+            "--color",
+            "never",
+            "--workspace",
+            "--all-targets",
+            "an_unmeasured_axis_never_becomes_clean"
+        ]
     );
 }
 
