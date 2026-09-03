@@ -65,6 +65,7 @@ pub(in crate::service) use crate::replies::{
 };
 pub(in crate::service) use crate::source_mutation::{
     MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest, execute_source_mutation,
+    mutation_graph_files,
 };
 
 pub(in crate::service) use super::BusError;

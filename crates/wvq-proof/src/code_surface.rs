@@ -13,7 +13,9 @@ pub enum CodeSurfaceEvidenceKind {
     ExactDynamicCoverage,
     /// Measured API/component/browser trace.
     MeasuredTrace,
-    /// Static Weavatrix flow.
+    /// Directed Weavatrix test → production reach.
+    DirectedWeavatrixReach,
+    /// Protection / static Weavatrix flow.
     StaticWeavatrixFlow,
     /// Reviewed explicit mapping.
     ReviewedExplicitMapping,
@@ -51,7 +53,7 @@ impl ObligationCodeSurface {
     pub fn contains_implementation_path(&self, path: &str) -> bool {
         let path = normalize_path(path);
         self.implementation_nodes.iter().any(|id| {
-            node_source_path(id).is_some_and(|file| file == path.as_str()) || *id == path
+            node_source_path(id).is_some_and(|file| normalize_path(file) == path) || *id == path
         })
     }
 
@@ -173,12 +175,13 @@ pub fn surfaces_from_declared_paths(
         let origin = normalize_path(path);
         let is_test = is_test_source_path(&origin);
         for obligation in obligations {
-            let surface = by_obligation
-                .entry(obligation.clone())
-                .or_insert_with(|| ObligationCodeSurface {
-                    obligation: obligation.clone(),
-                    ..ObligationCodeSurface::default()
-                });
+            let surface =
+                by_obligation
+                    .entry(obligation.clone())
+                    .or_insert_with(|| ObligationCodeSurface {
+                        obligation: obligation.clone(),
+                        ..ObligationCodeSurface::default()
+                    });
             if is_test {
                 if !surface.test_nodes.contains(&origin) {
                     surface.test_nodes.push(origin.clone());
@@ -204,6 +207,163 @@ pub fn surfaces_from_declared_paths(
     }
     out.sort_by(|left, right| left.obligation.cmp(&right.obligation));
     out
+}
+
+/// Directed Weavatrix reach from a binding onto production nodes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WeavatrixReachSlice {
+    /// Obligation that may claim the reached production nodes.
+    pub obligation: String,
+    /// Binding path or other origin that justified the walk.
+    pub origin: String,
+    /// Production (and possibly test) node ids from the walk.
+    pub nodes: Vec<String>,
+}
+
+/// Layered inputs for the single authoritative obligation code surface.
+///
+/// Stronger evidence kinds win for claiming a node. Missing owners stay empty;
+/// callers must not fall back to every candidate obligation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodeSurfaceBuild<'a> {
+    /// Obligations that must appear in the result, even if unmapped.
+    pub obligations: &'a [String],
+    /// Exact per-case dynamic coverage flows.
+    pub coverage_flows: &'a [FlowProtection],
+    /// Measured API/component/browser traces.
+    pub trace_flows: &'a [FlowProtection],
+    /// Directed Weavatrix test → production reach.
+    pub weavatrix_reach: &'a [WeavatrixReachSlice],
+    /// Protection / static Weavatrix flows.
+    pub protection_flows: &'a [FlowProtection],
+    /// Reviewed explicit path bindings. Test paths never become implementation.
+    pub declared_paths: &'a [(String, BTreeSet<String>)],
+    /// Bounded heuristic path bindings. Weakest.
+    pub heuristic_paths: &'a [(String, BTreeSet<String>)],
+}
+
+/// Merge every evidence layer into one surface per obligation.
+#[must_use]
+pub fn build_obligation_code_surfaces(build: &CodeSurfaceBuild<'_>) -> Vec<ObligationCodeSurface> {
+    let mut by_obligation = BTreeMap::<String, ObligationCodeSurface>::new();
+    for obligation in build.obligations {
+        ensure_surface(&mut by_obligation, obligation);
+    }
+    merge_flows(
+        &mut by_obligation,
+        build.coverage_flows,
+        CodeSurfaceEvidenceKind::ExactDynamicCoverage,
+    );
+    merge_flows(
+        &mut by_obligation,
+        build.trace_flows,
+        CodeSurfaceEvidenceKind::MeasuredTrace,
+    );
+    for slice in build.weavatrix_reach {
+        let surface = ensure_surface(&mut by_obligation, &slice.obligation);
+        let (impl_nodes, test_nodes) = partition_code_nodes(slice.nodes.iter());
+        if !impl_nodes.is_empty() {
+            surface.evidence.push(CodeSurfaceEvidence {
+                kind: CodeSurfaceEvidenceKind::DirectedWeavatrixReach,
+                origin: slice.origin.clone(),
+                nodes: impl_nodes.clone(),
+            });
+            surface.implementation_nodes.extend(impl_nodes);
+        }
+        surface.test_nodes.extend(test_nodes);
+    }
+    merge_flows(
+        &mut by_obligation,
+        build.protection_flows,
+        CodeSurfaceEvidenceKind::StaticWeavatrixFlow,
+    );
+    merge_declared(
+        &mut by_obligation,
+        build.declared_paths,
+        CodeSurfaceEvidenceKind::ReviewedExplicitMapping,
+    );
+    merge_declared(
+        &mut by_obligation,
+        build.heuristic_paths,
+        CodeSurfaceEvidenceKind::HeuristicMapping,
+    );
+    let mut out = by_obligation.into_values().collect::<Vec<_>>();
+    for surface in &mut out {
+        surface.implementation_nodes.sort();
+        surface.implementation_nodes.dedup();
+        surface.test_nodes.sort();
+        surface.test_nodes.dedup();
+        surface.evidence.sort_by_key(|item| item.kind);
+    }
+    out.sort_by(|left, right| left.obligation.cmp(&right.obligation));
+    out
+}
+
+fn ensure_surface<'a>(
+    by_obligation: &'a mut BTreeMap<String, ObligationCodeSurface>,
+    obligation: &str,
+) -> &'a mut ObligationCodeSurface {
+    by_obligation
+        .entry(obligation.to_owned())
+        .or_insert_with(|| ObligationCodeSurface {
+            obligation: obligation.to_owned(),
+            ..ObligationCodeSurface::default()
+        })
+}
+
+fn merge_flows(
+    by_obligation: &mut BTreeMap<String, ObligationCodeSurface>,
+    flows: &[FlowProtection],
+    kind: CodeSurfaceEvidenceKind,
+) {
+    for flow in flows {
+        let mut nodes = Vec::with_capacity(flow.covered_nodes.len().saturating_add(1));
+        nodes.push(flow.flow.clone());
+        nodes.extend(flow.covered_nodes.iter().cloned());
+        let (impl_nodes, test_nodes) = partition_code_nodes(nodes);
+        for obligation in &flow.proven_obligations {
+            let surface = ensure_surface(by_obligation, obligation);
+            if !impl_nodes.is_empty() {
+                surface.evidence.push(CodeSurfaceEvidence {
+                    kind,
+                    origin: flow.flow.clone(),
+                    nodes: impl_nodes.clone(),
+                });
+                surface
+                    .implementation_nodes
+                    .extend(impl_nodes.iter().cloned());
+            }
+            surface.test_nodes.extend(test_nodes.iter().cloned());
+        }
+    }
+}
+
+fn merge_declared(
+    by_obligation: &mut BTreeMap<String, ObligationCodeSurface>,
+    bindings: &[(String, BTreeSet<String>)],
+    kind: CodeSurfaceEvidenceKind,
+) {
+    for (path, obligations) in bindings {
+        let origin = normalize_path(path);
+        let is_test = is_test_source_path(&origin);
+        for obligation in obligations {
+            let surface = ensure_surface(by_obligation, obligation);
+            if is_test {
+                if !surface.test_nodes.contains(&origin) {
+                    surface.test_nodes.push(origin.clone());
+                }
+                continue;
+            }
+            if !surface.implementation_nodes.contains(&origin) {
+                surface.implementation_nodes.push(origin.clone());
+            }
+            surface.evidence.push(CodeSurfaceEvidence {
+                kind,
+                origin: origin.clone(),
+                nodes: vec![origin.clone()],
+            });
+        }
+    }
 }
 
 /// Obligations allowed to judge a mutant on `path`.

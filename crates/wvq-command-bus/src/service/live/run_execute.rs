@@ -115,6 +115,10 @@ impl LiveService {
                         "the selected baseline suite did not pass before mutation".into(),
                     ))
                 } else {
+                    let graph_files =
+                        mutation_graph_files(&changed.added, &changed.changed, &mutation_bindings);
+                    let mutation_graph =
+                        mutation_reach_graph(&self.repo, &prepared.before, &graph_files)?;
                     execute_source_mutation(&MutationRunRequest {
                         repo: &self.repo,
                         head_commit: &range.head_commit,
@@ -124,6 +128,7 @@ impl LiveService {
                         changed_files: &changed.changed,
                         bindings: &mutation_bindings,
                         policy,
+                        graph: &mutation_graph,
                         executors: &self.executors,
                         cancel: Arc::clone(&cancel),
                     })

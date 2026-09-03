@@ -6,7 +6,7 @@ use wvq_domain::{CheckId, FindingState, ObligationId, QualityFinding, Severity, 
 use wvq_runtime::BehaviorDelta;
 use wvq_spec::{OpenSpecChange, SpecChangeScope, TestObligation};
 
-use crate::code_surface::surface_from_flows;
+use crate::code_surface::{CodeSurfaceBuild, build_obligation_code_surfaces};
 use crate::protection::FlowProtection;
 
 /// Whether `OpenSpec` intent changed on this change folder.
@@ -201,10 +201,25 @@ pub fn scoped_code_delta(
     if program_obligations.is_empty() {
         return CodeDelta::unmeasured("program asserts no obligation");
     }
+    let obligation_ids = program_obligations
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let surfaces = build_obligation_code_surfaces(&CodeSurfaceBuild {
+        obligations: &obligation_ids,
+        coverage_flows: flows,
+        trace_flows: &[],
+        weavatrix_reach: &[],
+        protection_flows: &[],
+        declared_paths: &[],
+        heuristic_paths: &[],
+    });
     let mut protected = BTreeSet::new();
     let mut mapped = false;
-    for obligation in program_obligations {
-        let surface = surface_from_flows(obligation.as_str(), flows);
+    for surface in surfaces
+        .into_iter()
+        .filter(|surface| obligation_ids.iter().any(|id| id == &surface.obligation))
+    {
         if surface.has_implementation_mapping() {
             mapped = true;
             protected.extend(surface.implementation_nodes);

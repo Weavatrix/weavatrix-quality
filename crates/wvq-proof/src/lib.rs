@@ -29,16 +29,17 @@ pub use calibration::{
     CalibrationCase, CalibrationReport, MAX_CALIBRATION_CASES, QaOutcome, WvqObservation,
     calibrate_observe_only,
 };
-pub use code_surface::{
-    CodeSurfaceEvidence, CodeSurfaceEvidenceKind, ObligationCodeSurface, is_test_source_path,
-    node_source_path, obligations_owning_path, partition_code_nodes, surface_from_flows,
-    surfaces_from_declared_paths, surfaces_from_flows,
-};
 pub use change_verdict::{
     AiAxis, AxisState, BlockingReason, ChangeQualityVerdict, ChangeVerdictState, DebtAxis,
     DebtItem, DeltaFindingRef, DeltaTriangleAxis, Limitation, ProofAxis, ProofOutcome,
     ProtectionAxis, StabilityAxis, UiFindingRef, UiIntegrityAxis, VerdictInputs, compose,
     debt_rule_blocks,
+};
+pub use code_surface::{
+    CodeSurfaceBuild, CodeSurfaceEvidence, CodeSurfaceEvidenceKind, ObligationCodeSurface,
+    WeavatrixReachSlice, build_obligation_code_surfaces, is_test_source_path, node_source_path,
+    obligations_owning_path, partition_code_nodes, surface_from_flows,
+    surfaces_from_declared_paths, surfaces_from_flows,
 };
 pub use differential::{
     CodeDelta, DeltaTriangle, SpecDelta, TriangleAxes, TriangleReading, classify_triangle,
@@ -59,8 +60,8 @@ pub use model::{
 };
 pub use mutation::{
     Mutant, MutantEcosystem, MutantOracle, MutantResult, MutantStatus, MutationError,
-    MutationSummary, SourceMutant, authoritative_mutant_status, go_mutants,
-    plan_go_source_mutants, plan_ts_js_source_mutants, run_selected_mutants, ts_js_mutants,
+    MutationSummary, SourceMutant, authoritative_mutant_status, go_mutants, plan_go_source_mutants,
+    plan_ts_js_source_mutants, run_selected_mutants, ts_js_mutants,
 };
 pub use protection::{
     FlowProtection, HistoricalProof, ProtectionError, ProtectionSnapshot, ReusePolicy, may_reuse,

@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 
 use wvq_domain::ObligationId;
 use wvq_proof::{
-    CodeSurfaceEvidenceKind, FlowProtection, is_test_source_path, obligations_owning_path,
+    CodeSurfaceBuild, CodeSurfaceEvidenceKind, FlowProtection, WeavatrixReachSlice,
+    build_obligation_code_surfaces, is_test_source_path, obligations_owning_path,
     partition_code_nodes, scoped_code_delta, surface_from_flows, surfaces_from_declared_paths,
 };
 
@@ -131,11 +132,93 @@ fn unmapped_mutant_path_is_not_judged_by_unrelated_obligations() {
         "src/widget.test.ts".into(),
         BTreeSet::from(["export-usable".into()]),
     )]);
-    let judged = obligations_owning_path(
-        &surfaces,
-        "src/widget.ts",
-        &["export-usable".into()],
+    let judged = obligations_owning_path(&surfaces, "src/widget.ts", &["export-usable".into()]);
+    assert!(
+        judged.is_empty(),
+        "no owner must not fall back to every candidate: {judged:?}"
     );
+}
+
+fn empty_build<'a>(
+    obligations: &'a [String],
+    reach: &'a [WeavatrixReachSlice],
+    declared: &'a [(String, BTreeSet<String>)],
+) -> CodeSurfaceBuild<'a> {
+    CodeSurfaceBuild {
+        obligations,
+        coverage_flows: &[],
+        trace_flows: &[],
+        weavatrix_reach: reach,
+        protection_flows: &[],
+        declared_paths: declared,
+        heuristic_paths: &[],
+    }
+}
+
+#[test]
+fn directed_weavatrix_reach_from_a_test_binding_owns_the_production_mutant() {
+    let obligations = ["limit-allowed".to_string()];
+    let declared = [(
+        "limit/limit_test.go".into(),
+        BTreeSet::from(["limit-allowed".into()]),
+    )];
+    let reach = [WeavatrixReachSlice {
+        obligation: "limit-allowed".into(),
+        origin: "limit/limit_test.go".into(),
+        nodes: vec!["symbol:limit/limit.go#Allowed".into()],
+    }];
+    let surfaces = build_obligation_code_surfaces(&empty_build(&obligations, &reach, &declared));
+    assert_eq!(
+        surfaces[0].evidence[0].kind,
+        CodeSurfaceEvidenceKind::DirectedWeavatrixReach
+    );
+    assert!(surfaces[0].contains_implementation_path("limit/limit.go"));
+    assert_eq!(surfaces[0].test_nodes, ["limit/limit_test.go"]);
+    let judged = obligations_owning_path(&surfaces, "limit/limit.go", &obligations);
+    assert_eq!(judged, ["limit-allowed"]);
+}
+
+#[test]
+fn exact_coverage_is_stronger_than_weavatrix_reach_on_the_same_node() {
+    let obligations = ["limit-allowed".to_string()];
+    let coverage = [flow(
+        "symbol:limit/limit.go#Allowed",
+        &["limit-allowed"],
+        &["symbol:limit/limit.go#Allowed"],
+    )];
+    let reach = [WeavatrixReachSlice {
+        obligation: "limit-allowed".into(),
+        origin: "limit/limit_test.go".into(),
+        nodes: vec!["symbol:limit/limit.go#Allowed".into()],
+    }];
+    let surfaces = build_obligation_code_surfaces(&CodeSurfaceBuild {
+        obligations: &obligations,
+        coverage_flows: &coverage,
+        trace_flows: &[],
+        weavatrix_reach: &reach,
+        protection_flows: &[],
+        declared_paths: &[],
+        heuristic_paths: &[],
+    });
+    assert_eq!(
+        surfaces[0].evidence[0].kind,
+        CodeSurfaceEvidenceKind::ExactDynamicCoverage
+    );
+    assert_eq!(
+        surfaces[0].evidence[1].kind,
+        CodeSurfaceEvidenceKind::DirectedWeavatrixReach
+    );
+}
+
+#[test]
+fn missing_weavatrix_reach_does_not_fall_back_to_every_candidate() {
+    let obligations = ["limit-allowed".to_string(), "other".to_string()];
+    let declared = [(
+        "limit/limit_test.go".into(),
+        BTreeSet::from(["limit-allowed".into()]),
+    )];
+    let surfaces = build_obligation_code_surfaces(&empty_build(&obligations, &[], &declared));
+    let judged = obligations_owning_path(&surfaces, "limit/limit.go", &obligations);
     assert!(
         judged.is_empty(),
         "no owner must not fall back to every candidate: {judged:?}"

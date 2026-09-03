@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use wvq_domain::RevisionId;
 use wvq_intelligence::{CodeEvidenceProvider, WeavatrixProvider};
 
@@ -13,6 +13,27 @@ pub(in crate::service) fn protection_graph_for_files(
     repo: &Path,
     revision: &RevisionId,
     files: &[String],
+) -> Result<Value, BusError> {
+    graph_for_files(repo, revision, files, false)
+}
+
+/// Same bounded Weavatrix neighbourhood, including test nodes.
+///
+/// Mutation ownership walks directed test → production reach. query_graph hides
+/// `*_test.go` / `*.test.*` unless `include_tests` is set.
+pub(in crate::service) fn mutation_reach_graph(
+    repo: &Path,
+    revision: &RevisionId,
+    files: &[String],
+) -> Result<Value, BusError> {
+    graph_for_files(repo, revision, files, true)
+}
+
+fn graph_for_files(
+    repo: &Path,
+    revision: &RevisionId,
+    files: &[String],
+    include_tests: bool,
 ) -> Result<Value, BusError> {
     let indexed = WeavatrixProvider
         .indexed_files(repo)
@@ -34,7 +55,8 @@ pub(in crate::service) fn protection_graph_for_files(
                 "depth": 8,
                 "max_nodes": 100_000,
                 "flow_direction": "both",
-                "mode": "bfs"
+                "mode": "bfs",
+                "include_tests": include_tests
             }),
         )
         .map_err(|err| BusError::Intelligence(err.to_string()))?;

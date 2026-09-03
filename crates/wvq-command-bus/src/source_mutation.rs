@@ -12,10 +12,12 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use wvq_intelligence::production_nodes_for_binding;
 use wvq_proof::{
-    MutantEcosystem, MutantStatus, MutationSummary, SourceMutant, authoritative_mutant_status,
+    CodeSurfaceBuild, MutantEcosystem, MutantStatus, MutationSummary, ObligationCodeSurface,
+    SourceMutant, WeavatrixReachSlice, authoritative_mutant_status, build_obligation_code_surfaces,
     obligations_owning_path, plan_go_source_mutants, plan_ts_js_source_mutants,
-    surfaces_from_declared_paths,
 };
 use wvq_runtime::{
     ExecutorId, ExecutorRegistry, PrepareRequest, ProcessLimits, TestStatus,
@@ -358,8 +360,56 @@ pub(crate) struct MutationRunRequest<'a> {
     pub changed_files: &'a [String],
     pub bindings: &'a [MutationBinding],
     pub policy: &'a MutationPolicy,
+    pub graph: &'a Value,
     pub executors: &'a ExecutorRegistry,
     pub cancel: Arc<AtomicBool>,
+}
+
+#[must_use]
+pub(crate) fn mutation_graph_files(
+    added: &[String],
+    changed: &[String],
+    bindings: &[MutationBinding],
+) -> Vec<String> {
+    let mut files = added.iter().chain(changed).cloned().collect::<Vec<_>>();
+    files.extend(bindings.iter().map(|binding| binding.path.clone()));
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn mutation_code_surfaces(
+    graph: &Value,
+    bindings: &[MutationBinding],
+    obligations: &[String],
+) -> Vec<ObligationCodeSurface> {
+    let declared = bindings
+        .iter()
+        .map(|binding| (binding.path.clone(), binding.obligations.clone()))
+        .collect::<Vec<_>>();
+    let mut reach = Vec::new();
+    for binding in bindings {
+        let walked = production_nodes_for_binding(graph, &binding.path);
+        if walked.truncated {
+            continue;
+        }
+        for obligation in &binding.obligations {
+            reach.push(WeavatrixReachSlice {
+                obligation: obligation.clone(),
+                origin: binding.path.clone(),
+                nodes: walked.nodes.clone(),
+            });
+        }
+    }
+    build_obligation_code_surfaces(&CodeSurfaceBuild {
+        obligations,
+        coverage_flows: &[],
+        trace_flows: &[],
+        weavatrix_reach: &reach,
+        protection_flows: &[],
+        declared_paths: &declared,
+        heuristic_paths: &[],
+    })
 }
 
 #[allow(clippy::too_many_lines)]
@@ -445,13 +495,7 @@ pub(crate) fn execute_source_mutation(
         );
     }
 
-    let surfaces = surfaces_from_declared_paths(
-        &request
-            .bindings
-            .iter()
-            .map(|binding| (binding.path.clone(), binding.obligations.clone()))
-            .collect::<Vec<_>>(),
-    );
+    let surfaces = mutation_code_surfaces(request.graph, request.bindings, &obligations);
     let applicable_obligations = planned
         .iter()
         .flat_map(|mutant| {
@@ -1044,9 +1088,12 @@ fn unlink_directory(target: &Path) {
 mod tests {
     use super::{
         MutationBinding, MutationPolicy, MutationResultRecord, MutationRunDocument,
-        mutation_judge_bindings,
+        mutation_code_surfaces, mutation_graph_files, mutation_judge_bindings,
     };
-    use wvq_proof::{MutantEcosystem, MutantStatus, authoritative_mutant_status};
+    use serde_json::json;
+    use wvq_proof::{
+        MutantEcosystem, MutantStatus, authoritative_mutant_status, obligations_owning_path,
+    };
 
     fn policy() -> MutationPolicy {
         let mut policy = MutationPolicy::default();
@@ -1203,5 +1250,69 @@ mod tests {
             authoritative_mutant_status(false, false),
             MutantStatus::Invalid
         );
+    }
+
+    #[test]
+    fn weavatrix_reach_from_a_test_binding_owns_the_production_mutant() {
+        let graph = json!({
+            "nodes": [
+                {
+                    "id": "symbol:limit/limit_test.go#TestAllowed",
+                    "span": {"file": "limit/limit_test.go", "start_line": 1, "end_line": 1}
+                },
+                {
+                    "id": "symbol:limit/limit.go#Allowed",
+                    "span": {"file": "limit/limit.go", "start_line": 1, "end_line": 4}
+                }
+            ],
+            "edges": [{
+                "source": "symbol:limit/limit_test.go#TestAllowed",
+                "target": "symbol:limit/limit.go#Allowed"
+            }]
+        });
+        let bindings = [MutationBinding {
+            path: "limit/limit_test.go".into(),
+            runner: "go-test".into(),
+            case: "TestAllowed".into(),
+            obligations: ["limit-allowed".into()].into_iter().collect(),
+            known_flaky: false,
+        }];
+        let obligations = ["limit-allowed".to_string()];
+        let surfaces = mutation_code_surfaces(&graph, &bindings, &obligations);
+        assert_eq!(
+            obligations_owning_path(&surfaces, "limit/limit.go", &obligations),
+            ["limit-allowed"]
+        );
+        assert_eq!(
+            mutation_graph_files(&[], &["limit/limit.go".into()], &bindings),
+            ["limit/limit.go", "limit/limit_test.go"]
+        );
+    }
+
+    #[test]
+    fn a_test_binding_without_reach_does_not_own_the_production_mutant() {
+        let graph = json!({
+            "nodes": [
+                {
+                    "id": "symbol:limit/limit_test.go#TestAllowed",
+                    "span": {"file": "limit/limit_test.go", "start_line": 1, "end_line": 1}
+                },
+                {
+                    "id": "symbol:limit/limit.go#Allowed",
+                    "span": {"file": "limit/limit.go", "start_line": 1, "end_line": 4}
+                }
+            ],
+            "edges": []
+        });
+        let bindings = [MutationBinding {
+            path: "limit/limit_test.go".into(),
+            runner: "go-test".into(),
+            case: "TestAllowed".into(),
+            obligations: ["limit-allowed".into()].into_iter().collect(),
+            known_flaky: false,
+        }];
+        let obligations = ["limit-allowed".to_string()];
+        let surfaces = mutation_code_surfaces(&graph, &bindings, &obligations);
+        assert!(obligations_owning_path(&surfaces, "limit/limit.go", &obligations).is_empty());
     }
 }
