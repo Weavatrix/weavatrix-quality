@@ -17,11 +17,12 @@ use wvq_intelligence::production_nodes_for_binding;
 use wvq_proof::{
     CodeSurfaceBuild, MutantEcosystem, MutantStatus, MutationSummary, ObligationCodeSurface,
     SourceMutant, WeavatrixReachSlice, authoritative_mutant_status, build_obligation_code_surfaces,
-    obligations_owning_path, plan_go_source_mutants, plan_ts_js_source_mutants,
+    obligations_owning_path, plan_go_source_mutants, plan_rust_source_mutants,
+    plan_ts_js_source_mutants,
 };
 use wvq_runtime::{
     ExecutorId, ExecutorRegistry, PrepareRequest, ProcessLimits, TestStatus,
-    discover_executor_targets, parse_go_json, parse_junit,
+    discover_executor_targets, parse_cargo_test, parse_go_json, parse_junit,
 };
 use wvq_spec::QualityContract;
 
@@ -291,6 +292,7 @@ impl MutationRunDocument {
             let ecosystem = match result.ecosystem.as_str() {
                 "ts_js" => MutantEcosystem::TsJs,
                 "go" => MutantEcosystem::Go,
+                "rust" => MutantEcosystem::Rust,
                 other => return Err(format!("unknown mutation ecosystem `{other}`")),
             };
             if !operator_for(ecosystem, &result.operator)
@@ -461,6 +463,9 @@ pub(crate) fn execute_source_mutation(
             }
             MutantEcosystem::Go => {
                 plan_go_source_mutants(path, &source, &lines, &operators, remaining)
+            }
+            MutantEcosystem::Rust => {
+                plan_rust_source_mutants(path, &source, &lines, &operators, remaining)
             }
         }
         .map_err(|error| error.to_string())?;
@@ -643,13 +648,13 @@ fn execute_one(
         if target.executor.as_str() != binding.runner {
             continue;
         }
-        let filter = if binding.runner == "go-test" {
-            String::new()
-        } else {
-            binding_path
+        let filter = match binding.runner.as_str() {
+            "go-test" => String::new(),
+            "cargo-test" => binding.case.clone(),
+            _ => binding_path
                 .strip_prefix(&target.cwd)
                 .map(|path| path.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default()
+                .unwrap_or_default(),
         };
         requests.insert(
             (
@@ -678,7 +683,7 @@ fn execute_one(
             executor,
             cwd: target.cwd.clone(),
             filters: (!filter.is_empty()).then_some(filter).into_iter().collect(),
-            exact_case: Some(case.to_owned()),
+            exact_case: (runner != "cargo-test").then(|| case.to_owned()),
             extra: BTreeMap::new(),
             limits: ProcessLimits {
                 deadline: MAX_MUTANT_TIME,
@@ -698,6 +703,12 @@ fn execute_one(
             std::str::from_utf8(&executed.stdout)
                 .ok()
                 .and_then(|stdout| parse_go_json(stdout).ok())
+        } else if runner == "cargo-test" {
+            let stdout = std::str::from_utf8(&executed.stdout).ok();
+            let stderr = std::str::from_utf8(&executed.stderr).ok();
+            stdout
+                .zip(stderr)
+                .and_then(|(stdout, stderr)| parse_cargo_test(stdout, stderr).ok())
         } else {
             std::fs::read_to_string(&junit)
                 .ok()
@@ -730,6 +741,7 @@ fn execute_one(
         ecosystem: match mutant.ecosystem {
             MutantEcosystem::TsJs => "ts_js",
             MutantEcosystem::Go => "go",
+            MutantEcosystem::Rust => "rust",
         }
         .into(),
         operator: mutant.operator.clone(),
@@ -763,7 +775,9 @@ fn mutation_judge_bindings<'a>(
 }
 
 fn known_operator(operator: &str) -> bool {
-    operator_for(MutantEcosystem::TsJs, operator) || operator_for(MutantEcosystem::Go, operator)
+    operator_for(MutantEcosystem::TsJs, operator)
+        || operator_for(MutantEcosystem::Go, operator)
+        || operator_for(MutantEcosystem::Rust, operator)
 }
 
 fn operator_for(ecosystem: MutantEcosystem, operator: &str) -> bool {
@@ -791,6 +805,14 @@ fn operator_for(ecosystem: MutantEcosystem, operator: &str) -> bool {
                 | "ignore_context"
                 | "invert_bool"
         ),
+        MutantEcosystem::Rust => matches!(
+            operator,
+            "boundary_flip"
+                | "invert_bool"
+                | "is_ok_err_flip"
+                | "is_some_none_flip"
+                | "eq_neq_flip"
+        ),
     }
 }
 
@@ -798,6 +820,8 @@ fn ecosystem(path: &str) -> Option<MutantEcosystem> {
     let extension = Path::new(path).extension().and_then(|value| value.to_str());
     if extension.is_some_and(|value| value.eq_ignore_ascii_case("go")) {
         Some(MutantEcosystem::Go)
+    } else if extension.is_some_and(|value| value.eq_ignore_ascii_case("rs")) {
+        Some(MutantEcosystem::Rust)
     } else if ["ts", "tsx", "js", "jsx", "mjs", "cjs"]
         .iter()
         .any(|expected| extension.is_some_and(|value| value.eq_ignore_ascii_case(expected)))
@@ -811,7 +835,10 @@ fn ecosystem(path: &str) -> Option<MutantEcosystem> {
 fn looks_like_test(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with("_test.go")
+        || lower.ends_with("/tests.rs")
         || lower.contains("/tests/")
+        || lower.contains("/benches/")
+        || lower.contains("/examples/")
         || lower.contains(".test.")
         || lower.contains(".spec.")
         || lower.contains(".stories.")
@@ -824,6 +851,7 @@ fn binding_supported(ecosystem: MutantEcosystem, runner: &str) -> bool {
             runner,
             "vitest" | "storybook-vitest" | "storybook-vitest-v8"
         ),
+        MutantEcosystem::Rust => runner == "cargo-test",
     }
 }
 
@@ -1087,8 +1115,8 @@ fn unlink_directory(target: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{
-        MutationBinding, MutationPolicy, MutationResultRecord, MutationRunDocument,
-        mutation_code_surfaces, mutation_graph_files, mutation_judge_bindings,
+        MutationBinding, MutationPolicy, MutationResultRecord, MutationRunDocument, ecosystem,
+        looks_like_test, mutation_code_surfaces, mutation_graph_files, mutation_judge_bindings,
     };
     use serde_json::json;
     use wvq_proof::{
@@ -1230,6 +1258,23 @@ mod tests {
             obligations: ["admin".into()].into_iter().collect(),
             known_flaky,
         }
+    }
+
+    #[test]
+    fn rust_sources_are_judged_by_cargo_test_and_integration_tests_are_not_mutated() {
+        assert_eq!(ecosystem("src/limit.rs"), Some(MutantEcosystem::Rust));
+        assert!(!looks_like_test("src/limit.rs"));
+        assert!(looks_like_test("crates/wvq-proof/tests/advanced.rs"));
+        let bindings = [MutationBinding {
+            path: "crates/wvq-proof/tests/advanced.rs".into(),
+            runner: "cargo-test".into(),
+            case: "source_mutants_edit_only_changed_lines".into(),
+            obligations: ["admin".into()].into_iter().collect(),
+            known_flaky: false,
+        }];
+        let judges = mutation_judge_bindings(&bindings, "admin", MutantEcosystem::Rust);
+        assert_eq!(judges.len(), 1);
+        assert_eq!(judges[0].runner, "cargo-test");
     }
 
     #[test]

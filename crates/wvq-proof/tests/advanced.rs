@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use wvq_proof::{
     ExecutionEvidence, Explorer, ExplorerBudget, ExplorerDecision, MetaSample, MutantOracle,
     MutantStatus, MutationSummary, ProofVerdict, assemble, builtins, execute, go_mutants,
-    plan_go_source_mutants, plan_ts_js_source_mutants, propose, run_selected_mutants,
-    seal_relation, ts_js_mutants,
+    plan_go_source_mutants, plan_rust_source_mutants, plan_ts_js_source_mutants, propose,
+    run_selected_mutants, rust_mutants, seal_relation, ts_js_mutants,
 };
 use wvq_spec::EvidenceKind;
 
@@ -35,6 +35,13 @@ fn ts_and_go_mutants_only_for_changed_regions() {
     assert!(
         go.iter()
             .all(|item| item.ecosystem == wvq_proof::MutantEcosystem::Go)
+    );
+    assert!(rust_mutants("").is_empty());
+    let rust = rust_mutants("src/limit.rs:12");
+    assert!(rust.len() >= 5);
+    assert!(
+        rust.iter()
+            .all(|item| item.ecosystem == wvq_proof::MutantEcosystem::Rust)
     );
 }
 
@@ -100,6 +107,26 @@ fn source_mutants_edit_only_changed_lines_with_concrete_safe_replacements() {
         mutant.operator == "boundary_flip"
             && mutant.apply(go).unwrap().contains("value > 5 && true")
     }));
+
+    let rust = "fn allowed(value: i32) -> bool { value >= 5 && true }\n";
+    let mutants = plan_rust_source_mutants(
+        "src/limit.rs",
+        rust,
+        &BTreeSet::from([1]),
+        &["boundary_flip".into(), "invert_bool".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 2, "{mutants:#?}");
+    assert!(mutants.iter().all(|mutant| mutant.line == 1));
+    assert!(mutants.iter().any(|mutant| {
+        mutant.operator == "boundary_flip"
+            && mutant.apply(rust).unwrap().contains("value > 5 && true")
+    }));
+    assert!(mutants.iter().any(|mutant| {
+        mutant.operator == "invert_bool"
+            && mutant.apply(rust).unwrap().contains("value >= 5 && false")
+    }));
 }
 
 #[test]
@@ -140,6 +167,21 @@ fn source_mutation_refuses_markup_comments_and_unrelated_error_line_comparisons(
     .unwrap();
     assert_eq!(mutants.len(), 1, "{mutants:#?}");
     assert!(mutants[0].apply(compact).unwrap().contains("value>5"));
+
+    let rust = "// value >= 5\nfn allowed(value: i32) -> bool { value >= 5 }\nlet f = |x| x => x;\n";
+    let mutants = plan_rust_source_mutants(
+        "src/limit.rs",
+        rust,
+        &BTreeSet::from([1, 2, 3]),
+        &["boundary_flip".into(), "eq_neq_flip".into()],
+        16,
+    )
+    .unwrap();
+    assert_eq!(mutants.len(), 1, "{mutants:#?}");
+    let mutated = mutants[0].apply(rust).unwrap();
+    assert!(mutated.contains("value > 5"));
+    assert!(mutated.contains("// value >= 5"));
+    assert!(mutated.contains("|x| x => x"));
 }
 
 #[test]
@@ -196,6 +238,30 @@ fn every_declared_ts_js_and_go_operator_has_a_concrete_source_edit() {
         go_mutants
             .iter()
             .all(|mutant| mutant.apply(go).unwrap() != go)
+    );
+
+    let rust = "fn allowed(value: i32) -> bool { value >= 5 && true }\nfn ready(x: Result<i32, ()>) -> bool { x.is_ok() }\nfn present(x: Option<i32>) -> bool { x.is_some() }\nfn same(a: i32, b: i32) -> bool { a == b }\n";
+    let rust_mutants =
+        plan_rust_source_mutants("src/all.rs", rust, &BTreeSet::from([1, 2, 3, 4]), &[], 64)
+            .unwrap();
+    let rust_operators = rust_mutants
+        .iter()
+        .map(|mutant| mutant.operator.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        rust_operators,
+        BTreeSet::from([
+            "boundary_flip",
+            "invert_bool",
+            "is_ok_err_flip",
+            "is_some_none_flip",
+            "eq_neq_flip",
+        ])
+    );
+    assert!(
+        rust_mutants
+            .iter()
+            .all(|mutant| mutant.apply(rust).unwrap() != rust)
     );
 }
 

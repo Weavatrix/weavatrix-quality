@@ -5,13 +5,15 @@ use std::collections::BTreeSet;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-/// Ecosystem for a mutant. v1: TS/JS and Go.
+/// Ecosystem for a mutant. v1: TS/JS, Go, and Rust.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutantEcosystem {
     /// TypeScript / JavaScript.
     TsJs,
     /// Go.
     Go,
+    /// Rust.
+    Rust,
 }
 
 /// TS/JS operators from spec §21.
@@ -41,6 +43,21 @@ pub enum TsJsOperator {
     OmitError,
     /// wrong collection boundary
     CollectionBoundary,
+}
+
+/// Safe Rust operators. Concrete token edits, not rustc-aware rewrites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustOperator {
+    /// `>` ↔ `>=`
+    BoundaryFlip,
+    /// `true` ↔ `false`
+    InvertBool,
+    /// `.is_ok()` ↔ `.is_err()`
+    IsOkErrFlip,
+    /// `.is_some()` ↔ `.is_none()`
+    IsSomeNoneFlip,
+    /// `==` ↔ `!=`, never `=>`
+    EqNeqFlip,
 }
 
 /// Safe Go operators from spec §21.
@@ -227,6 +244,28 @@ pub fn plan_go_source_mutants(
     )
 }
 
+/// Plan concrete Rust edits whose token starts on a changed line.
+///
+/// # Errors
+///
+/// Rejects an empty/unsafe path, an unknown operator, or a zero budget.
+pub fn plan_rust_source_mutants(
+    path: &str,
+    source: &str,
+    changed_lines: &BTreeSet<u32>,
+    operators: &[String],
+    max_mutants: usize,
+) -> Result<Vec<SourceMutant>, MutationError> {
+    plan_source_mutants(
+        MutantEcosystem::Rust,
+        path,
+        source,
+        changed_lines,
+        operators,
+        max_mutants,
+    )
+}
+
 fn plan_source_mutants(
     ecosystem: MutantEcosystem,
     path: &str,
@@ -274,6 +313,13 @@ fn plan_source_mutants(
             "ignore_context",
             "invert_bool",
         ],
+        MutantEcosystem::Rust => &[
+            "boundary_flip",
+            "invert_bool",
+            "is_ok_err_flip",
+            "is_some_none_flip",
+            "eq_neq_flip",
+        ],
     };
     let requested = if operators.is_empty() {
         catalogue
@@ -299,6 +345,7 @@ fn plan_source_mutants(
     match ecosystem {
         MutantEcosystem::TsJs => plan_ts_js(source, &mask, &requested, &mut edits),
         MutantEcosystem::Go => plan_go(source, &mask, &requested, &mut edits),
+        MutantEcosystem::Rust => plan_rust(source, &mask, &requested, &mut edits),
     }
     edits.retain(|edit| changed_lines.contains(&line_at(source, edit.start)));
     edits.sort_by(|left, right| {
@@ -521,6 +568,81 @@ fn plan_go(
             "invert_bool",
             &[("true", "false"), ("false", "true")],
         );
+    }
+}
+
+fn plan_rust(
+    source: &str,
+    mask: &[bool],
+    requested: &BTreeSet<String>,
+    edits: &mut Vec<PlannedEdit>,
+) {
+    if requested.contains("boundary_flip") {
+        comparison_edits(source, mask, edits, "boundary_flip", false);
+    }
+    if requested.contains("invert_bool") {
+        word_replacements(
+            source,
+            mask,
+            edits,
+            "invert_bool",
+            &[("true", "false"), ("false", "true")],
+        );
+    }
+    if requested.contains("is_ok_err_flip") {
+        replace_patterns(
+            source,
+            mask,
+            edits,
+            "is_ok_err_flip",
+            &[(".is_ok()", ".is_err()"), (".is_err()", ".is_ok()")],
+        );
+    }
+    if requested.contains("is_some_none_flip") {
+        replace_patterns(
+            source,
+            mask,
+            edits,
+            "is_some_none_flip",
+            &[(".is_some()", ".is_none()"), (".is_none()", ".is_some()")],
+        );
+    }
+    if requested.contains("eq_neq_flip") {
+        rust_eq_neq_edits(source, mask, edits);
+    }
+}
+
+fn rust_eq_neq_edits(source: &str, mask: &[bool], edits: &mut Vec<PlannedEdit>) {
+    let bytes = source.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if source.get(index..).is_some_and(|rest| rest.starts_with("!="))
+            && code_range(mask, index, index + 2)
+        {
+            edits.push(PlannedEdit {
+                operator: "eq_neq_flip",
+                start: index,
+                end: index + 2,
+                replacement: "==".into(),
+            });
+            index += 2;
+            continue;
+        }
+        if source.get(index..).is_some_and(|rest| rest.starts_with("=="))
+            && code_range(mask, index, index + 2)
+            && bytes.get(index + 2) != Some(&b'>')
+            && !(index > 0 && bytes[index - 1] == b'=')
+        {
+            edits.push(PlannedEdit {
+                operator: "eq_neq_flip",
+                start: index,
+                end: index + 2,
+                replacement: "!=".into(),
+            });
+            index += 2;
+            continue;
+        }
+        index += 1;
     }
 }
 
@@ -1015,6 +1137,30 @@ pub fn go_mutants(region: &str) -> Vec<Mutant> {
     .map(|(index, operator)| Mutant {
         id: format!("go-{index}-{region}"),
         ecosystem: MutantEcosystem::Go,
+        operator: format!("{operator:?}"),
+        region: region.to_owned(),
+    })
+    .collect()
+}
+
+/// Safe Rust operators for one changed region.
+#[must_use]
+pub fn rust_mutants(region: &str) -> Vec<Mutant> {
+    if region.is_empty() {
+        return Vec::new();
+    }
+    [
+        RustOperator::BoundaryFlip,
+        RustOperator::InvertBool,
+        RustOperator::IsOkErrFlip,
+        RustOperator::IsSomeNoneFlip,
+        RustOperator::EqNeqFlip,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, operator)| Mutant {
+        id: format!("rs-{index}-{region}"),
+        ecosystem: MutantEcosystem::Rust,
         operator: format!("{operator:?}"),
         region: region.to_owned(),
     })
