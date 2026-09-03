@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod behavior_surface;
 mod checks;
 mod coverage_autopilot;
 mod evidence_plan;
@@ -22,6 +23,10 @@ mod surface_reach;
 mod test_lineage;
 mod weavatrix;
 
+pub use behavior_surface::{
+    behavior_surface_graph, BehaviorSurface, BehaviorSurfaceFact, BehaviorSurfaceGraph,
+    BehaviorSurfaceOrigin, MAX_BEHAVIOR_SURFACES,
+};
 pub use checks::{
     CoverageMeasurement, NodeCoverage, gate_api, gate_architecture, gate_clones, gate_coverage,
     gate_dead_code, gate_history, gate_topology, map_architecture_report,

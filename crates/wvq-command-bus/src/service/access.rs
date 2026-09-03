@@ -12,9 +12,10 @@ pub(in crate::service) use wvq_domain::{
     ArtifactId, ContentHash, OracleSealId, ProgramId, ProofId, RevisionId, RunId, Severity,
 };
 pub(in crate::service) use wvq_intelligence::{
-    ApplicationSurfaceKind, CodeEvidenceProvider, CoverageMeasurement, GraphDelta, NodeCoverage,
-    ObligationNeed, SelectionInput, SurfaceCoverageState, SurfaceDelta, TestCandidate,
-    WeavatrixProvider, application_surface_graph, coverage_autopilot, impacted_surface,
+    ApplicationSurfaceKind, BehaviorSurface, BehaviorSurfaceFact, BehaviorSurfaceOrigin,
+    CodeEvidenceProvider, CoverageMeasurement, GraphDelta, NodeCoverage, ObligationNeed,
+    SelectionInput, SurfaceCoverageState, SurfaceDelta, TestCandidate, WeavatrixProvider,
+    application_surface_graph, behavior_surface_graph, coverage_autopilot, impacted_surface,
     map_coverage_to_nodes, select_minimal_plan,
 };
 pub(in crate::service) use wvq_proof::{

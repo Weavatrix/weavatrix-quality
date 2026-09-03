@@ -246,6 +246,88 @@ fn project_state(state: SurfaceCoverageState) -> SurfaceProjectionState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BehaviorSurfaceDocument {
+    schema_v: u32,
+    revision: String,
+    truncated: bool,
+    behaviors: Vec<BehaviorSurface>,
+}
+
+pub(in crate::service) fn persist_behavior_surface_graph(
+    store: &Store,
+    run: &RunId,
+    revision: &RevisionId,
+    graph: &Value,
+    journals: &[ContinuousJournal],
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let surfaces = application_surface_graph(graph);
+    let facts = behavior_facts_from_journals(journals);
+    let projected = behavior_surface_graph(&surfaces, &facts);
+    let document = BehaviorSurfaceDocument {
+        schema_v: 1,
+        revision: revision.to_string(),
+        truncated: projected.truncated,
+        behaviors: projected.behaviors,
+    };
+    put_json_run_artifact(
+        store,
+        run,
+        &format!("artifact-{}-behavior-surface-graph", run.as_str()),
+        super::BEHAVIOR_SURFACE_GRAPH_KIND,
+        &document,
+        handles,
+    )
+}
+
+fn behavior_facts_from_journals(journals: &[ContinuousJournal]) -> Vec<BehaviorSurfaceFact> {
+    let mut facts = Vec::new();
+    for journal in journals {
+        push_behavior_fact(&mut facts, &journal.initial, None);
+        for event in &journal.events {
+            push_behavior_fact(&mut facts, &event.after, Some(event.action.kind()));
+        }
+    }
+    facts
+}
+
+fn push_behavior_fact(
+    facts: &mut Vec<BehaviorSurfaceFact>,
+    state: &BehaviorState,
+    action: Option<&str>,
+) {
+    let flag = if state.feature_flags.is_empty() {
+        None
+    } else {
+        Some(
+            state
+                .feature_flags
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    };
+    facts.push(BehaviorSurfaceFact {
+        surface: format!("route:{}", state.route),
+        role: nonempty_dim(state.actor.as_deref()),
+        state: nonempty_dim(state.data_class.as_deref())
+            .or_else(|| nonempty_dim(state.modal.as_deref())),
+        action: action.and_then(|kind| nonempty_dim(Some(kind))),
+        flag,
+        origin: BehaviorSurfaceOrigin::Recorded,
+    });
+}
+
+fn nonempty_dim(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
 fn looks_like_surface(id: &str) -> bool {
     id.starts_with("endpoint:")
         || id.starts_with("route:")

@@ -8,6 +8,7 @@ use super::super::persist_matrix::{
 };
 use super::super::persist_plan::persist_cheapest_evidence_from;
 use super::super::persist_run::{put_json_run_artifact, put_run_artifact};
+use super::super::persist_surface::persist_behavior_surface_graph;
 use super::super::persist_ui_analyse::analyse_ui_snapshots;
 use super::super::protection_snapshot::{
     live_protection_snapshot, persist_dynamic_coverage_history,
@@ -128,6 +129,14 @@ impl LiveService {
         };
         persist_surface_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
         persist_cheapest_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
+        persist_behavior_surface_graph(
+            store,
+            run_id,
+            before,
+            protection_graph,
+            &journals,
+            &mut handles,
+        )?;
         let bound_files = live_selection
             .bindings
             .iter()

@@ -15,6 +15,8 @@ pub(in crate::service) const DELTA_TRIANGLE_KIND: &str = "delta-triangle";
 pub(in crate::service) const ORACLE_REPLACEMENT_KIND: &str = "oracle-replacement-proposal";
 /// CAS artifact kind for the read-only Application Surface Graph projection.
 pub(in crate::service) const APPLICATION_SURFACE_GRAPH_KIND: &str = "application-surface-graph";
+/// CAS artifact kind for evidenced Role/State/Action/Flag combinations.
+pub(in crate::service) const BEHAVIOR_SURFACE_GRAPH_KIND: &str = "behavior-surface-graph";
 /// CAS artifact kind for the read-only Surface Evidence Matrix.
 pub(in crate::service) const SURFACE_EVIDENCE_MATRIX_KIND: &str = "surface-evidence-matrix";
 /// CAS artifact kind for the read-only cheapest-evidence plan.

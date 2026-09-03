@@ -216,3 +216,73 @@ fn an_absent_surface_view_does_not_block_verify() {
     assert!(!reply.application_surface.present);
     assert!(!reply.surface_evidence.present);
 }
+
+#[test]
+fn a_recorded_journal_adds_behavior_surfaces_without_crossing_dimensions() {
+    let root = TempDir::new("behavior-surface");
+    let store = Store::open(&root.0).unwrap();
+    let run = RunId::new("run-behavior").unwrap();
+    let revision = RevisionId::new("rev-behavior").unwrap();
+    store
+        .put_run(&StoredRun {
+            id: run.clone(),
+            change_id: "surface".into(),
+            revision: revision.clone(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    let journal = wvq_runtime::ContinuousJournal::from_json(
+        r#"{
+            "schema_v": 1,
+            "source": "continuous",
+            "observed_only": true,
+            "session_id": "staging-checkout",
+            "initial": { "route": "/checkout" },
+            "events": [
+                {
+                    "action": { "action": "activate", "target": { "test_id": "pay" } },
+                    "after": { "route": "/checkout", "actor": "admin" }
+                },
+                {
+                    "action": { "action": "activate", "target": { "test_id": "pay" } },
+                    "after": { "route": "/checkout", "data_class": "empty_cart" }
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    let mut handles = Vec::new();
+    persist_behavior_surface_graph(
+        &store,
+        &run,
+        &revision,
+        &pay_graph(),
+        std::slice::from_ref(&journal),
+        &mut handles,
+    )
+    .unwrap();
+    let value = read_single_run_json(&store, &run, BEHAVIOR_SURFACE_GRAPH_KIND).unwrap();
+    let ids = value["behaviors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert!(
+        ids.iter()
+            .any(|id| id == "route:/checkout|role:admin|action:activate"),
+        "{ids:?}"
+    );
+    assert!(
+        ids.iter()
+            .any(|id| id == "route:/checkout|state:empty_cart|action:activate"),
+        "{ids:?}"
+    );
+    assert!(
+        ids.iter()
+            .all(|id| !(id.contains("role:admin") && id.contains("state:empty_cart"))),
+        "admin × empty_cart must not be invented: {ids:?}"
+    );
+}
