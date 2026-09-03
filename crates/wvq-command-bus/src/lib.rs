@@ -27,6 +27,6 @@ pub use replies::{
 };
 pub use service::{BusError, FakeService, LiveService, QualityService, dispatch};
 pub use wvq_intelligence::{
-    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidencePlan, EvidenceProducer,
-    ProducerOffer, SurfaceEvidenceRow,
+    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidenceNeed, EvidencePlan,
+    EvidenceProducer, ProducerOffer, SurfaceEvidenceRow,
 };

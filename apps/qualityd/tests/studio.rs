@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use qualityd::{HttpRequest, HttpResponse, Studio, serve};
 use serde_json::Value;
 use wvq_command_bus::{
-    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidencePlan, EvidenceProducer,
-    FakeService, ProducerOffer, ProofSummary, QualityService, SurfaceEvidenceRow,
+    ApplicationSurfaceKind, EvidenceCell, EvidenceColumn, EvidenceNeed, EvidencePlan,
+    EvidenceProducer, FakeService, ProducerOffer, ProofSummary, QualityService, SurfaceEvidenceRow,
 };
 use wvq_proof::{FlowView, ProtectionView, TestLineageView};
 use wvq_spec_recovery::RecoveryDesk;
@@ -370,7 +370,7 @@ fn the_dashboard_projects_the_cheapest_evidence_plan_without_gating() {
             surface: "endpoint:GET /admin".into(),
             kind: ApplicationSurfaceKind::Endpoint,
             column: EvidenceColumn::Protection,
-            need: wvq_intelligence::EvidenceNeed::MeasuredAbsent,
+            need: EvidenceNeed::MeasuredAbsent,
             cheapest: Some(EvidenceProducer::ExistingTestAdaptation),
             producers: vec![ProducerOffer {
                 producer: EvidenceProducer::ExistingTestAdaptation,
