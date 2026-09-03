@@ -1,5 +1,70 @@
 quality_policy_v: 1
 
+test_bindings:
+  - path: crates/wvq-proof/tests/change_verdict.rs
+    runner: cargo-test
+    suite: tests/change_verdict.rs
+    case: an_unmeasured_axis_never_becomes_clean
+    obligations: [unmeasured-never-clean]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-domain/tests/decision.rs
+    runner: cargo-test
+    suite: tests/decision.rs
+    case: observed_only_is_never_normative_and_escalations_block_sealing
+    obligations: [observed-only-never-seals]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-proof/tests/code_surface.rs
+    runner: cargo-test
+    suite: tests/code_surface.rs
+    case: a_test_file_binding_does_not_claim_production_code_delta
+    obligations: [test-node-not-production-code-delta]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-proof/tests/protection.rs
+    runner: cargo-test
+    suite: tests/protection.rs
+    case: evidence_from_another_revision_is_refused
+    obligations: [revision-drift-invalidates-proof]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-runtime/tests/cassette.rs
+    runner: cargo-test
+    suite: tests/cassette.rs
+    case: a_json_har_becomes_a_schema_v2_profile_without_secrets
+    obligations: [raw-secret-never-enters-evidence]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-proof/tests/change_verdict.rs
+    runner: cargo-test
+    suite: tests/change_verdict.rs
+    case: a_proven_obligation_cannot_hide_a_lost_critical_branch
+    obligations: [lost-critical-protection-blocks]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-proof/tests/change_verdict.rs
+    runner: cargo-test
+    suite: tests/change_verdict.rs
+    case: the_ordinary_green_path_spends_no_runtime_tokens
+    obligations: [green-path-zero-runtime-tokens]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-proof/tests/code_surface.rs
+    runner: cargo-test
+    suite: tests/code_surface.rs
+    case: unmapped_mutant_path_is_not_judged_by_unrelated_obligations
+    obligations: [unowned-mutant-cannot-strengthen-proof]
+    cost: 10
+    flake_penalty: 0
+  - path: crates/wvq-command-bus/src/service/tests/protection.rs
+    runner: cargo-test
+    suite: src/lib.rs
+    case: service::tests::protection::batch_coverage_never_claims_which_normalized_case_protected_a_flow
+    obligations: [aggregate-coverage-not-exact-case]
+    cost: 10
+    flake_penalty: 0
+
 ratchet:
   mode: no_new_debt
   returned_debt: error

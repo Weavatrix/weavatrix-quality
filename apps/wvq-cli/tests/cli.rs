@@ -196,6 +196,10 @@ fn doctor_on_product_repo_is_not_authority() {
     assert!(output.stdout.contains("\"authority\": false"));
     assert!(output.stdout.contains("wvq-invariants"));
     assert!(output.stdout.contains("cargo-test"));
+    assert!(output.stdout.contains("unmeasured-never-clean"));
+    assert!(output
+        .stdout
+        .contains("crates/wvq-proof/tests/change_verdict.rs"));
     assert!(output.stdout.contains("\"runtime_llm_tokens\": 0"));
 }
 

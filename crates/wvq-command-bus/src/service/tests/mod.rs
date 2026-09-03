@@ -54,6 +54,7 @@ mod ingest_journal;
 mod init;
 mod paths;
 mod policy;
+mod product_bindings;
 mod protection;
 mod surface;
 mod surface_matrix;
