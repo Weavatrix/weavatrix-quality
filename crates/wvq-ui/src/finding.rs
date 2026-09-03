@@ -95,6 +95,21 @@ impl UiCheck {
         ]
     }
 
+    /// Accessibility detectors, including imported axe/Storybook rules.
+    #[must_use]
+    pub fn is_a11y(self) -> bool {
+        matches!(
+            self,
+            Self::AccessibleName
+                | Self::FormLabel
+                | Self::KeyboardReachability
+                | Self::RoleState
+                | Self::DialogName
+                | Self::DialogFocus
+                | Self::ImportedA11y
+        )
+    }
+
     /// Whether the finding can change as viewport width changes.
     #[must_use]
     pub fn is_responsive(self) -> bool {

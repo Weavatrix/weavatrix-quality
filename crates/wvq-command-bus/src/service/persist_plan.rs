@@ -3,6 +3,8 @@
 //! Not a gate. Does not generate tests, previews, or model calls.
 
 use super::access::*;
+use super::persist_matrix::{surface_evidence_from, SurfaceEvidenceSources};
+#[cfg(test)]
 use super::persist_matrix::surface_evidence_document;
 use super::persist_run::put_json_run_artifact;
 use super::selection_audit::read_single_run_json;
@@ -19,6 +21,7 @@ struct CheapestEvidenceDocument {
     gaps: Vec<wvq_intelligence::EvidencePlan>,
 }
 
+#[cfg(test)]
 pub(in crate::service) fn persist_cheapest_evidence_plan(
     store: &Store,
     run: &RunId,
@@ -45,6 +48,32 @@ pub(in crate::service) fn persist_cheapest_evidence_plan(
     )
 }
 
+pub(in crate::service) fn persist_cheapest_evidence_from(
+    store: &Store,
+    run: &RunId,
+    revision: &RevisionId,
+    sources: &SurfaceEvidenceSources<'_>,
+    handles: &mut Vec<String>,
+) -> Result<(), BusError> {
+    let matrix = surface_evidence_from(sources)?;
+    let plan = plan_cheapest_evidence(&matrix);
+    let document = CheapestEvidenceDocument {
+        schema_v: 1,
+        revision: revision.to_string(),
+        truncated: plan.truncated,
+        gaps: plan.gaps,
+    };
+    put_json_run_artifact(
+        store,
+        run,
+        &format!("artifact-{}-cheapest-evidence-plan", run.as_str()),
+        CHEAPEST_EVIDENCE_PLAN_KIND,
+        &document,
+        handles,
+    )
+}
+
+#[cfg(test)]
 pub(in crate::service) fn cheapest_evidence_document(
     graph: &Value,
     records: &[ExecutorRecord],

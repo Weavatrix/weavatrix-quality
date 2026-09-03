@@ -1,15 +1,17 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-09-03
-Session: P0 — Surface Evidence Matrix v2 authorities
+Session: P0 — live Surface Matrix producers + Playwright replay flake
 
 ## Now
+
+The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations, Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
 Unmeasured cells are a `MeasurementPlan` (`EvidenceNeed::Unmeasured`), not silent ignore. Measured-absent cells remain evidence gaps. Present cells are not planned.
 
 The cheapest-evidence planner now carries a `ProducerInventory`. `BrowserExplore` is compiled but `available=false` until the closed loop exists. Mutation gaps offer `SourceMutation`. Intent gaps offer `SpecRecovery` then `ProductReview`, never a test producer. Missing tests or stories are not recommended.
 
-The Surface Evidence Matrix is schema v2. Intent is no longer a copy of the test-binding column: a binding without obligations can mark Test present while Intent stays absent. Coverage is the former live "protection" producer (normalized hits on Weavatrix nodes). Protection Continuity is a separate unmeasured column until a ProtectionSnapshot producer is wired. v1 artifacts migrate old `protection` into `coverage`.
+The Surface Evidence Matrix is schema v2. Intent is no longer a copy of the test-binding column: a binding without obligations can mark Test present while Intent stays absent. Coverage is normalized hits on Weavatrix nodes. Protection Continuity comes from the revision snapshot, not from coverage. v1 artifacts migrate old `protection` into `coverage`.
 
 Mutation ownership no longer treats a test-file binding as production code. `build_obligation_code_surfaces()` is the single authority: exact per-case coverage, measured traces, directed Weavatrix test→production reach (`include_tests` on the mutation graph query), protection flows, reviewed mappings, then bounded heuristics. `CodeDelta` and source mutation both consume it. A test binding such as `limit/limit_test.go` owns `limit/limit.go` only when Weavatrix records a directed reach; missing owners stay `UNMEASURED` with no fallback to every candidate. The three real Go/Vitest mutation scenarios pass again on this tree.
 
@@ -302,10 +304,9 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, planner inventory, and MeasurementPlan are done on this tree.
+P0 from the 2026-09-02 reaudit, in order. Mutation ownership, Surface Matrix v2 authorities, live column producers, planner inventory, and MeasurementPlan are done on this tree.
 
-1. **Populate real Runtime/Proof/Protection/UI/A11y/Mutation columns.**
-2. **Exact-head generated STATUS validation.**
+1. **Exact-head generated STATUS validation.**
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

@@ -2,7 +2,9 @@
 
 use super::*;
 use super::super::verify_debt::verify_from_token;
+use crate::source_mutation::{MutationResultRecord, MutationRunDocument};
 use wvq_intelligence::EvidenceCell;
+use wvq_proof::{FlowProtection, ProtectionSnapshot};
 
 fn pay_binding() -> TestBinding {
     TestBinding {
@@ -99,6 +101,77 @@ fn a_binding_without_obligations_is_test_not_intent() {
     assert_eq!(pay.test, EvidenceCell::Present);
     assert_eq!(pay.coverage, EvidenceCell::Present);
     assert_eq!(pay.protection, EvidenceCell::Unmeasured);
+}
+
+#[test]
+fn live_producers_fill_protection_and_mutation_without_calling_them_coverage() {
+    let mutation = MutationRunDocument {
+        schema_v: 1,
+        state: "measured".into(),
+        obligations: vec!["charge".into()],
+        applicable_obligations: vec!["charge".into()],
+        planned: 1,
+        killed: 1,
+        survived: 0,
+        invalid: 0,
+        results: vec![MutationResultRecord {
+            id: "m1".into(),
+            ecosystem: "ts_js".into(),
+            operator: "boundary_flip".into(),
+            path: "src/payment.ts".into(),
+            line: 2,
+            column: 1,
+            status: "killed".into(),
+            obligation: "charge".into(),
+            tests_run: vec!["vitest#charge".into()],
+        }],
+        limitations: Vec::new(),
+        runtime_llm_tokens: 0,
+    };
+    let protection = ProtectionSnapshot {
+        revision: "rev-head".into(),
+        executed_tests: vec!["src/payment.ts#charge".into()],
+        flows: vec![FlowProtection {
+            flow: "symbol:src/payment.ts#charge".into(),
+            revision: "rev-head".into(),
+            tests: vec!["src/payment.ts".into()],
+            sessions: Vec::new(),
+            covered_nodes: vec!["symbol:src/payment.ts#charge".into()],
+            covered_branches: Vec::new(),
+            proven_obligations: vec!["charge".into()],
+            proofs: Vec::new(),
+        }],
+    };
+    let graph = pay_graph();
+    let record = coverage_record();
+    let binding = pay_binding();
+    let sources = SurfaceEvidenceSources {
+        graph: &graph,
+        records: std::slice::from_ref(&record),
+        bindings: std::slice::from_ref(&binding),
+        mutation: Some(&mutation),
+        browser_runs: &[],
+        ui: None,
+        protection: Some(&protection),
+    };
+    let matrix = surface_evidence_from(&sources).unwrap();
+    let pay = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "endpoint:POST /pay")
+        .expect("pay");
+    let idle = matrix
+        .surfaces
+        .iter()
+        .find(|row| row.surface == "endpoint:GET /idle")
+        .expect("idle");
+    assert_eq!(pay.coverage, EvidenceCell::Present);
+    assert_eq!(pay.protection, EvidenceCell::Present);
+    assert_eq!(pay.mutation, EvidenceCell::Present);
+    assert_eq!(idle.protection, EvidenceCell::Absent);
+    assert_eq!(idle.mutation, EvidenceCell::Absent);
+    assert_eq!(pay.runtime, EvidenceCell::Unmeasured);
+    assert_eq!(pay.ui, EvidenceCell::Unmeasured);
 }
 
 #[test]

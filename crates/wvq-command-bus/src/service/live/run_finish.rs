@@ -3,6 +3,8 @@
 use super::super::access::*;
 use super::super::analytics::persist_test_analytics;
 use super::super::persist_behavior::persist_browser_behavior;
+use super::super::persist_matrix::{persist_surface_evidence_from, SurfaceEvidenceSources};
+use super::super::persist_plan::persist_cheapest_evidence_from;
 use super::super::persist_run::{put_json_run_artifact, put_run_artifact};
 use super::super::persist_ui_analyse::analyse_ui_snapshots;
 use super::super::protection_snapshot::{live_protection_snapshot, persist_dynamic_coverage_history};
@@ -91,23 +93,35 @@ impl LiveService {
         }
         persist_dynamic_coverage_history(store, run_id, before, protection_graph, records)?;
         let mut code_flows = Vec::new();
-        if let Some(protection) = live_protection_snapshot(
+        let protection = live_protection_snapshot(
             &self.repo,
             before,
             protection_graph,
             records,
             &live_selection.bindings,
-        )? {
-            code_flows.extend(protection.flows.iter().cloned());
+        )?;
+        if let Some(snapshot) = &protection {
+            code_flows.extend(snapshot.flows.iter().cloned());
             put_json_run_artifact(
                 store,
                 run_id,
                 &format!("artifact-{}-protection", run_id.as_str()),
                 "protection-snapshot",
-                &protection,
+                snapshot,
                 &mut handles,
             )?;
         }
+        let evidence_sources = SurfaceEvidenceSources {
+            graph: protection_graph,
+            records,
+            bindings: &live_selection.bindings,
+            mutation: executed.mutation_document.as_ref(),
+            browser_runs,
+            ui: head_ui.as_ref(),
+            protection: protection.as_ref(),
+        };
+        persist_surface_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
+        persist_cheapest_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
         let bound_files = live_selection
             .bindings
             .iter()
