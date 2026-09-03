@@ -1,4 +1,4 @@
-//! This repository's product OpenSpec change compiles without invented bindings.
+//! This repository's product `OpenSpec` change compiles without invented bindings.
 
 use std::path::{Path, PathBuf};
 
