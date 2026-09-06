@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version already on the branch (must match Cargo/npm)"
+        required: true
+        default: "0.1.0-alpha.1"
 
 concurrency:
   group: crates-release-${{ github.ref }}
@@ -28,9 +34,13 @@ jobs:
       - name: Verify tag matches Cargo/npm versions
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
-          test "v${VERSION}" = "${GITHUB_REF_NAME}"
           CARGO_VERSION="$(cargo metadata --locked --format-version 1 | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).packages.find(p=>p.name==='wvq-cli').version))")"
           test "${CARGO_VERSION}" = "${VERSION}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            test "${VERSION}" = "${{ inputs.version }}"
+          else
+            test "v${VERSION}" = "${GITHUB_REF_NAME}"
+          fi
       - name: Publish crates in dependency order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -40,10 +50,14 @@ jobs:
             echo "CARGO_REGISTRY_TOKEN is not configured; skipping crates.io publish"
             exit 0
           fi
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            EXPECTED="${{ inputs.version }}"
+          fi
           publish() {
             local crate="$1"
-            if cargo search "$crate" --limit 1 2>/dev/null | grep -q "^${crate} = \"${GITHUB_REF_NAME#v}\""; then
-              echo "${crate}@${GITHUB_REF_NAME#v} already on crates.io; skipping"
+            if cargo search "$crate" --limit 1 2>/dev/null | grep -q "^${crate} = \"${EXPECTED}\""; then
+              echo "${crate}@${EXPECTED} already on crates.io; skipping"
               return 0
             fi
             # crates.io rate-limits new crate names; wait between uploads.
