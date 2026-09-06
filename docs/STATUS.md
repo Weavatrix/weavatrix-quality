@@ -5,9 +5,7 @@ Session: Alpha orchestration gate → `0.1.0-alpha.1`
 
 ## Now
 
-Alpha pre-release gate is in progress per [ADR 0003](adr/0003-alpha-orchestration-gate.md). Goal: one frozen plan → one execution set → one consistent report, then publish npm/MCP/GitHub and the crates.io closure as `0.1.0-alpha.1`. This is **not** the full v1 Definition of Done. Deferred v1 work (AnalysisSession, RunSnapshot, browser process pooling, projection authority cleanup, bounded scheduling, journal index, `wvq check` + pr/deep profiles) must not silently become alpha blockers.
-
-Linux CI writes an exact-head validation manifest (`target/exact-head-validation.json`, uploaded as `exact-head-validation`) naming this commit, the workflow run, and each test-job step outcome. STATUS claims are not that artifact. A failed Playwright/workspace/Clippy/spec/doctor step marks the manifest `blocking`. An observe-only verify failure is recorded and not blocking.
+Alpha gate implementation is landing per [ADR 0003](adr/0003-alpha-orchestration-gate.md): frozen UI plan + cancel, Studio debt range alignment, single matrix build, `runtime-profile`, positive CI dogfood, docs/examples, then `0.1.0-alpha.1` publish. This is **not** the full v1 Definition of Done.
 
 The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations **and** `OBSERVED_ONLY` continuous journals (route, component, navigate, and exact API identity — never an invented endpoint from `activate`), Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. A journal cannot mark Intent, Test, or Proof. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 

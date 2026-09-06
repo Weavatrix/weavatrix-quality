@@ -2,10 +2,28 @@
 
 Native Weavatrix Quality binaries plus a typed JavaScript boundary. Rust remains the only implementation of policy, test selection, evidence, proof, budgets, and MCP semantics.
 
+**Alpha (`0.1.0-alpha.1`):** useful first product loop, not the full v1 Definition of Done. See the [CHANGELOG](https://github.com/Weavatrix/weavatrix-quality/blob/main/CHANGELOG.md).
+
 ```sh
-npx wvq --repo . plan --change current
-npx wvq mcp --repo .
-npx wvq bench --repo . --change current --base origin/main --head WORKTREE
+npx wvq@0.1.0-alpha.1 --repo . doctor
+npx wvq@0.1.0-alpha.1 --repo . plan --change current
+npx wvq@0.1.0-alpha.1 --repo . run --change current --base origin/main --head HEAD --scope impacted
+npx wvq@0.1.0-alpha.1 --repo . verify --change current
+npx wvq@0.1.0-alpha.1 mcp --repo .
+npx wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head WORKTREE
+```
+
+### Cursor MCP config
+
+```json
+{
+  "mcpServers": {
+    "weavatrix-quality": {
+      "command": "npx",
+      "args": ["-y", "wvq@0.1.0-alpha.1", "mcp", "--repo", "."]
+    }
+  }
+}
 ```
 
 ```js

@@ -21,6 +21,8 @@ Humans review unresolved product intent instead of ordinary green runs.
 
 ## Status
 
+**Alpha `0.1.0-alpha.1`.** Install with `npx wvq@0.1.0-alpha.1` or see [examples](examples/README.md). This is a finite orchestration gate (one plan → one execution set → one report), not the full v1 Definition of Done. Details: [CHANGELOG](CHANGELOG.md), [ADR 0003](docs/adr/0003-alpha-orchestration-gate.md).
+
 The canonical development checklist is implemented, but its items have different maturity levels. The core live vertical is connected; the [maturity matrix](docs/STATUS.md#maturity-matrix) distinguishes contracts and library primitives from wired, measured execution:
 
 - repository manifests discover only frozen, bounded executors;
