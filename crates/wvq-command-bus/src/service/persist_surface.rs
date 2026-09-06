@@ -260,12 +260,11 @@ pub(in crate::service) fn persist_behavior_surface_graph(
     run: &RunId,
     revision: &RevisionId,
     graph: &Value,
-    journals: &[ContinuousJournal],
+    facts: &[BehaviorSurfaceFact],
     handles: &mut Vec<String>,
 ) -> Result<(), BusError> {
     let surfaces = application_surface_graph(graph);
-    let facts = behavior_facts_from_journals(journals);
-    let projected = behavior_surface_graph(&surfaces, &facts);
+    let projected = behavior_surface_graph(&surfaces, facts);
     let document = BehaviorSurfaceDocument {
         schema_v: 1,
         revision: revision.to_string(),
@@ -380,12 +379,51 @@ fn parse_behavior_document(value: &Value) -> Result<BehaviorSurfaceDocument, Bus
     })
 }
 
-fn behavior_facts_from_journals(journals: &[ContinuousJournal]) -> Vec<BehaviorSurfaceFact> {
+pub(in crate::service) fn behavior_facts_from_journals(
+    journals: &[ContinuousJournal],
+) -> Vec<BehaviorSurfaceFact> {
     let mut facts = Vec::new();
     for journal in journals {
-        push_behavior_fact(&mut facts, &journal.initial, None);
+        push_behavior_fact(
+            &mut facts,
+            &journal.initial,
+            None,
+            BehaviorSurfaceOrigin::Recorded,
+        );
         for event in &journal.events {
-            push_behavior_fact(&mut facts, &event.after, Some(event.action.kind()));
+            push_behavior_fact(
+                &mut facts,
+                &event.after,
+                Some(event.action.kind()),
+                BehaviorSurfaceOrigin::Recorded,
+            );
+        }
+    }
+    facts
+}
+
+pub(in crate::service) fn behavior_facts_from_browser_runs<'a>(
+    runs: impl IntoIterator<Item = &'a BrowserProgramRun>,
+) -> Vec<BehaviorSurfaceFact> {
+    let mut facts = Vec::new();
+    for run in runs {
+        for span in &run.action_spans {
+            let Some(observation) = run
+                .observations
+                .get(span.end_observation)
+                .or_else(|| run.observations.get(span.start_observation))
+            else {
+                continue;
+            };
+            let Some(state) = BehaviorState::from_observation(observation) else {
+                continue;
+            };
+            push_behavior_fact(
+                &mut facts,
+                &state,
+                Some(span.action.kind()),
+                BehaviorSurfaceOrigin::Observed,
+            );
         }
     }
     facts
@@ -395,6 +433,7 @@ fn push_behavior_fact(
     facts: &mut Vec<BehaviorSurfaceFact>,
     state: &BehaviorState,
     action: Option<&str>,
+    origin: BehaviorSurfaceOrigin,
 ) {
     let flag = if state.feature_flags.is_empty() {
         None
@@ -415,7 +454,7 @@ fn push_behavior_fact(
             .or_else(|| nonempty_dim(state.modal.as_deref())),
         action: action.and_then(|kind| nonempty_dim(Some(kind))),
         flag,
-        origin: BehaviorSurfaceOrigin::Recorded,
+        origin,
     });
 }
 

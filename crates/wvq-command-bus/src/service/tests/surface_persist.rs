@@ -5,6 +5,42 @@ use super::super::verify_debt::verify_from_token;
 use crate::ApplicationSurfaceView;
 use wvq_store::StoredRun;
 
+fn checkout_observation() -> wvq_runtime::Observation {
+    wvq_runtime::Observation {
+        route: Some("/checkout".into()),
+        ..wvq_runtime::Observation::default()
+    }
+}
+
+fn checkout_activate_run() -> wvq_runtime::BrowserProgramRun {
+    wvq_runtime::BrowserProgramRun {
+        program: "checkout".into(),
+        passed: true,
+        asserted: Vec::new(),
+        contradicted: Vec::new(),
+        assertions: Vec::new(),
+        observations: vec![checkout_observation(), checkout_observation()],
+        action_spans: vec![wvq_runtime::ActionSpan {
+            step: 0,
+            action: wvq_runtime::TestAction::Activate {
+                target: wvq_runtime::Target {
+                    test_id: Some("pay".into()),
+                    ..wvq_runtime::Target::default()
+                },
+            },
+            start_observation: 0,
+            end_observation: 1,
+        }],
+        screenshot_paths: Vec::new(),
+        trace_path: None,
+        ui_snapshots: Vec::new(),
+        network_profile: None,
+        network_limitations: Vec::new(),
+        failure: None,
+        failure_reel: None,
+    }
+}
+
 fn pay_graph() -> Value {
     json!({
         "endpoints": [
@@ -260,7 +296,7 @@ fn a_recorded_journal_adds_behavior_surfaces_without_crossing_dimensions() {
         &run,
         &revision,
         &pay_graph(),
-        std::slice::from_ref(&journal),
+        &behavior_facts_from_journals(std::slice::from_ref(&journal)),
         &mut handles,
     )
     .unwrap();
@@ -358,5 +394,82 @@ fn unknown_behavior_surface_schema_fails_closed() {
         err.to_string()
             .contains("unknown behavior-surface-graph schema"),
         "{err}"
+    );
+}
+
+#[test]
+fn a_live_observation_does_not_cross_with_a_recorded_role() {
+    let root = TempDir::new("behavior-observed");
+    let store = Store::open(&root.0).unwrap();
+    let run = RunId::new("run-behavior-observed").unwrap();
+    let revision = RevisionId::new("rev-observed").unwrap();
+    store
+        .put_run(&StoredRun {
+            id: run.clone(),
+            change_id: "surface".into(),
+            revision: revision.clone(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    let journal = wvq_runtime::ContinuousJournal::from_json(
+        r#"{
+            "schema_v": 1,
+            "source": "continuous",
+            "observed_only": true,
+            "session_id": "staging-checkout",
+            "initial": { "route": "/checkout", "actor": "admin" },
+            "events": []
+        }"#,
+    )
+    .unwrap();
+    let browser = checkout_activate_run();
+    let mut facts = behavior_facts_from_journals(std::slice::from_ref(&journal));
+    facts.extend(behavior_facts_from_browser_runs([&browser]));
+    let mut handles = Vec::new();
+    persist_behavior_surface_graph(
+        &store,
+        &run,
+        &revision,
+        &pay_graph(),
+        &facts,
+        &mut handles,
+    )
+    .unwrap();
+    let view = load_behavior_surface(&store, &run).unwrap();
+    assert!(view.present);
+    assert!(
+        view.behaviors
+            .iter()
+            .any(|id| id == "route:/checkout|role:admin"),
+        "{:?}",
+        view.behaviors
+    );
+    assert!(
+        view.behaviors
+            .iter()
+            .any(|id| id == "route:/checkout|action:activate"),
+        "{:?}",
+        view.behaviors
+    );
+    assert!(
+        view.behaviors
+            .iter()
+            .all(|id| !(id.contains("role:admin") && id.contains("action:activate"))),
+        "admin × activate must not be invented: {:?}",
+        view.behaviors
+    );
+    let explained = explain_behavior_surface(&store, "route:/checkout|action:activate")
+        .unwrap()
+        .expect("observed activate");
+    assert_eq!(explained.kind, "behavior_surface");
+    assert!(
+        explained
+            .provenance
+            .iter()
+            .any(|line| line.contains("origins observed")),
+        "{:?}",
+        explained.provenance
     );
 }

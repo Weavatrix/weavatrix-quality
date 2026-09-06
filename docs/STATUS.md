@@ -1,7 +1,7 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-09-03
-Session: P1 — Behavior Surface MCP/Studio view
+Session: P1 — Behavior Surface Observed origin from live browser runs
 
 ## Now
 
@@ -9,7 +9,7 @@ Linux CI writes an exact-head validation manifest (`target/exact-head-validation
 
 The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations **and** `OBSERVED_ONLY` continuous journals (route, component, navigate, and exact API identity — never an invented endpoint from `activate`), Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. A journal cannot mark Intent, Test, or Proof. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
-Behavior surfaces hang off the Application Surface Graph. A Role/State/Action/Flag combination exists only when it was declared, observed, recorded, story-backed, or graph-reachable. Two facts are never crossed into a third: `admin` and `empty_cart` recorded separately do not invent `admin × empty_cart`. Unknown surfaces and surface-only facts are dropped. The projection truncates at 512. The CAS artifact is `behavior-surface-graph`. `quality_verify`, MCP, and Studio project evidenced ids; a missing artifact is `absent`, not an empty clean list. Unknown schema versions fail closed. The view is never a gate.
+Behavior surfaces hang off the Application Surface Graph. A Role/State/Action/Flag combination exists only when it was declared, observed, recorded, story-backed, or graph-reachable. Two facts are never crossed into a third: `admin` and `empty_cart` recorded separately do not invent `admin × empty_cart`. A live browser action on `/checkout` and a journal `admin` on the same route stay two facts. Unknown surfaces and surface-only facts are dropped. The projection truncates at 512. The CAS artifact is `behavior-surface-graph`. `quality_verify`, MCP, and Studio project evidenced ids; a missing artifact is `absent`, not an empty clean list. Unknown schema versions fail closed. The view is never a gate. Live `wvq run` now feeds Observed facts from Playwright action spans (route + action kind only — never an invented role, flag, or endpoint from `activate`) alongside Recorded journal facts.
 
 Unmeasured cells are a `MeasurementPlan` (`EvidenceNeed::Unmeasured`), not silent ignore. Measured-absent cells remain evidence gaps. Present cells are not planned.
 
@@ -75,7 +75,7 @@ Linux CI now self-dogfoods after a green workspace build: `wvq spec validate` an
 | Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
 | Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
 | Application Surface Graph | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live run persist; not a gate |
-| Behavior Surface | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ journal Role/State/Action/Flag; never Cartesian; not a gate |
+| Behavior Surface | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ journal Recorded + live Observed action spans; never Cartesian; not a gate |
 | Surface Evidence Matrix | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate |
 | Cheapest-evidence plan | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate; no generation |
 | Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 Linux CI on this repo; labelled corpus tests; no 30–50 live PR campaign |
@@ -313,7 +313,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, Studio exception cards, exact product test bindings, bounded cargo-test case filters, Linux CI observe-only self-dogfood, journal→Runtime matrix wiring, the Rust mutation catalogue, and Behavior Surface Role/State/Action/Flag projection (live persist + MCP/Studio, never a gate) are on `main`. Remaining P1 is the 30–50 PR observe-only campaign across other repositories.
+P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, Studio exception cards, exact product test bindings, bounded cargo-test case filters, Linux CI observe-only self-dogfood, journal→Runtime matrix wiring, the Rust mutation catalogue, and Behavior Surface Role/State/Action/Flag projection (Recorded journals + Observed live action spans, MCP/Studio, never a gate) are on `main`. Remaining P1 is the 30–50 PR observe-only campaign across other repositories.
 
 Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
