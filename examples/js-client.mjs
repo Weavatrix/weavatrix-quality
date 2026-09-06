@@ -1,6 +1,6 @@
 /**
  * Typed JS boundary over the native wvq / wvq-mcp binaries.
- * Run after: npm install wvq@0.1.0-alpha.1
+ * Run after: npm install @weavatrix/wvq@0.1.0-alpha.1
  */
 import { WvqClient } from '@weavatrix/wvq'
 import { WvqMcpClient } from '@weavatrix/wvq/mcp'
