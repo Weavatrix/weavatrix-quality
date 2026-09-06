@@ -229,6 +229,10 @@ export interface VerifyReply {
     proofs: ProofSummary[]
     state: ChangeVerdictState
     quality: ChangeQualityVerdict
+    /** Exact base ref from the latest run revision-range, when present. */
+    base?: string | null
+    /** Exact head ref from the latest run revision-range, when present. */
+    head?: string | null
     /** Read-only surface projection. Never a gate. */
     application_surface: ApplicationSurfaceView
     /** Read-only behavior combinations. Never a gate. */

@@ -136,8 +136,9 @@ impl LiveService {
             protection: protection.as_ref(),
             journals: &journals,
         };
-        persist_surface_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
-        persist_cheapest_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
+        let matrix =
+            persist_surface_evidence_from(store, run_id, before, &evidence_sources, &mut handles)?;
+        persist_cheapest_evidence_from(store, run_id, before, &matrix, &mut handles)?;
         let mut behavior_facts = behavior_facts_from_journals(&journals);
         behavior_facts.extend(behavior_facts_from_browser_runs(
             browser_runs.iter().map(|(_, run)| run),

@@ -98,13 +98,13 @@ pub(in crate::service) fn persist_surface_evidence_from(
     revision: &RevisionId,
     sources: &SurfaceEvidenceSources<'_>,
     handles: &mut Vec<String>,
-) -> Result<(), BusError> {
+) -> Result<wvq_intelligence::SurfaceEvidenceMatrix, BusError> {
     let matrix = surface_evidence_from(sources)?;
     let document = SurfaceEvidenceDocument {
         schema_v: 2,
         revision: revision.to_string(),
         truncated: matrix.truncated,
-        surfaces: matrix.surfaces,
+        surfaces: matrix.surfaces.clone(),
     };
     put_json_run_artifact(
         store,
@@ -113,7 +113,8 @@ pub(in crate::service) fn persist_surface_evidence_from(
         SURFACE_EVIDENCE_MATRIX_KIND,
         &document,
         handles,
-    )
+    )?;
+    Ok(matrix)
 }
 
 pub(in crate::service) fn surface_evidence_from(

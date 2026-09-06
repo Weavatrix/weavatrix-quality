@@ -476,10 +476,16 @@ impl Studio {
             Ok(reply) => reply,
             Err(err) => return bus_error(&err),
         };
+        // Debt must use the same revision range the run measured. Hardcoding
+        // HEAD/WORKTREE mixes a committed-PR verdict with a different debt view.
+        let (base, head) = match (&verify.base, &verify.head) {
+            (Some(base), Some(head)) => (base.clone(), head.clone()),
+            _ => ("HEAD".into(), "WORKTREE".into()),
+        };
         let debt = match self.service.debt(&DebtCommand {
             change: change.to_owned(),
-            base: "HEAD".into(),
-            head: "WORKTREE".into(),
+            base,
+            head,
         }) {
             Ok(reply) => reply,
             Err(err) => return bus_error(&err),

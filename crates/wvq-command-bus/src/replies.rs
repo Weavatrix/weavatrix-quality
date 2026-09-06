@@ -315,6 +315,10 @@ pub struct VerifyReply {
     pub state: String,
     /// Every measured axis with its own facts and provenance.
     pub quality: ChangeQualityVerdict,
+    /// Exact base ref from the latest run's revision-range artifact, when present.
+    pub base: Option<String>,
+    /// Exact head ref from the latest run's revision-range artifact, when present.
+    pub head: Option<String>,
     /// Read-only Application Surface Graph projection. Never a gate.
     pub application_surface: ApplicationSurfaceView,
     /// Read-only Behavior Surface projection. Never a gate.

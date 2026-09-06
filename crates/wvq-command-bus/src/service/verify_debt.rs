@@ -20,6 +20,8 @@ pub(in crate::service) fn combine_verify(
         proofs,
         state: quality.state.as_str().to_owned(),
         quality,
+        base: None,
+        head: None,
         application_surface: ApplicationSurfaceView::absent(),
         behavior_surface: BehaviorSurfaceView::absent(),
         surface_evidence: SurfaceEvidenceMatrixView::absent(),

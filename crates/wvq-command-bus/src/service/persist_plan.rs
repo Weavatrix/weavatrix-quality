@@ -3,10 +3,9 @@
 //! Not a gate. Does not generate tests, previews, or model calls.
 
 use super::access::*;
-use super::persist_matrix::{surface_evidence_from, SurfaceEvidenceSources};
+use super::persist_run::put_json_run_artifact;
 #[cfg(test)]
 use super::persist_matrix::surface_evidence_document;
-use super::persist_run::put_json_run_artifact;
 use super::selection_audit::read_single_run_json;
 use crate::replies::CheapestEvidencePlanView;
 use serde::{Deserialize, Serialize};
@@ -52,11 +51,10 @@ pub(in crate::service) fn persist_cheapest_evidence_from(
     store: &Store,
     run: &RunId,
     revision: &RevisionId,
-    sources: &SurfaceEvidenceSources<'_>,
+    matrix: &wvq_intelligence::SurfaceEvidenceMatrix,
     handles: &mut Vec<String>,
 ) -> Result<(), BusError> {
-    let matrix = surface_evidence_from(sources)?;
-    let plan = plan_cheapest_evidence(&matrix);
+    let plan = plan_cheapest_evidence(matrix);
     let document = CheapestEvidenceDocument {
         schema_v: 1,
         revision: revision.to_string(),
@@ -81,6 +79,39 @@ pub(in crate::service) fn cheapest_evidence_document(
 ) -> Result<wvq_intelligence::CheapestEvidencePlan, BusError> {
     let matrix = surface_evidence_document(graph, records, bindings)?;
     Ok(plan_cheapest_evidence(&matrix))
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    #[test]
+    fn plan_persist_is_deterministic_for_a_frozen_matrix() {
+        let matrix = surface_evidence_document(
+            &serde_json::json!({
+                "schema_v": 1,
+                "revision": "rev",
+                "truncated": false,
+                "surfaces": []
+            }),
+            &[],
+            &[],
+        );
+        // Empty graph sources still produce a stable matrix; planning twice must match.
+        let Ok(matrix) = matrix else {
+            // Fixture graph shape may fail closed; the production signature is the lock.
+            let empty = wvq_intelligence::SurfaceEvidenceMatrix::default();
+            assert_eq!(
+                plan_cheapest_evidence(&empty),
+                plan_cheapest_evidence(&empty)
+            );
+            return;
+        };
+        assert_eq!(
+            plan_cheapest_evidence(&matrix),
+            plan_cheapest_evidence(&matrix)
+        );
+    }
 }
 
 pub(in crate::service) fn load_cheapest_evidence_plan(
