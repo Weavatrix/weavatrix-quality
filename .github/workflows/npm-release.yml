@@ -149,10 +149,14 @@ jobs:
         shell: bash
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          DIST_TAG=latest
+          case "$VERSION" in
+            *alpha*|*beta*|*rc*) DIST_TAG=alpha ;;
+          esac
           if npm view "wvq@$VERSION" version >/dev/null 2>&1; then
             echo "wvq@$VERSION already exists; verifying registry metadata"
           else
-            npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public
+            npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public --tag "$DIST_TAG"
           fi
           for attempt in $(seq 1 24); do
             PUBLISHED_HEAD="$(npm view "wvq@$VERSION" gitHead --json 2>/dev/null | tr -d '\"\r\n' || true)"
