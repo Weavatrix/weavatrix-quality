@@ -1,20 +1,20 @@
-# wvq-mcp
+﻿# wvq-mcp
 
 Bounded **MCP** host for [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality),
 built on [`mcport`](https://crates.io/crates/mcport).
 
-Alpha `0.1.0-alpha.1`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
+Alpha `0.1.0-alpha.2`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
 
 Most users should launch via npm:
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.2 mcp --repo .
 ```
 
 ## Install
 
 ```sh
-cargo install wvq-mcp --version 0.1.0-alpha.1
+cargo install wvq-mcp --version 0.1.0-alpha.2
 wvq-mcp --repo /path/to/app
 ```
 
@@ -27,7 +27,7 @@ wvq-mcp --repo /path/to/app
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.1",
+        "@weavatrix/wvq@0.1.0-alpha.2",
         "mcp",
         "--repo",
         "/absolute/path/to/repo"
@@ -53,13 +53,13 @@ Or point at the cargo-installed binary:
 ## Default profile (7 tools)
 
 ```text
-quality_context   — obligations + bounded code context
-quality_plan      — gaps vs existing proofs (no execution)
-quality_run       — execute impacted / all protection
-quality_status    — latest run status + handles
-quality_verify    — composite change verdict
-quality_explain   — provenance for an id
-quality_evidence  — fetch artifact by handle
+quality_context   â€” obligations + bounded code context
+quality_plan      â€” gaps vs existing proofs (no execution)
+quality_run       â€” execute impacted / all protection
+quality_status    â€” latest run status + handles
+quality_verify    â€” composite change verdict
+quality_explain   â€” provenance for an id
+quality_evidence  â€” fetch artifact by handle
 ```
 
 ### Example agent prompts
@@ -94,7 +94,7 @@ quality_test_promote   quality_test_record     quality_test_heal
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.1",
+        "@weavatrix/wvq@0.1.0-alpha.2",
         "mcp",
         "--repo", ".",
         "--profile", "authoring",

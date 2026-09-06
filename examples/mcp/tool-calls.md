@@ -1,8 +1,8 @@
-# Example MCP tool calls
+﻿# Example MCP tool calls
 
 Replace `checkout-fix` with your OpenSpec change folder name.
 
-## Default profile — agent script
+## Default profile â€” agent script
 
 ```text
 1. quality_context
@@ -33,9 +33,9 @@ Replace `checkout-fix` with your OpenSpec change folder name.
    { "handle": "<cas-handle-from-run-or-verify>" }
 ```
 
-## Authoring profile — TestProgram loop
+## Authoring profile â€” TestProgram loop
 
-Process must be started with `--profile authoring --change … --base … --head …`.
+Process must be started with `--profile authoring --change â€¦ --base â€¦ --head â€¦`.
 
 ```text
 1. quality_test_draft
@@ -74,5 +74,5 @@ Process must be started with `--profile authoring --change … --base … --head
 
 ```sh
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
+  | npx @weavatrix/wvq@0.1.0-alpha.2 mcp --repo .
 ```

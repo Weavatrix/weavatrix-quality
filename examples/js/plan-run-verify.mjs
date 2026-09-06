@@ -1,7 +1,7 @@
-/**
- * Plan → run → verify via the typed WvqClient boundary.
+﻿/**
+ * Plan â†’ run â†’ verify via the typed WvqClient boundary.
  *
- *   npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+ *   npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
  *   node examples/js/plan-run-verify.mjs
  */
 import { WvqClient } from '@weavatrix/wvq'

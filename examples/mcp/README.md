@@ -1,7 +1,7 @@
-# MCP client configs and tool recipes for Weavatrix Quality.
+﻿# MCP client configs and tool recipes for Weavatrix Quality.
 #
 # Launchers:
-#   npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo <abs-path>
+#   npx @weavatrix/wvq@0.1.0-alpha.2 mcp --repo <abs-path>
 #   cargo install wvq-mcp && wvq-mcp --repo <abs-path>
 #
 # Registry: io.github.Weavatrix/weavatrix-quality

@@ -1,4 +1,17 @@
-# Changelog
+﻿# Changelog
+
+## 0.1.0-alpha.2 — 2026-09-06
+
+Docs-only alpha refresh so npm / crates.io / GitHub ship the example-heavy
+README surface (CLI, MCP, JS cookbooks + `examples/`). No product behavior
+change versus `0.1.0-alpha.1`.
+
+### Distribution
+
+- npm `@weavatrix/wvq@0.1.0-alpha.2`
+- crates.io workspace closure `0.1.0-alpha.2`
+- MCP Registry `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.2`
+- GitHub Release `v0.1.0-alpha.2`
 
 ## 0.1.0-alpha.1 — 2026-09-06
 

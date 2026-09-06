@@ -1,4 +1,4 @@
-# name: wvq-dogfood
+﻿# name: wvq-dogfood
 on:
   pull_request:
   push:
@@ -15,12 +15,12 @@ jobs:
         with:
           node-version: 24
       - name: Doctor
-        run: npx @weavatrix/wvq@0.1.0-alpha.1 doctor
+        run: npx @weavatrix/wvq@0.1.0-alpha.2 doctor
       - name: Spec validate
-        run: npx @weavatrix/wvq@0.1.0-alpha.1 spec validate --change current
+        run: npx @weavatrix/wvq@0.1.0-alpha.2 spec validate --change current
       - name: Impacted run
         run: >
-          npx @weavatrix/wvq@0.1.0-alpha.1 run
+          npx @weavatrix/wvq@0.1.0-alpha.2 run
           --change current
           --base origin/${{ github.base_ref || 'main' }}
           --head HEAD
@@ -28,6 +28,6 @@ jobs:
           --evidence-policy minimal
       - name: Observe-only verify
         run: >
-          npx @weavatrix/wvq@0.1.0-alpha.1 verify
+          npx @weavatrix/wvq@0.1.0-alpha.2 verify
           --change current
           --observe-only true

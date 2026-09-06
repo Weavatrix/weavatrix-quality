@@ -1,16 +1,16 @@
-# wvq-cli
+﻿# wvq-cli
 
 Command-line surface for **[Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality)** (`wvq`).
 
-Alpha `0.1.0-alpha.1` — crates and APIs may change before 1.0.
+Alpha `0.1.0-alpha.2` â€” crates and APIs may change before 1.0.
 **Primary install for most users is npm:** [`@weavatrix/wvq`](https://www.npmjs.com/package/@weavatrix/wvq).
 
 ## Install
 
 ```sh
-cargo install wvq-cli --version 0.1.0-alpha.1
+cargo install wvq-cli --version 0.1.0-alpha.2
 # or
-npx @weavatrix/wvq@0.1.0-alpha.1 --help
+npx @weavatrix/wvq@0.1.0-alpha.2 --help
 ```
 
 The published binary name is `wvq`.
@@ -43,7 +43,7 @@ wvq --repo /path/to/app record --change checkout-fix --route /checkout
 ### Typical agent / human loop
 
 ```text
-doctor → spec validate → plan → run (impacted) → verify → explain
+doctor â†’ spec validate â†’ plan â†’ run (impacted) â†’ verify â†’ explain
 ```
 
 ### Exit codes
@@ -62,7 +62,7 @@ doctor → spec validate → plan → run (impacted) → verify → explain
 | [`wvq-bench`](https://crates.io/crates/wvq-bench) | Impacted-vs-full shadow |
 | [`qualityd`](https://crates.io/crates/qualityd) | Local Studio HTTP |
 
-Library crates in this family are **unstable alpha** — do not treat them as a
+Library crates in this family are **unstable alpha** â€” do not treat them as a
 stable public API yet.
 
 ## Docs & examples

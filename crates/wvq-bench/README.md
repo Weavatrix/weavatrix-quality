@@ -1,17 +1,17 @@
-# wvq-bench
+﻿# wvq-bench
 
 Shadow **impacted-vs-full** evaluation harness for
 [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality).
 
-Alpha `0.1.0-alpha.1`. Not a Criterion microbench suite — it runs the real
+Alpha `0.1.0-alpha.2`. Not a Criterion microbench suite â€” it runs the real
 `LiveService` path twice and compares failing test identities.
 
 ## Install
 
 ```sh
-cargo install wvq-bench --version 0.1.0-alpha.1
+cargo install wvq-bench --version 0.1.0-alpha.2
 # or
-npx @weavatrix/wvq@0.1.0-alpha.1 bench --help
+npx @weavatrix/wvq@0.1.0-alpha.2 bench --help
 ```
 
 ## Examples
@@ -24,7 +24,7 @@ wvq-bench \
   --head WORKTREE \
   --evidence-policy minimal
 
-npx @weavatrix/wvq@0.1.0-alpha.1 bench \
+npx @weavatrix/wvq@0.1.0-alpha.2 bench \
   --repo . \
   --change current \
   --base origin/main \
@@ -41,9 +41,9 @@ npx @weavatrix/wvq@0.1.0-alpha.1 bench \
 ### When to use it
 
 ```text
-CI dogfood / calibration   → measure selection quality on real fixtures
-Debugging “why widened?”   → see scope_reason with both scopes executed
-Not for                    → micro-optimizing Rust hot paths
+CI dogfood / calibration   â†’ measure selection quality on real fixtures
+Debugging â€œwhy widened?â€   â†’ see scope_reason with both scopes executed
+Not for                    â†’ micro-optimizing Rust hot paths
 ```
 
 ## Related

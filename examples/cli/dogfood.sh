@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # Dogfood against this repository's wvq-invariants OpenSpec change.
 set -euo pipefail
 
-WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.1}"
+WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.2}"
 REPO="${REPO:-.}"
 CHANGE="${CHANGE:-wvq-invariants}"
 

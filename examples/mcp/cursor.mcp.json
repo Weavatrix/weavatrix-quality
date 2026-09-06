@@ -1,10 +1,10 @@
-{
+﻿{
   "mcpServers": {
     "weavatrix-quality": {
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.1",
+        "@weavatrix/wvq@0.1.0-alpha.2",
         "mcp",
         "--repo",
         "C:/REPLACE/WITH/ABSOLUTE/PATH/TO/REPO"

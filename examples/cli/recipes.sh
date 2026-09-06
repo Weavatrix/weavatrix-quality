@@ -1,8 +1,8 @@
-#!/usr/bin/env bash
-# Extra CLI recipes — run individually as needed.
+﻿#!/usr/bin/env bash
+# Extra CLI recipes â€” run individually as needed.
 set -euo pipefail
 
-WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.1}"
+WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.2}"
 REPO="${REPO:-.}"
 CHANGE="${CHANGE:-current}"
 

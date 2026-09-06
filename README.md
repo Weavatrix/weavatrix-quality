@@ -1,11 +1,11 @@
-# Weavatrix Quality (`wvq`)
+﻿# Weavatrix Quality (`wvq`)
 
 [![CI](https://github.com/Weavatrix/weavatrix-quality/actions/workflows/ci.yml/badge.svg)](https://github.com/Weavatrix/weavatrix-quality/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@weavatrix/wvq/alpha.svg)](https://www.npmjs.com/package/@weavatrix/wvq)
 [![MCP](https://img.shields.io/badge/MCP-io.github.Weavatrix%2Fweavatrix--quality-blue)](https://registry.modelcontextprotocol.io/)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Know what your change can break — and whether it is still protected.**
+**Know what your change can break â€” and whether it is still protected.**
 
 Weavatrix Quality (WVQ) turns OpenSpec intent + a Git change into revision-bound
 proof using your existing runners. The ordinary green path spends **0 runtime LLM
@@ -13,21 +13,21 @@ tokens**. Rust owns policy, selection, evidence, and proof; npm/JS is a typed
 boundary around the same binaries.
 
 ```text
-OpenSpec   → what must remain true
-Weavatrix  → what changed and what it can affect
-Runners    → smallest safe protection set
-WVQ        → same-revision Proof + composite verdict
+OpenSpec   â†’ what must remain true
+Weavatrix  â†’ what changed and what it can affect
+Runners    â†’ smallest safe protection set
+WVQ        â†’ same-revision Proof + composite verdict
 ```
 
 | Surface | Package |
 | --- | --- |
 | **npm (primary)** | [`@weavatrix/wvq`](https://www.npmjs.com/package/@weavatrix/wvq) |
 | **MCP Registry** | `io.github.Weavatrix/weavatrix-quality` |
-| **crates.io** | [`wvq-cli`](https://crates.io/crates/wvq-cli) · [`wvq-mcp`](https://crates.io/crates/wvq-mcp) · [`wvq-bench`](https://crates.io/crates/wvq-bench) |
-| **Release** | [v0.1.0-alpha.1](https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.1) |
+| **crates.io** | [`wvq-cli`](https://crates.io/crates/wvq-cli) Â· [`wvq-mcp`](https://crates.io/crates/wvq-mcp) Â· [`wvq-bench`](https://crates.io/crates/wvq-bench) |
+| **Release** | [v0.1.0-alpha.2](https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.2) |
 
-**Alpha `0.1.0-alpha.1`.** Useful first product loop (one plan → one execution →
-one report). Not the full v1 DoD — see [CHANGELOG](CHANGELOG.md) and
+**Alpha `0.1.0-alpha.2`.** Useful first product loop (one plan â†’ one execution â†’
+one report). Not the full v1 DoD â€” see [CHANGELOG](CHANGELOG.md) and
 [ADR 0003](docs/adr/0003-alpha-orchestration-gate.md).
 
 ---
@@ -36,18 +36,18 @@ one report). Not the full v1 DoD — see [CHANGELOG](CHANGELOG.md) and
 
 ```sh
 # primary distribution (ships wvq + wvq-mcp + wvq-bench for 6 platforms)
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
 
 # one-shot without adding a dependency
-npx @weavatrix/wvq@0.1.0-alpha.1 --help
+npx @weavatrix/wvq@0.1.0-alpha.2 --help
 
 # Rust binaries (alpha crates; API unstable)
-cargo install wvq-cli --version 0.1.0-alpha.1
-cargo install wvq-mcp --version 0.1.0-alpha.1
-cargo install wvq-bench --version 0.1.0-alpha.1
+cargo install wvq-cli --version 0.1.0-alpha.2
+cargo install wvq-mcp --version 0.1.0-alpha.2
+cargo install wvq-bench --version 0.1.0-alpha.2
 ```
 
-Unscoped `wvq` is blocked by npm name-similarity rules — always use `@weavatrix/wvq`.
+Unscoped `wvq` is blocked by npm name-similarity rules â€” always use `@weavatrix/wvq`.
 
 ---
 
@@ -57,16 +57,16 @@ Unscoped `wvq` is blocked by npm name-similarity rules — always use `@weavatri
 cd your-repo
 
 # 1) read-only discovery (never writes, never seals)
-npx @weavatrix/wvq@0.1.0-alpha.1 doctor
+npx @weavatrix/wvq@0.1.0-alpha.2 doctor
 
 # 2) write fail-closed policy (first time only)
-npx @weavatrix/wvq@0.1.0-alpha.1 init
+npx @weavatrix/wvq@0.1.0-alpha.2 init
 
 # 3) compile OpenSpec obligations for a change folder
-npx @weavatrix/wvq@0.1.0-alpha.1 spec validate --change current
+npx @weavatrix/wvq@0.1.0-alpha.2 spec validate --change current
 
 # 4) run the smallest safe protection set
-npx @weavatrix/wvq@0.1.0-alpha.1 run \
+npx @weavatrix/wvq@0.1.0-alpha.2 run \
   --change current \
   --base origin/main \
   --head HEAD \
@@ -74,7 +74,7 @@ npx @weavatrix/wvq@0.1.0-alpha.1 run \
   --evidence-policy minimal
 
 # 5) read-only composite verdict from stored evidence
-npx @weavatrix/wvq@0.1.0-alpha.1 verify --change current
+npx @weavatrix/wvq@0.1.0-alpha.2 verify --change current
 ```
 
 Need bindings before proofs can seal? Start from [.weavatrix-quality/config.yaml](#repository-policy)
@@ -89,7 +89,7 @@ All commands take `--repo <path>` (default: `.`). Prefer absolute paths in CI.
 ### Day-to-day cycle
 
 ```sh
-alias wvq='npx @weavatrix/wvq@0.1.0-alpha.1'
+alias wvq='npx @weavatrix/wvq@0.1.0-alpha.2'
 
 wvq doctor
 wvq plan --change checkout-fix
@@ -116,7 +116,7 @@ wvq baseline --change checkout-fix --decision observed_only   # CLI-only, not MC
 wvq verify --change checkout-fix --observe-only true
 ```
 
-### Browser record → promote later via MCP/Studio
+### Browser record â†’ promote later via MCP/Studio
 
 ```sh
 wvq record --change checkout-fix --route /checkout
@@ -128,7 +128,7 @@ wvq ingest-cassette --file captures/checkout.har --origin https://app.example.te
 
 ```sh
 wvq bench --repo . --change checkout-fix --base origin/main --head WORKTREE
-# or: npx @weavatrix/wvq@0.1.0-alpha.1 bench --repo . ...
+# or: npx @weavatrix/wvq@0.1.0-alpha.2 bench --repo . ...
 ```
 
 ### Exit codes
@@ -158,7 +158,7 @@ large artifacts as handles only.
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.1",
+        "@weavatrix/wvq@0.1.0-alpha.2",
         "mcp",
         "--repo",
         "C:/path/to/your-repo"
@@ -175,7 +175,7 @@ large artifacts as handles only.
   "mcpServers": {
     "weavatrix-quality": {
       "command": "npx",
-      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.1", "mcp", "--repo", "/Users/you/src/app"]
+      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.2", "mcp", "--repo", "/Users/you/src/app"]
     }
   }
 }
@@ -190,16 +190,16 @@ quality_verify    quality_explain   quality_evidence
 
 Example agent workflow:
 
-1. `quality_context` — what obligations exist for this change  
-2. `quality_plan` — gaps vs existing proofs (no execution)  
-3. `quality_run` — execute impacted protection  
-4. `quality_verify` — composite verdict  
-5. `quality_explain` / `quality_evidence` — drill into a handle or id  
+1. `quality_context` â€” what obligations exist for this change  
+2. `quality_plan` â€” gaps vs existing proofs (no execution)  
+3. `quality_run` â€” execute impacted protection  
+4. `quality_verify` â€” composite verdict  
+5. `quality_explain` / `quality_evidence` â€” drill into a handle or id  
 
-### Authoring profile (TestProgram draft → preview → promote)
+### Authoring profile (TestProgram draft â†’ preview â†’ promote)
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo . \
+npx @weavatrix/wvq@0.1.0-alpha.2 mcp --repo . \
   --profile authoring \
   --change checkout-fix \
   --base origin/main \
@@ -221,10 +221,10 @@ More configs and JSON-RPC samples: [examples/mcp/](examples/mcp/).
 ## JavaScript library cookbook
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
 ```
 
-### Plan → run → verify
+### Plan â†’ run â†’ verify
 
 ```js
 import { WvqClient } from '@weavatrix/wvq'
@@ -313,15 +313,15 @@ if (preview.passed) {
 - uses: actions/setup-node@v4
   with:
     node-version: 24
-- run: npx @weavatrix/wvq@0.1.0-alpha.1 doctor
+- run: npx @weavatrix/wvq@0.1.0-alpha.2 doctor
 - run: >
-    npx @weavatrix/wvq@0.1.0-alpha.1 run
+    npx @weavatrix/wvq@0.1.0-alpha.2 run
     --change current --base origin/${{ github.base_ref }} --head HEAD
     --scope impacted --evidence-policy minimal
-- run: npx @weavatrix/wvq@0.1.0-alpha.1 verify --change current --observe-only true
+- run: npx @weavatrix/wvq@0.1.0-alpha.2 verify --change current --observe-only true
 ```
 
-Runnable copies: [examples/js/](examples/js/) · [examples/cli/](examples/cli/).
+Runnable copies: [examples/js/](examples/js/) Â· [examples/cli/](examples/cli/).
 
 ---
 
@@ -349,7 +349,7 @@ browser:
 ```
 
 `wvq init` writes a fail-closed starter. This repo dogfoods change
-`wvq-invariants` — see [examples/cli/dogfood.sh](examples/cli/dogfood.sh).
+`wvq-invariants` â€” see [examples/cli/dogfood.sh](examples/cli/dogfood.sh).
 
 Browser preview needs Playwright in the **target** repo:
 
@@ -368,7 +368,7 @@ npx playwright install chromium
 | Weavatrix-backed impact + selection | A browser engine (Playwright stays) |
 | CLI + MCP + typed JS boundary | An OpenSpec fork |
 | 0 LLM tokens on the green path | Automatic silent oracle healing |
-| Fail-closed on unknown schemas | A single global “quality %” |
+| Fail-closed on unknown schemas | A single global â€œquality %â€ |
 
 Place in the ecosystem:
 
@@ -398,7 +398,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 | [examples/](examples/) | Copy-paste CLI / MCP / JS |
 | [CHANGELOG](CHANGELOG.md) | What alpha ships |
 | [docs/STATUS.md](docs/STATUS.md) | Maturity matrix + next task |
-| [docs/adr/0003-…](docs/adr/0003-alpha-orchestration-gate.md) | Alpha vs deferred v1 |
+| [docs/adr/0003-â€¦](docs/adr/0003-alpha-orchestration-gate.md) | Alpha vs deferred v1 |
 | [docs/CANONICAL-MASTER-SPEC.md](docs/CANONICAL-MASTER-SPEC.md) | Normative product design |
 
 ## License

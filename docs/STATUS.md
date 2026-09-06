@@ -1,25 +1,25 @@
-# STATUS — Weavatrix Quality
+﻿# STATUS â€” Weavatrix Quality
 
 Last updated: 2026-09-06
-Session: Alpha docs upgrade — example-heavy README / npm / crates / examples/
+Session: Alpha 0.1.0-alpha.2 docs publish â€” example-heavy README / npm / crates / examples/
 
 ## Now
 
-Alpha gate `0.1.0-alpha.1` is published. User-facing docs were rebuilt around
+Alpha gate `0.1.0-alpha.2` is published. User-facing docs were rebuilt around
 copy-paste examples (CLI / MCP / JS) on GitHub README, npm `@weavatrix/wvq`,
 binary crate READMEs, and [`examples/`](../examples/).
 
-- npm: `@weavatrix/wvq@0.1.0-alpha.1`
-- MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.1`
-- GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.1
-- crates.io: full publishable closure at `0.1.0-alpha.1`
+- npm: `@weavatrix/wvq@0.1.0-alpha.2`
+- MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.2`
+- GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.2
+- crates.io: full publishable closure at `0.1.0-alpha.2`
 
 This is **not** the full v1 Definition of Done. Remaining v1 work is listed in
 [ADR 0003](adr/0003-alpha-orchestration-gate.md).
 
-The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations **and** `OBSERVED_ONLY` continuous journals (route, component, navigate, and exact API identity — never an invented endpoint from `activate`), Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. A journal cannot mark Intent, Test, or Proof. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
+The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations **and** `OBSERVED_ONLY` continuous journals (route, component, navigate, and exact API identity â€” never an invented endpoint from `activate`), Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. A journal cannot mark Intent, Test, or Proof. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
-Behavior surfaces hang off the Application Surface Graph. A Role/State/Action/Flag combination exists only when it was declared, observed, recorded, story-backed, or graph-reachable. Two facts are never crossed into a third: `admin` and `empty_cart` recorded separately do not invent `admin × empty_cart`. A live browser action on `/checkout` and a journal `admin` on the same route stay two facts. Unknown surfaces and surface-only facts are dropped. The projection truncates at 512. The CAS artifact is `behavior-surface-graph`. `quality_verify`, MCP, and Studio project evidenced ids; a missing artifact is `absent`, not an empty clean list. Unknown schema versions fail closed. The view is never a gate. Live `wvq run` now feeds Observed facts from Playwright action spans (route + action kind only — never an invented role, flag, or endpoint from `activate`) alongside Recorded journal facts.
+Behavior surfaces hang off the Application Surface Graph. A Role/State/Action/Flag combination exists only when it was declared, observed, recorded, story-backed, or graph-reachable. Two facts are never crossed into a third: `admin` and `empty_cart` recorded separately do not invent `admin Ã— empty_cart`. A live browser action on `/checkout` and a journal `admin` on the same route stay two facts. Unknown surfaces and surface-only facts are dropped. The projection truncates at 512. The CAS artifact is `behavior-surface-graph`. `quality_verify`, MCP, and Studio project evidenced ids; a missing artifact is `absent`, not an empty clean list. Unknown schema versions fail closed. The view is never a gate. Live `wvq run` now feeds Observed facts from Playwright action spans (route + action kind only â€” never an invented role, flag, or endpoint from `activate`) alongside Recorded journal facts.
 
 Unmeasured cells are a `MeasurementPlan` (`EvidenceNeed::Unmeasured`), not silent ignore. Measured-absent cells remain evidence gaps. Present cells are not planned.
 
@@ -27,82 +27,82 @@ The cheapest-evidence planner now carries a `ProducerInventory`. `BrowserExplore
 
 The Surface Evidence Matrix is schema v2. Intent is no longer a copy of the test-binding column: a binding without obligations can mark Test present while Intent stays absent. Coverage is normalized hits on Weavatrix nodes. Protection Continuity comes from the revision snapshot, not from coverage. v1 artifacts migrate old `protection` into `coverage`.
 
-Mutation ownership no longer treats a test-file binding as production code. `build_obligation_code_surfaces()` is the single authority: exact per-case coverage, measured traces, directed Weavatrix test→production reach (`include_tests` on the mutation graph query), protection flows, reviewed mappings, then bounded heuristics. `CodeDelta` and source mutation both consume it. A test binding such as `limit/limit_test.go` owns `limit/limit.go` only when Weavatrix records a directed reach; missing owners stay `UNMEASURED` with no fallback to every candidate. The three real Go/Vitest mutation scenarios pass again on this tree.
+Mutation ownership no longer treats a test-file binding as production code. `build_obligation_code_surfaces()` is the single authority: exact per-case coverage, measured traces, directed Weavatrix testâ†’production reach (`include_tests` on the mutation graph query), protection flows, reviewed mappings, then bounded heuristics. `CodeDelta` and source mutation both consume it. A test binding such as `limit/limit_test.go` owns `limit/limit.go` only when Weavatrix records a directed reach; missing owners stay `UNMEASURED` with no fallback to every candidate. The three real Go/Vitest mutation scenarios pass again on this tree.
 
 The 35 development-plan tasks are implemented, but task completion is not used as a synonym for production maturity. A domain contract, a library algorithm, a wired producer, and measured real execution are separate states.
 
-`wvq baseline` snapshots **existing** quality-debt fingerprints as `OBSERVED_ONLY` ledger evidence. The snapshot cannot become a normative seal. New debt stays new and can still block; there is no `accept_all` and `--decision` must be `observed_only`. Subsequent `wvq debt` treats those fingerprints as excepted. The command is CLI/npm-only — not a default MCP tool. This is not Coverage Autopilot.
+`wvq baseline` snapshots **existing** quality-debt fingerprints as `OBSERVED_ONLY` ledger evidence. The snapshot cannot become a normative seal. New debt stays new and can still block; there is no `accept_all` and `--decision` must be `observed_only`. Subsequent `wvq debt` treats those fingerprints as excepted. The command is CLI/npm-only â€” not a default MCP tool. This is not Coverage Autopilot.
 
-`wvq doctor` is read-only onboarding discovery. It reports policy presence and `quality_policy_v` loadability, OpenSpec change folder names, ecosystems inferred from discovered manifests, registered executor targets, already-declared `test_bindings`, and the configured browser origin. `authority` is always false. Detection never writes `.weavatrix-quality/`, never seals, and never invents a binding or an OpenSpec change. Suggested next steps are CLI hints only (`wvq init`, fix the policy, add OpenSpec, declare known bindings). The command is CLI-only — not a default MCP tool. Unknown schema versions still fail closed.
+`wvq doctor` is read-only onboarding discovery. It reports policy presence and `quality_policy_v` loadability, OpenSpec change folder names, ecosystems inferred from discovered manifests, registered executor targets, already-declared `test_bindings`, and the configured browser origin. `authority` is always false. Detection never writes `.weavatrix-quality/`, never seals, and never invents a binding or an OpenSpec change. Suggested next steps are CLI hints only (`wvq init`, fix the policy, add OpenSpec, declare known bindings). The command is CLI-only â€” not a default MCP tool. Unknown schema versions still fail closed.
 
 `qualityd` already serves an exception-first HTML cockpit. Each `needs_attention` item is now an exception card: intent, matched surface, protection/proof/runtime/UI/a11y/mutation cells, cheapest next producer, and source candidates. A neighbouring matrix row is not a join. Missing data stays `unmeasured`. Green proofs stay hidden. `wvq ingest-cassette` already admits a privacy-safe HAR profile. The optional `@wvq/recorder` package and `wvq ingest-journal` already admit a fail-closed continuous observation journal. `TestProgram` already has first-class `upload`, `download`, `popup`, and `switch_tab` actions.
 
 This repository now has a product OpenSpec change `wvq-invariants` and a committed fail-closed `.weavatrix-quality/config.yaml`. `wvq spec validate --change wvq-invariants` compiles nine invariant obligations with `runtime_tokens: 0`. Each obligation is bound to one existing exact Cargo case (path + `cargo-test` suite + case name). The binding test fails if the file or `fn` disappears. An impacted `wvq run` maps those bindings to one `cargo test --workspace --all-targets <exact-case>` process per case instead of widening to the whole suite.
 
-Linux CI now self-dogfoods after a green workspace build: `wvq spec validate` and `wvq doctor` are blocking, then `wvq verify --observe-only` records `UNPROVEN` / `NOT_ENOUGH_EVIDENCE` without failing the job. The observe JSON is uploaded as `wvq-observe-only` and posted as GitHub notices. That is Stage A on this repository, not a 30–50 PR campaign and not a merge gate.
+Linux CI now self-dogfoods after a green workspace build: `wvq spec validate` and `wvq doctor` are blocking, then `wvq verify --observe-only` records `UNPROVEN` / `NOT_ENOUGH_EVIDENCE` without failing the job. The observe JSON is uploaded as `wvq-observe-only` and posted as GitHub notices. That is Stage A on this repository, not a 30â€“50 PR campaign and not a merge gate.
 
 ### Maturity matrix
 
-`✅` means the column is implemented and exercised. `🟡` means the path is partial, opt-in, or depends on repository-supplied evidence. `❌` means that layer is not implemented.
+`âœ…` means the column is implemented and exercised. `ðŸŸ¡` means the path is partial, opt-in, or depends on repository-supplied evidence. `âŒ` means that layer is not implemented.
 
 | Capability | Contract | Library | Wired | Real execution |
 | --- | --- | --- | --- | --- |
-| OpenSpec parser | ✅ | ✅ | ✅ | ✅ |
-| `quality.yaml` | ✅ | ✅ | ✅ | ✅ |
-| OracleSeal integrity | ✅ | ✅ | ✅ | ✅ |
-| Executable oracle | ✅ | ✅ | ✅ | ✅ Playwright |
-| Committed/worktree revision range | ✅ | ✅ | ✅ | ✅ base SHA + head SHA + merge-base |
-| Weavatrix embed | ✅ | ✅ | ✅ | ✅ 2.7.4 |
-| Quality Debt Ratchet | ✅ | ✅ | ✅ | ✅ |
-| Test selection | ✅ | ✅ | ✅ | ✅ Cargo/Vitest shadow runs |
-| Exact case-level proof binding | ✅ | ✅ | ✅ | ✅ Cargo/Playwright; ✅ unambiguous single-case JUnit/Go; 🟡 aggregate coverage |
-| Runner-specific file filtering | ✅ | ✅ | ✅ | ✅ Vitest/Jest/Bun/Playwright; generic npm widens |
-| Executor registry | ✅ | ✅ | ✅ | ✅ Cargo/npm/Vitest/Storybook/Jest/Bun/Go/Playwright |
-| Process-tree kill | ✅ | ✅ | ✅ deadline/cancel/output | ✅ Unix process group + Windows job object |
-| Impacted Storybook/Vitest | ✅ | ✅ | ✅ | ✅ official addon + Playwright Chromium + JUnit/LCOV |
-| Runner normalization | ✅ | ✅ | ✅ | ✅ Cargo/JUnit/Go/browser |
-| SQLite/CAS | ✅ | ✅ | ✅ | ✅ |
-| Proof assembly and provenance | ✅ | ✅ | ✅ | ✅ exact case/assertion + CAS links |
-| MCP default surface | ✅ | ✅ | ✅ | ✅ |
-| AI Cost Firewall | ✅ | ✅ | ✅ | ✅ loopback local model |
-| BehaviorGraph | ✅ | ✅ | ✅ | ✅ browser observations |
-| Delta Triangle | ✅ | ✅ | ✅ default verdict axis | ✅ same-program base/head Chromium replay |
-| Scoped OpenSpec authorization | ✅ | ✅ | ✅ default verdict axis | ✅ base/head requirement/scenario diff per program |
-| Scoped `CodeDelta` | ✅ | ✅ | ✅ default verdict axis | ✅ obligation → flow → Weavatrix node intersection |
-| Spec Recovery | ✅ | ✅ | ✅ opt-in | ✅ Git + Weavatrix, QA-gated |
-| Test lineage | ✅ | ✅ | ✅ protection path | ✅ exact passing-case inventory independent of impacted coverage; aggregate coverage stays executor-level |
-| ProtectionSnapshot/Delta | ✅ | ✅ | ✅ default verdict axis; base replay stays explicit | ✅ base/head coverage replay |
-| Protection MCP/Studio | ✅ | ✅ | ✅ verdict axis + Studio summary; 🟡 opt-in profile/view | ✅ when measured coverage exists |
-| Real Playwright TestProgram | ✅ | ✅ | ✅ | ✅ actions including upload/download/popup/tab + exact spans + sealed assertions + observations |
-| Manual record → promoted replay | ✅ | ✅ | ✅ CLI/MCP/Studio + explicit promotion | ✅ passive Chromium capture + novelty discard + replay preview |
-| Continuous observation journal | ✅ | ✅ | ✅ CLI/`@wvq/recorder` | ✅ OBSERVED_ONLY BehaviorGraph; not SurfaceGraph; not candidates; not a seal |
-| Deterministic network replay | ✅ | ✅ | ✅ config + run/record/CAS | ✅ Chromium record → strict replay, same profile on base/head |
-| Extended network cassette | ✅ | ✅ | ✅ CLI/`ingest-cassette` | ✅ HAR → privacy-safe profile; replay stays off; not a seal |
-| Privacy-safe request identity | ✅ | ✅ | ✅ journal + replay + duplicates | ✅ method/path/content-type/body digest; GraphQL op/query/variables hashes |
-| Honest visual digest | ✅ | ✅ | ✅ default behavior axis | ✅ SHA-256 of `screenshot_png`; no perceptual kernel |
-| Accessibility built-ins and continuity | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright facts + base/head ratchet |
-| Mutation | ✅ | ✅ | ✅ default Proof producer | ✅ changed-line Go/Vitest exact-case execution; 🟡 Rust catalogue + cargo-test judge, no live fixture yet |
-| Metamorphic | ✅ | ✅ primitive | ❌ project adapter | ❌ project execution |
-| Cheap explorer | ✅ | ✅ planner | ❌ browser feedback | ❌ closed loop |
-| Application Surface Graph | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live run persist; not a gate |
-| Behavior Surface | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ journal Recorded + live Observed action spans; never Cartesian; not a gate |
-| Surface Evidence Matrix | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate |
-| Cheapest-evidence plan | ✅ | ✅ | ✅ read-only artifact + MCP/Studio | ✅ live persist; not a gate; no generation |
-| Observe-only calibration | ✅ | ✅ | ✅ `verify --observe-only` | 🟡 Linux CI on this repo; labelled corpus tests; no 30–50 live PR campaign |
-| Studio API | ✅ | ✅ | ✅ | ✅ local HTTP |
-| Studio frontend | ✅ | ✅ HTML+JS projection | ✅ `qualityd` `GET /` | ✅ local HTTP cockpit; no second policy layer |
-| Observed-only debt baseline | ✅ | ✅ | ✅ CLI/`wvq baseline` | ✅ existing fingerprints only; new debt stays new; not a seal |
-| Composite `ChangeQualityVerdict` | ✅ | ✅ | ✅ default `quality_verify` | ✅ live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
-| Protection as a default verdict axis | ✅ | ✅ | ✅ | ✅ from stored base/head snapshots |
-| Committed product fixture | ✅ A/B1–B5 | ✅ A/B1–B5 | ✅ CLI/MCP/Studio for B2/B4/B5 | ✅ A/B1–B5 |
-| Sealed UI predicates | ✅ | ✅ | ✅ | ✅ Chromium, each asserted both ways |
-| `LayoutSnapshot` v2 | ✅ | ✅ | ✅ | ✅ bounded, redacted, settle-checked |
-| UI Integrity detectors | ✅ | ✅ | ✅ | ✅ Chromium base/head fixture |
-| UI Integrity ratchet | ✅ | ✅ | ✅ | ✅ new/existing/fixed/returned/excepted |
-| UI Integrity in MCP/Studio | ✅ | ✅ | ✅ | ✅ `quality_verify`, `quality_explain`, summary |
-| React render profiler | ✅ idea | ❌ | ❌ | ❌ |
-| Duplicate mutation requests | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head action spans |
-| Responsive interval search | ✅ | ✅ | ✅ default UI verdict | ✅ Playwright base/head, exact pixel boundary |
+| OpenSpec parser | âœ… | âœ… | âœ… | âœ… |
+| `quality.yaml` | âœ… | âœ… | âœ… | âœ… |
+| OracleSeal integrity | âœ… | âœ… | âœ… | âœ… |
+| Executable oracle | âœ… | âœ… | âœ… | âœ… Playwright |
+| Committed/worktree revision range | âœ… | âœ… | âœ… | âœ… base SHA + head SHA + merge-base |
+| Weavatrix embed | âœ… | âœ… | âœ… | âœ… 2.7.4 |
+| Quality Debt Ratchet | âœ… | âœ… | âœ… | âœ… |
+| Test selection | âœ… | âœ… | âœ… | âœ… Cargo/Vitest shadow runs |
+| Exact case-level proof binding | âœ… | âœ… | âœ… | âœ… Cargo/Playwright; âœ… unambiguous single-case JUnit/Go; ðŸŸ¡ aggregate coverage |
+| Runner-specific file filtering | âœ… | âœ… | âœ… | âœ… Vitest/Jest/Bun/Playwright; generic npm widens |
+| Executor registry | âœ… | âœ… | âœ… | âœ… Cargo/npm/Vitest/Storybook/Jest/Bun/Go/Playwright |
+| Process-tree kill | âœ… | âœ… | âœ… deadline/cancel/output | âœ… Unix process group + Windows job object |
+| Impacted Storybook/Vitest | âœ… | âœ… | âœ… | âœ… official addon + Playwright Chromium + JUnit/LCOV |
+| Runner normalization | âœ… | âœ… | âœ… | âœ… Cargo/JUnit/Go/browser |
+| SQLite/CAS | âœ… | âœ… | âœ… | âœ… |
+| Proof assembly and provenance | âœ… | âœ… | âœ… | âœ… exact case/assertion + CAS links |
+| MCP default surface | âœ… | âœ… | âœ… | âœ… |
+| AI Cost Firewall | âœ… | âœ… | âœ… | âœ… loopback local model |
+| BehaviorGraph | âœ… | âœ… | âœ… | âœ… browser observations |
+| Delta Triangle | âœ… | âœ… | âœ… default verdict axis | âœ… same-program base/head Chromium replay |
+| Scoped OpenSpec authorization | âœ… | âœ… | âœ… default verdict axis | âœ… base/head requirement/scenario diff per program |
+| Scoped `CodeDelta` | âœ… | âœ… | âœ… default verdict axis | âœ… obligation â†’ flow â†’ Weavatrix node intersection |
+| Spec Recovery | âœ… | âœ… | âœ… opt-in | âœ… Git + Weavatrix, QA-gated |
+| Test lineage | âœ… | âœ… | âœ… protection path | âœ… exact passing-case inventory independent of impacted coverage; aggregate coverage stays executor-level |
+| ProtectionSnapshot/Delta | âœ… | âœ… | âœ… default verdict axis; base replay stays explicit | âœ… base/head coverage replay |
+| Protection MCP/Studio | âœ… | âœ… | âœ… verdict axis + Studio summary; ðŸŸ¡ opt-in profile/view | âœ… when measured coverage exists |
+| Real Playwright TestProgram | âœ… | âœ… | âœ… | âœ… actions including upload/download/popup/tab + exact spans + sealed assertions + observations |
+| Manual record â†’ promoted replay | âœ… | âœ… | âœ… CLI/MCP/Studio + explicit promotion | âœ… passive Chromium capture + novelty discard + replay preview |
+| Continuous observation journal | âœ… | âœ… | âœ… CLI/`@wvq/recorder` | âœ… OBSERVED_ONLY BehaviorGraph; not SurfaceGraph; not candidates; not a seal |
+| Deterministic network replay | âœ… | âœ… | âœ… config + run/record/CAS | âœ… Chromium record â†’ strict replay, same profile on base/head |
+| Extended network cassette | âœ… | âœ… | âœ… CLI/`ingest-cassette` | âœ… HAR â†’ privacy-safe profile; replay stays off; not a seal |
+| Privacy-safe request identity | âœ… | âœ… | âœ… journal + replay + duplicates | âœ… method/path/content-type/body digest; GraphQL op/query/variables hashes |
+| Honest visual digest | âœ… | âœ… | âœ… default behavior axis | âœ… SHA-256 of `screenshot_png`; no perceptual kernel |
+| Accessibility built-ins and continuity | âœ… | âœ… | âœ… default UI verdict | âœ… Playwright facts + base/head ratchet |
+| Mutation | âœ… | âœ… | âœ… default Proof producer | âœ… changed-line Go/Vitest exact-case execution; ðŸŸ¡ Rust catalogue + cargo-test judge, no live fixture yet |
+| Metamorphic | âœ… | âœ… primitive | âŒ project adapter | âŒ project execution |
+| Cheap explorer | âœ… | âœ… planner | âŒ browser feedback | âŒ closed loop |
+| Application Surface Graph | âœ… | âœ… | âœ… read-only artifact + MCP/Studio | âœ… live run persist; not a gate |
+| Behavior Surface | âœ… | âœ… | âœ… read-only artifact + MCP/Studio | âœ… journal Recorded + live Observed action spans; never Cartesian; not a gate |
+| Surface Evidence Matrix | âœ… | âœ… | âœ… read-only artifact + MCP/Studio | âœ… live persist; not a gate |
+| Cheapest-evidence plan | âœ… | âœ… | âœ… read-only artifact + MCP/Studio | âœ… live persist; not a gate; no generation |
+| Observe-only calibration | âœ… | âœ… | âœ… `verify --observe-only` | ðŸŸ¡ Linux CI on this repo; labelled corpus tests; no 30â€“50 live PR campaign |
+| Studio API | âœ… | âœ… | âœ… | âœ… local HTTP |
+| Studio frontend | âœ… | âœ… HTML+JS projection | âœ… `qualityd` `GET /` | âœ… local HTTP cockpit; no second policy layer |
+| Observed-only debt baseline | âœ… | âœ… | âœ… CLI/`wvq baseline` | âœ… existing fingerprints only; new debt stays new; not a seal |
+| Composite `ChangeQualityVerdict` | âœ… | âœ… | âœ… default `quality_verify` | âœ… live PASS / BLOCKED / NOT_ENOUGH_EVIDENCE |
+| Protection as a default verdict axis | âœ… | âœ… | âœ… | âœ… from stored base/head snapshots |
+| Committed product fixture | âœ… A/B1â€“B5 | âœ… A/B1â€“B5 | âœ… CLI/MCP/Studio for B2/B4/B5 | âœ… A/B1â€“B5 |
+| Sealed UI predicates | âœ… | âœ… | âœ… | âœ… Chromium, each asserted both ways |
+| `LayoutSnapshot` v2 | âœ… | âœ… | âœ… | âœ… bounded, redacted, settle-checked |
+| UI Integrity detectors | âœ… | âœ… | âœ… | âœ… Chromium base/head fixture |
+| UI Integrity ratchet | âœ… | âœ… | âœ… | âœ… new/existing/fixed/returned/excepted |
+| UI Integrity in MCP/Studio | âœ… | âœ… | âœ… | âœ… `quality_verify`, `quality_explain`, summary |
+| React render profiler | âœ… idea | âŒ | âŒ | âŒ |
+| Duplicate mutation requests | âœ… | âœ… | âœ… default UI verdict | âœ… Playwright base/head action spans |
+| Responsive interval search | âœ… | âœ… | âœ… default UI verdict | âœ… Playwright base/head, exact pixel boundary |
 
 Current implementation: the composite change verdict, deterministic UI-integrity axis, live Delta Triangle, passive recorder, runner-neutral network replay, changed-region source mutation, requirement/scenario-scoped OpenSpec authorization, and program-scoped `CodeDelta` are on `main`. Every normal browser run replays the exact head-selected `TestProgram`, seed, sealed oracles, and network profile against the merge-base runtime, stores bounded base observations, joins the measured behavior delta with scoped OpenSpec intent and Weavatrix code facts, and exposes the axis through CLI, MCP, and Studio without a separate comparison command. Mutation-enabled normal runs apply bounded TS/JS or Go edits only in a detached worktree and attach the exact test decision to the matching obligation's Proof. The current tree embeds the published `weavatrix-rust` 2.7.4 and adds a clean committed A/B1/B2/B3/B4/B5 product fixture across React/Vitest/Playwright, Node, Go, and nested OpenSpec. Exact execution evidence and merge-base proof provenance remain as `43d6e02`; cross-platform Cargo evidence hardening is `adfe53b`. The previous published committed-protection vertical (`5e2e167`) passed GitHub Actions run [32708728281](https://github.com/Weavatrix/weavatrix-quality/actions/runs/32708728281) across clean-checkout workspace, Playwright, typed JavaScript, installable-package smoke, and Clippy checks.
 
@@ -112,13 +112,13 @@ The old `Pixel` axis compared screenshot CAS handles, so two identical images wi
 
 Request identity is method + path + content type + a canonical body digest. GraphQL is keyed by operation name, query hash, and variables hash. Raw request bodies never enter the journal, the replay profile, or the comparison token. Two POSTs to the same path with different JSON, or two GraphQL operations on `/graphql`, are different identities; key order and query whitespace do not create a false delta. Replay profiles are `schema_v: 2` and still accept v1 method/path-only documents. The canonical TypeScript source owns that v2 identity; CI rebuilds `dist/` and fails if it drifts from the committed tree.
 
-Network replay is a separate bounded artifact, not a relaxation of ordinary observation redaction. The browser captures only same-origin fetch/XHR JSON responses; request headers, cookies, non-JSON bodies, sensitive JSON keys, email-like values, bearer tokens, and JWT-like strings never enter the profile. Normal observations still contain method, URL, resource class, optional status, and privacy-safe identity hashes — never bodies or header values. `live`, `record`, strict `replay`, and `hybrid` are parsed from repository policy with unknown fields and invalid bounds refused. Strict replay aborts an unrecorded API call and fails the run even if a sealed UI assertion passes. A real command-bus fixture captures a profile through passive recording, retrieves it from CAS, loads it through versioned `config.yaml`, and proves that both head and merge-base replay make zero additional upstream API calls.
+Network replay is a separate bounded artifact, not a relaxation of ordinary observation redaction. The browser captures only same-origin fetch/XHR JSON responses; request headers, cookies, non-JSON bodies, sensitive JSON keys, email-like values, bearer tokens, and JWT-like strings never enter the profile. Normal observations still contain method, URL, resource class, optional status, and privacy-safe identity hashes â€” never bodies or header values. `live`, `record`, strict `replay`, and `hybrid` are parsed from repository policy with unknown fields and invalid bounds refused. Strict replay aborts an unrecorded API call and fails the run even if a sealed UI assertion passes. A real command-bus fixture captures a profile through passive recording, retrieves it from CAS, loads it through versioned `config.yaml`, and proves that both head and merge-base replay make zero additional upstream API calls.
 
 Storybook's official Vitest addon is a distinct registered executor rather than a generic npm script. Discovery requires a Storybook config, Vitest, and the official addon; V8 coverage is requested only when the package declares the provider. The base/head Weavatrix impact union promotes affected `.stories.*` files into the safe selection, and the frozen invocation targets only the `storybook` Vitest browser project. A real React fixture executes its `Saves` play function in Playwright Chromium, emits one exact JUnit case plus LCOV for `Button.tsx`, and proves the bound `save-operates` obligation. A JUnit failure also fails the executor when the child process itself returns zero. Full declaration spans required for LCOV mapping come from the published `weavatrix-rust` 2.7.4; the upstream TSX/JS/Go regression test and multi-OS release gate are green.
 
 Every attempted measured browser step now owns exact start/end observation indexes; setup preconditions remain outside user-intent classification. The Playwright boundary keeps a bounded, monotonic request journal of method, path, content type, optional status, and a body or GraphQL digest, settles immediate application-level retries for at most two seconds, and records no request bodies or header values. Rust classifies repeated POST/PUT/PATCH/DELETE identities only inside one action span. Two identical requests in different spans remain two user intents; a repeated mutation within one span becomes base/head-ratcheted `WVQ-UI-NET-001` and blocks the default verdict. Disabled or truncated network evidence marks the measurement incomplete rather than clean. A real Chromium fixture proves a response-triggered POST retry is caught while the same sealed behavioral oracle still passes.
 
-Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280×720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320–767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
+Responsive measurements set the actual Playwright viewport through the Rust-owned browser protocol. The browser collects bounded breakpoint hints from parsed media rules, stylesheet media attributes, and container rules; Rust probes each boundary and its neighbours, bisects only observed base/head state transitions to one CSS pixel, and carries the measured interval into the ordinary composite verdict. A real fixture stays clean at the default 1280Ã—720 viewport, moves a control outside the viewport at a `width < 768px` rule, reports the exact 320â€“767 px failure interval, and blocks `quality_verify`. A transient incomplete browser observation is repeated once at the same width; a second incomplete result remains incomplete and fails closed. Incomplete stylesheet access or a spent probe budget fails to `unmeasured` instead of becoming a clean result. No runtime model or vision tokens are used.
 
 Current validation: 99 `wvq-proof` tests, 35 `wvq-spec` tests, 73 `wvq-ui` tests, the 79-test runtime suite, 72 command-bus library tests, 38 general command-bus integration tests, 3 real source-mutation scenarios, all 12 real Chromium UI/Storybook scenarios, and 25 Playwright-runner tests pass. The mutation scenarios prove a surviving Go boundary mutant weakens an otherwise green high-risk proof, a boundary-specific Go case kills it and remains `PROVEN`, and one exact Vitest case judges a changed JavaScript line while an unbound case in the same file cannot claim the kill. Those three scenarios now judge through directed Weavatrix reach rather than treating the test path as the implementation surface. The user's source stays byte-identical. One browser scenario proves a response-triggered POST retry is captured inside its originating action span. Another records a redacted API response, replays it without calling upstream, and fails closed on an unrecorded strict request. A third changes accessible behavior and a Weavatrix-visible TypeScript function without changing OpenSpec: the sealed assertion remains `PROVEN`, but an ordinary `run` persists `WVQ-BEHAV-001` and the default composite verdict is `BLOCKED` without calling an opt-in view. A fourth removes the accessible name from a sealed Export target: the functional oracle still passes, but requirement-aware `WVQ-A11Y-NAME-001` blocks the ordinary composite verdict. A fifth keeps two requirements in one change folder and edits only the `Theme` requirement while a `Checkout`-bound program drifts: the unrelated OpenSpec edit does not authorize it, the reading stays `unintended_behavior_drift`, and `quality_verify` returns `BLOCKED`. A sixth changes `src/theme.ts` while checkout behavior drifts: the theme nodes are not in the checkout program's protected surface, so the code axis stays false and `WVQ-BEHAV-001` does not fire. Warnings-denied Clippy covers all targets in `wvq-runtime`, `wvq-proof`, and `wvq-command-bus` plus their transitive WVQ crates.
 
@@ -128,7 +128,7 @@ Mutation is part of ordinary `quality_run` and `quality_verify` whenever a scena
 
 Ownership uses `build_obligation_code_surfaces()`. A test-file binding is not an implementation mapping. The mutation graph query sets `include_tests` so Weavatrix will return `*_test.go` / `*.test.*` nodes; `production_nodes_for_binding` then walks directed edges onto production files. Truncated reach is skipped, not widened. Empty owners leave the mutant unmeasured.
 
-Execution creates a detached worktree at the exact head commit, overlays the requested working tree, links only an existing package dependency directory, applies one mutation, and invokes a frozen executor with the exact policy-bound case. The supported measured adapters are Go test and Vitest/Storybook-Vitest. Dependency links are explicitly unlinked before the temporary worktree is removed; the user checkout is never edited. Compile errors and missing/ambiguous normalized cases are `invalid`, not falsely `killed`. Known flaky judges — `flake_penalty` in `quality.yaml` or historical pass+fail on the exact case — are excluded: a flake cannot independently produce `killed` and therefore cannot strengthen Proof. One mutant is capped at 120 seconds and 2 MiB of output; the whole phase is capped at 600 seconds, 32 source edits, and 128 obligation-case decisions. Any applicable obligation not reached by a cap remains `unmeasured` even if another obligation was measured.
+Execution creates a detached worktree at the exact head commit, overlays the requested working tree, links only an existing package dependency directory, applies one mutation, and invokes a frozen executor with the exact policy-bound case. The supported measured adapters are Go test and Vitest/Storybook-Vitest. Dependency links are explicitly unlinked before the temporary worktree is removed; the user checkout is never edited. Compile errors and missing/ambiguous normalized cases are `invalid`, not falsely `killed`. Known flaky judges â€” `flake_penalty` in `quality.yaml` or historical pass+fail on the exact case â€” are excluded: a flake cannot independently produce `killed` and therefore cannot strengthen Proof. One mutant is capped at 120 seconds and 2 MiB of output; the whole phase is capped at 600 seconds, 32 source edits, and 128 obligation-case decisions. Any applicable obligation not reached by a cap remains `unmeasured` even if another obligation was measured.
 
 The `mutation-results` artifact is schema-validated against the current `quality.yaml`: obligation set, applicable subset, operator/ecosystem authorization, source region, unique result identity, counters, global state, and zero-token invariant must agree. Each result names the exact obligation and normalized test identity that judged it. Survived, invalid, and required-but-absent evidence weaken an otherwise green Proof to `PARTIAL`; a killed mutant for one obligation cannot strengthen a different obligation. Custom project-semantic hints remain listed as unmapped limitations instead of being guessed into unsafe source edits.
 
@@ -144,13 +144,13 @@ The spec axis is no longer one boolean for the whole change folder. `wvq-spec` r
 
 `wvq-proof` turns that scope into a per-program decision. A program is spec-authorized only when *every* obligation it asserts lies inside the changed scope; one matching obligation cannot authorize a mixed program, and a program that asserts no obligation is never authorized. Unit coverage asserts each of those rules directly, plus the three fail-closed paths: relocated but unchanged prose produces an empty scope, mismatched change ids are refused, and duplicate requirement operations are refused rather than silently deduplicated. The `delta-triangle` artifact is now `schema_v: 3` and records `spec_authorized`, `authorized_obligations`, `unauthorized_obligations`, `code_measured`, `code_changed`, `code_nodes`, and `code_unmeasured_reason` per program; v1 and v2 documents stay readable.
 
-This closes the concrete soundness hole where changing requirement A excused unrelated behavior drift in a program bound to requirement B, even though both live in the same OpenSpec change and the same file was touched. A real Chromium fixture proves it: one repository, one change folder, two requirements, a Weavatrix-visible TypeScript edit, and an OpenSpec edit that touches only `Theme` — the `Checkout` program's drift stays `unintended_behavior_drift` and `quality_verify` returns `BLOCKED`.
+This closes the concrete soundness hole where changing requirement A excused unrelated behavior drift in a program bound to requirement B, even though both live in the same OpenSpec change and the same file was touched. A real Chromium fixture proves it: one repository, one change folder, two requirements, a Weavatrix-visible TypeScript edit, and an OpenSpec edit that touches only `Theme` â€” the `Checkout` program's drift stays `unintended_behavior_drift` and `quality_verify` returns `BLOCKED`.
 
 ## Scoped CodeDelta
 
-The code axis is no longer one boolean for the whole repository. `graph_diff` still supplies the changed Weavatrix node ids (added, removed, changed before/after, and edge endpoints), but that set is not copied onto every program. For each program, `scoped_code_delta` intersects the program's obligations with the flows that proved them — coverage-measured `FlowProtection` plus declared `test_bindings` that name a source file Weavatrix actually graphed — and with those changed node ids.
+The code axis is no longer one boolean for the whole repository. `graph_diff` still supplies the changed Weavatrix node ids (added, removed, changed before/after, and edge endpoints), but that set is not copied onto every program. For each program, `scoped_code_delta` intersects the program's obligations with the flows that proved them â€” coverage-measured `FlowProtection` plus declared `test_bindings` that name a source file Weavatrix actually graphed â€” and with those changed node ids.
 
-A nonempty intersection is a measured `true` and lists the intersecting nodes. An empty intersection is a measured `false`. A program that asserts no obligation, or whose obligations have no flow that names Weavatrix nodes, is `unmeasured` with an explicit reason; it never inherits the repository-wide `graph_diff` bit. Missing mapping is attribution evidence, not a missing replay: Spec × Behavior still decides authorization. Unchanged behavior with unmeasured code stays `NoChange` and does not fire `WVQ-VERDICT-007`. Unauthorized behavior drift still blocks as `WVQ-BEHAV-001`. The artifact records `code_unmeasured_programs` as a limitation, not as an unmeasured axis. `ObligationCodeSurface` is the shared mapping: implementation Weavatrix nodes only. Test, spec, and Storybook nodes stay on the test side and cannot make `CodeDelta` true. Mutation uses the same surface so a payment mutant is not judged by a pagination obligation when both have declared implementation paths.
+A nonempty intersection is a measured `true` and lists the intersecting nodes. An empty intersection is a measured `false`. A program that asserts no obligation, or whose obligations have no flow that names Weavatrix nodes, is `unmeasured` with an explicit reason; it never inherits the repository-wide `graph_diff` bit. Missing mapping is attribution evidence, not a missing replay: Spec Ã— Behavior still decides authorization. Unchanged behavior with unmeasured code stays `NoChange` and does not fire `WVQ-VERDICT-007`. Unauthorized behavior drift still blocks as `WVQ-BEHAV-001`. The artifact records `code_unmeasured_programs` as a limitation, not as an unmeasured axis. `ObligationCodeSurface` is the shared mapping: implementation Weavatrix nodes only. Test, spec, and Storybook nodes stay on the test side and cannot make `CodeDelta` true. Mutation uses the same surface so a payment mutant is not judged by a pagination obligation when both have declared implementation paths.
 
 This closes the matching hole on the code axis: a `theme.ts` Weavatrix node cannot satisfy a checkout program bound to `src/app.ts`. A real Chromium fixture proves both sides. Changing `src/app.ts` while checkout behavior drifts still yields `unintended_behavior_drift` and `WVQ-BEHAV-001`. Changing only `src/theme.ts` while the same checkout behavior drifts leaves `code_changed` false and does not fire `WVQ-BEHAV-001`.
 
@@ -158,7 +158,7 @@ An axis reports `not_applicable` when the change has no surface it can measure a
 
 Priority order, most important first: an active sealed-oracle contradiction; lost critical protection; new blocking architecture, API, or security debt, or a new blocking UI regression; a mandatory obligation left unproven; the same two classes returned after being fixed; a mandatory test with an unresolved new flake or an ambiguous specification; a required axis that was not measured; an AI budget exhausted with a mandatory decision still open; warning-only drift. The first rule that fires decides the state; every other fired rule stays listed.
 
-Three invariants are asserted rather than assumed: a `PROVEN` behavioural proof cannot suppress a lost protection delta, a global coverage gain cannot suppress a local protection loss, and missing evidence is never a pass. Live fixtures cover all three outcomes — a healthy Cargo change composes to `PASS`, a change that deletes the only test reaching `subtract` is `BLOCKED` while its suite is green, and head coverage with no base snapshot is `NOT_ENOUGH_EVIDENCE` at exit code 1.
+Three invariants are asserted rather than assumed: a `PROVEN` behavioural proof cannot suppress a lost protection delta, a global coverage gain cannot suppress a local protection loss, and missing evidence is never a pass. Live fixtures cover all three outcomes â€” a healthy Cargo change composes to `PASS`, a change that deletes the only test reaching `subtract` is `BLOCKED` while its suite is green, and head coverage with no base snapshot is `NOT_ENOUGH_EVIDENCE` at exit code 1.
 
 Protection is a default axis. `quality_verify` composes it from the head snapshot every run already persists plus the base snapshot `protection_view` now stores against that run, so no caller attaches a `ProtectionView` and `verify` still executes nothing.
 
@@ -166,24 +166,24 @@ Protection is a default axis. `quality_verify` composes it from the head snapsho
 
 The product fixture creates a real temporary Git monorepo with two clean commits and a clean worktree. It contains a React/Vitest frontend with V8 LCOV, a Node backend, a Go service with `go test -json` plus a coverprofile, a Playwright `TestProgram` executed in Chromium, and nested OpenSpec plus `quality.yaml`. All evidence is produced through registered executors; no fixture inserts a synthetic `ProtectionSnapshot`.
 
-- **A → B1, healthy refactor:** implementation and its exact protector move files and the function moves to a different source line. Symbol identity is relocated without using the old path or source position, measured protection is preserved, and the composite verdict passes.
-- **A → B2, phantom protector:** the exact Go case still passes but no longer invokes any product function. Its revision-bound normalized identity is retained independently of impacted coverage, so WVQ reports a surviving phantom rather than a deleted test. The optional protection view emits `WVQ-PROTECT-002`, and the same stored loss blocks ordinary `quality_verify`, actual MCP JSON-RPC, and the Studio summary while behavioural proof remains `PROVEN`.
-- **A → B3, deleted protector:** the sole exact protector disappears while the remaining suite is green. Both the detailed view and default verdict retain `WVQ-PROTECT-003` and block.
-- **A → B4, intended expectation replacement:** OpenSpec, its compiled obligations, the Go protector, and the Playwright assertion change from viewer denial to viewer allowance. WVQ stores one immutable proposal containing base/head/merge-base, the exact Weavatrix content revision, both full seal digests, and the explicit obligation mapping. A stale digest or developer acceptance cannot authorize it. One exact QA or product-owner acceptance makes the old helper paths obsolete, the new protector `REPLACED`, and CLI, MCP, and Studio return `PROVEN` with a non-blocking composite state and zero runtime model tokens.
+- **A â†’ B1, healthy refactor:** implementation and its exact protector move files and the function moves to a different source line. Symbol identity is relocated without using the old path or source position, measured protection is preserved, and the composite verdict passes.
+- **A â†’ B2, phantom protector:** the exact Go case still passes but no longer invokes any product function. Its revision-bound normalized identity is retained independently of impacted coverage, so WVQ reports a surviving phantom rather than a deleted test. The optional protection view emits `WVQ-PROTECT-002`, and the same stored loss blocks ordinary `quality_verify`, actual MCP JSON-RPC, and the Studio summary while behavioural proof remains `PROVEN`.
+- **A â†’ B3, deleted protector:** the sole exact protector disappears while the remaining suite is green. Both the detailed view and default verdict retain `WVQ-PROTECT-003` and block.
+- **A â†’ B4, intended expectation replacement:** OpenSpec, its compiled obligations, the Go protector, and the Playwright assertion change from viewer denial to viewer allowance. WVQ stores one immutable proposal containing base/head/merge-base, the exact Weavatrix content revision, both full seal digests, and the explicit obligation mapping. A stale digest or developer acceptance cannot authorize it. One exact QA or product-owner acceptance makes the old helper paths obsolete, the new protector `REPLACED`, and CLI, MCP, and Studio return `PROVEN` with a non-blocking composite state and zero runtime model tokens.
 
 Coverage is assigned to an exact case only when normalized evidence contains one passing case and its runner, suite, and case match a repository binding. Multi-case coverage remains executor-level evidence; WVQ does not guess which case reached a symbol. Separately, every passing normalized case is stored in the revision snapshot even when it reaches no impacted flow. This separation lets lineage distinguish a deleted protector from a surviving phantom without weakening coverage attribution. Snapshots written before the inventory remain readable and derive their known executed identities from measured flow protectors. Current Weavatrix nested spans are read at symbol granularity, and the file node is used only as a fallback when that source has no symbol spans.
 
-**A → B5, missing declared intent:** the Go `CanDelete` implementation and its exact protector change while nested OpenSpec does not. Weavatrix 2.7.4 identifies the concrete exported function from a full declaration fingerprint; WVQ filters private helpers and test declarations, prepares one bounded candidate, and exposes the same `QA_REVIEW` state through `wvq recover`, the opt-in MCP recovery profile, and Studio. The changed implementation plus its own test is marked as a weak oracle, requires intent-owner escalation, spends zero model tokens, and cannot auto-seal. A real OpenSpec delta suppresses this recovery candidate instead of asking for redundant review.
+**A â†’ B5, missing declared intent:** the Go `CanDelete` implementation and its exact protector change while nested OpenSpec does not. Weavatrix 2.7.4 identifies the concrete exported function from a full declaration fingerprint; WVQ filters private helpers and test declarations, prepares one bounded candidate, and exposes the same `QA_REVIEW` state through `wvq recover`, the opt-in MCP recovery profile, and Studio. The changed implementation plus its own test is marked as a weak oracle, requires intent-owner escalation, spends zero model tokens, and cannot auto-seal. A real OpenSpec delta suppresses this recovery candidate instead of asking for redundant review.
 
 ## UI integrity
 
 `wvq-ui` is a pure-Rust crate: no browser, no DOM, no model. Collection stays in `js/playwright-runner`, orchestration in `wvq-command-bus`, evidence in `wvq-store`, sealed expectations in `wvq-spec`, so detector logic exists exactly once.
 
-`LayoutSnapshot` v2 is deliberately not a DOM. It carries geometry, semantic identity, bounded accessibility facts, and hit-test results — never `innerHTML`, form values, cookies, storage contents, response bodies, or unbounded text. Labels are collapsed and cut to 120 characters in the page before they leave it, input values are never used as names except for button-like input types, and `textContent` only names an element that is a control or a leaf, so a list row never copies the text of everything inside it.
+`LayoutSnapshot` v2 is deliberately not a DOM. It carries geometry, semantic identity, bounded accessibility facts, and hit-test results â€” never `innerHTML`, form values, cookies, storage contents, response bodies, or unbounded text. Labels are collapsed and cut to 120 characters in the page before they leave it, input values are never used as names except for button-like input types, and `textContent` only names an element that is a control or a leaf, so a list row never copies the text of everything inside it.
 
 Collection is deterministic or it says so. Fonts are awaited with a bounded timeout, animations and transitions are frozen and driven to their end state, and the page is read twice: two reads that disagree beyond tolerance mark the snapshot unsettled instead of trusting one of them. Screenshot capture for `VisualDigest` uses the same freeze: webfonts are awaited, CSS time is stopped, the caret is hidden, and Playwright records with `animations: disabled` so a blinking caret cannot change the PNG hash. Region-guided visual diff then names the impacted surface: nodes are paired by semantic identity, clipped rectangles become crops, and exact RGBA is compared only inside those crops. A chrome pixel cannot attribute the checkout button. There is no perceptual kernel and no vision call. The collector enters open shadow roots and same-origin iframes, maps iframe geometry into the top viewport, and records a cross-origin iframe as an opaque surface rather than pretending it was empty. `clip_rect` is the intersection of every clipping ancestor, including the iframe box, not the first overflow parent. Geometry and hit testing happen in a single `evaluate`, so both describe one DOM state and node identities are derived once. Node, hit-test-sample, candidate-pair, artifact-byte, and label bounds are all explicit, and hitting any of them sets `truncated`, which propagates into the verdict as a limitation.
 
-Axe-core and Storybook a11y are an import adapter, not a Rust port: if the page already loaded a producer, the collector keeps rule id, impact, and bounded selectors, drops HTML, and `wvq-ui` turns that into `WVQ-A11Y-IMPORT-001` findings. Impact maps to objective severity (`critical`/`serious` → error); the ratchet still decides whether the PR owns it (`new` blocks, `existing` does not). Fourteen built-in detectors ship. The UI set is `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, `WVQ-UI-LAYOUT-004` confirmed control overlap, and `WVQ-UI-NET-001` a repeated mutating request inside one exact action span. The accessibility set is `WVQ-A11Y-NAME-001`, `WVQ-A11Y-LABEL-001`, `WVQ-A11Y-KEYBOARD-001`, `WVQ-A11Y-STATE-001`, `WVQ-A11Y-DIALOG-001`, and `WVQ-A11Y-DIALOG-002`.
+Axe-core and Storybook a11y are an import adapter, not a Rust port: if the page already loaded a producer, the collector keeps rule id, impact, and bounded selectors, drops HTML, and `wvq-ui` turns that into `WVQ-A11Y-IMPORT-001` findings. Impact maps to objective severity (`critical`/`serious` â†’ error); the ratchet still decides whether the PR owns it (`new` blocks, `existing` does not). Fourteen built-in detectors ship. The UI set is `WVQ-UI-DUP-001` duplicate DOM identity, `WVQ-UI-DUP-002` duplicate test identity, `WVQ-UI-DUP-003` ambiguous interactive identity, `WVQ-UI-LAYOUT-001` interactive occlusion, `WVQ-UI-LAYOUT-002` viewport overflow, `WVQ-UI-LAYOUT-003` text clipping, `WVQ-UI-LAYOUT-004` confirmed control overlap, and `WVQ-UI-NET-001` a repeated mutating request inside one exact action span. The accessibility set is `WVQ-A11Y-NAME-001`, `WVQ-A11Y-LABEL-001`, `WVQ-A11Y-KEYBOARD-001`, `WVQ-A11Y-STATE-001`, `WVQ-A11Y-DIALOG-001`, and `WVQ-A11Y-DIALOG-002`.
 
 Most of the work is refusing false positives, and each exclusion is a specific rule rather than a confidence threshold: repeated row actions are separated by entity scope; a control's own children never occlude it; `pointer-events: none` layers never intercept; ancestor/descendant containment is structure, not collision; content inside a scroll container is reachable by scrolling; an accepted ellipsis still needs the accessible full value to be present; and geometric overlap with no hit-test confirmation is not reported at all. When no row or dialog scope can be resolved, an ambiguous pair drops to a warning instead of blocking.
 
@@ -211,7 +211,7 @@ Detection is roughly two orders of magnitude cheaper than collection, so the cos
 
 The sealed behavioural test passes. The change introduces an overlay over the Export button. The base revision had no occlusion. Head has deterministic geometry and hit-test evidence, WVQ stores the artifacts, identifies the new regression, `quality_explain` names the exact target, occluder, route, viewport, and probe counts, and composite `quality_verify` returns `BLOCKED` with `verdict` still `PROVEN` and zero runtime model tokens.
 
-That runs against real Chromium and two real revisions through the product path. Four further variants run against the same base: a duplicate `Save` in one dialog scope, horizontal overflow at 767 px, a clipped critical label reported with its measurements, and the two cases that must stay clean — repeated `Delete` buttons in separate row scopes, and a declared tooltip overlap.
+That runs against real Chromium and two real revisions through the product path. Four further variants run against the same base: a duplicate `Save` in one dialog scope, horizontal overflow at 767 px, a clipped critical label reported with its measurements, and the two cases that must stay clean â€” repeated `Delete` buttons in separate row scopes, and a declared tooltip overlap.
 
 Bounded runner and Playwright-bridge spawns sit in a Unix process group or a Windows job object. Deadline, cancel, and output-cap kills terminate Vitest workers and Chromium descendants, not only the parent `Child`. A Node grandchild that keeps writing after the parent is killed is the regression test.
 
@@ -237,7 +237,7 @@ Direct Vitest package scripts now produce measured cases without repository conf
 
 The real TS-frontend shadow probe compiled 8 obligations and 289 bounded context items from a 17-file change packet. Drafting used 7,978/8,000 tokens, truncated only non-authoritative context, and made no model call. MCP validation binds a generated program to the existing `OracleSeal`; persistence is now a separate passing-preview admission step.
 
-The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the latest repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 48.26 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.79 s. The defensive audit is `corroborated` with zero missed failures. This is a measured one-file reduction with no speedup in this sample—the impacted run was 0.47 s slower. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating “filter applied” with “time saved”.
+The first runtime probe exposed and fixed Windows short-path propagation into Vitest. A later competitor pass found that file paths were still represented as one test-title filter per process. Runner-aware batching now keeps paths as positional argv (or Jest `--runTestsByPath`) and combines bounded paths for the same runner. On the latest repeat of the same broad graph case, impacted execution selected 41 of 42 available test files in one process, normalized 203 passing cases, and completed in 48.26 s; full execution selected 42 of 42 in one process, normalized the same 203 passing cases, and completed in 47.79 s. The defensive audit is `corroborated` with zero missed failures. This is a measured one-file reduction with no speedup in this sampleâ€”the impacted run was 0.47 s slower. Both scopes used zero runtime LLM tokens. `scope_reason` and explicit selected/available/invocation counts make that visible instead of conflating â€œfilter appliedâ€ with â€œtime savedâ€.
 
 ## Playwright authoring path
 
@@ -253,7 +253,7 @@ The first runtime probe exposed and fixed Windows short-path propagation into Vi
 | heal | Accepts only semantic retargeting or typed deterministic waits, requires the caller's latest program revision and the same `OracleSeal`, runs real Playwright with the original assertions, and atomically appends a CAS-backed revision only on pass; failed repairs retain evidence but do not replace the active program |
 | transports | CLI: `wvq record`; MCP: `quality_test_{draft,validate,preview,promote,record,heal}`; HTTP: `POST /api/v1/authoring/{draft,validate,preview,promote,record,heal}` |
 
-Affected-package validation: 107 tests passed with zero failures, including the real Rust → stdio bridge → Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
+Affected-package validation: 107 tests passed with zero failures, including the real Rust â†’ stdio bridge â†’ Playwright preview with two screenshots and a trace. Clippy passed for `wvq-runtime`, `wvq-command-bus`, `wvq-mcp`, and `qualityd`, all targets, with warnings denied.
 
 Current validation: 493 Rust tests pass with zero failures, and workspace Clippy passes for all targets with warnings denied. The prior 20 Playwright-runner tests, 5 JS package tests, strict public `NodeNext` declarations, and corroborated real shadow benchmark remain unchanged by the B4 path.
 
@@ -276,7 +276,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 | selection | Combines Weavatrix head impact, base-only removed test evidence, and explicit obligation bindings; incomplete/unsafe filters widen to the full suite |
 | selection history | Learns only repeated, single-test measured coverage and unions it with base/head evidence; ambiguous batches never train the selector |
 | defensive audit | Compares impacted vs full failing identities, persists misses, and feeds exact missed test paths back into the selector |
-| graph impact | Persists `graph_diff`, change impact, static selection, and `Impact(base) ∪ Impact(head) ∪ removed` at one exact revision |
+| graph impact | Persists `graph_diff`, change impact, static selection, and `Impact(base) âˆª Impact(head) âˆª removed` at one exact revision |
 | coverage | Normalizes fresh LCOV/Go evidence, maps it to changed graph nodes, and persists a revision-bound `ProtectionSnapshot` |
 | evidence | Stores run/items, raw streams by policy, normalized results, semantic maps, summaries, and large blobs through SQLite + CAS |
 | test analytics | Persists exact test identity/outcome/duration history, fingerprints failures, identifies mixed-history flakes, and emits a bounded CAS report without an LLM call |
@@ -313,7 +313,7 @@ Distribution validation: 5 JS behavior/metadata tests passed, the public TypeScr
 
 ## Measured detector calibration
 
-On sixty accepted, defect-free changes, text matching fired on 33–92% depending on category and the initial policy would have blocked 42% of clean changes. Graph-backed default-flip and retired-persisted-key categories fired on 5–8%. The graph promotes only the signal whose concrete symbol it names; `TestMovedWithImplementation` is never promoted.
+On sixty accepted, defect-free changes, text matching fired on 33â€“92% depending on category and the initial policy would have blocked 42% of clean changes. Graph-backed default-flip and retired-persisted-key categories fired on 5â€“8%. The graph promotes only the signal whose concrete symbol it names; `TestMovedWithImplementation` is never promoted.
 
 ## Repository maintenance debt
 
@@ -328,6 +328,6 @@ worker/contexts, projection authority, bounded scheduling, journal index,
 `wvq check` profiles. Do not expand the release boundary with new evidence
 families.
 
-P0 from the 2026-09-02 reaudit is already on `main`. Remaining P1 observe-only campaign (30–50 PRs) and Coverage Autopilot stay post-alpha. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
+P0 from the 2026-09-02 reaudit is already on `main`. Remaining P1 observe-only campaign (30â€“50 PRs) and Coverage Autopilot stay post-alpha. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
-Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.
+Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail â€” `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.

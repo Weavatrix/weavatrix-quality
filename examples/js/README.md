@@ -1,9 +1,9 @@
-# JS examples
+﻿# JS examples
 
-Requires Node 20+ and `@weavatrix/wvq@0.1.0-alpha.1` (or a local `npm link`).
+Requires Node 20+ and `@weavatrix/wvq@0.1.0-alpha.2` (or a local `npm link`).
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
 
 node examples/js/plan-run-verify.mjs
 WVQ_CHANGE=wvq-invariants node examples/js/plan-run-verify.mjs
@@ -21,6 +21,6 @@ WVQ_CHANGE=current CANDIDATE_PROGRAM_JSON=./candidate.json \
 | `plan-run-verify.mjs` | `WvqClient` plan / run / verify |
 | `select-debt-explain.mjs` | select, debt, observe-only verify, explain |
 | `mcp-default.mjs` | `WvqMcpClient` default tools |
-| `mcp-authoring.mjs` | draft → validate → preview → promote → heal |
+| `mcp-authoring.mjs` | draft â†’ validate â†’ preview â†’ promote â†’ heal |
 
 Env vars: `WVQ_REPO`, `WVQ_CHANGE`, `WVQ_BASE`, `WVQ_HEAD`.

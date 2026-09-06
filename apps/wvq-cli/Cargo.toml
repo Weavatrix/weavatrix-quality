@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "wvq-cli"
 version.workspace = true
 edition.workspace = true
@@ -22,8 +22,8 @@ wvq-command-bus = { workspace = true }
 
 [dev-dependencies]
 mcport = { workspace = true }
-qualityd = { path = "../qualityd", version = "0.1.0-alpha.1" }
-wvq-mcp = { path = "../wvq-mcp", version = "0.1.0-alpha.1" }
+qualityd = { path = "../qualityd", version = "0.1.0-alpha.2" }
+wvq-mcp = { path = "../wvq-mcp", version = "0.1.0-alpha.2" }
 wvq-proof = { workspace = true }
 wvq-store = { workspace = true }
 

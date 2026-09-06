@@ -1,17 +1,17 @@
-# Examples — Weavatrix Quality
+﻿# Examples â€” Weavatrix Quality
 
-Copy-paste oriented samples for **alpha `0.1.0-alpha.1`**.
+Copy-paste oriented samples for **alpha `0.1.0-alpha.2`**.
 
 | Path | What |
 | --- | --- |
-| [cli/](cli/) | Shell recipes: doctor → run → verify, dogfood, CI |
+| [cli/](cli/) | Shell recipes: doctor â†’ run â†’ verify, dogfood, CI |
 | [mcp/](mcp/) | Cursor / Claude Desktop configs + tool recipes |
 | [js/](js/) | `WvqClient` + `WvqMcpClient` scripts |
 
 Install once:
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
 # or use npx without installing
 ```
 
