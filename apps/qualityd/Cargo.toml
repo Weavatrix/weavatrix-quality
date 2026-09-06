@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "qualityd"
 version.workspace = true
 edition.workspace = true

@@ -1,4 +1,4 @@
-﻿name: Publish crates.io packages
+name: Publish crates.io packages
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       version:
         description: "Version already on the branch (must match Cargo/npm)"
         required: true
-        default: "0.1.0-alpha.2"
+        default: "0.1.0-alpha.3"
 
 concurrency:
   group: crates-release-${{ github.ref }}

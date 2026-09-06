@@ -1,16 +1,16 @@
-﻿# wvq-cli
+# wvq-cli
 
 Command-line surface for **[Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality)** (`wvq`).
 
-Alpha `0.1.0-alpha.2` â€” crates and APIs may change before 1.0.
+Alpha `0.1.0-alpha.3` â€” crates and APIs may change before 1.0.
 **Primary install for most users is npm:** [`@weavatrix/wvq`](https://www.npmjs.com/package/@weavatrix/wvq).
 
 ## Install
 
 ```sh
-cargo install wvq-cli --version 0.1.0-alpha.2
+cargo install wvq-cli --version 0.1.0-alpha.3
 # or
-npx @weavatrix/wvq@0.1.0-alpha.2 --help
+npx @weavatrix/wvq@0.1.0-alpha.3 --help
 ```
 
 The published binary name is `wvq`.

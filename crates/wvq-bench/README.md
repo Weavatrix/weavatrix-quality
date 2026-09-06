@@ -1,17 +1,17 @@
-﻿# wvq-bench
+# wvq-bench
 
 Shadow **impacted-vs-full** evaluation harness for
 [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality).
 
-Alpha `0.1.0-alpha.2`. Not a Criterion microbench suite â€” it runs the real
+Alpha `0.1.0-alpha.3`. Not a Criterion microbench suite â€” it runs the real
 `LiveService` path twice and compares failing test identities.
 
 ## Install
 
 ```sh
-cargo install wvq-bench --version 0.1.0-alpha.2
+cargo install wvq-bench --version 0.1.0-alpha.3
 # or
-npx @weavatrix/wvq@0.1.0-alpha.2 bench --help
+npx @weavatrix/wvq@0.1.0-alpha.3 bench --help
 ```
 
 ## Examples
@@ -24,7 +24,7 @@ wvq-bench \
   --head WORKTREE \
   --evidence-policy minimal
 
-npx @weavatrix/wvq@0.1.0-alpha.2 bench \
+npx @weavatrix/wvq@0.1.0-alpha.3 bench \
   --repo . \
   --change current \
   --base origin/main \

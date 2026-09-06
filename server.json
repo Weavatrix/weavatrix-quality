@@ -1,4 +1,4 @@
-﻿{
+{
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Weavatrix/weavatrix-quality",
   "title": "Weavatrix Quality",
@@ -7,14 +7,14 @@
     "url": "https://github.com/Weavatrix/weavatrix-quality",
     "source": "github"
   },
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "websiteUrl": "https://github.com/Weavatrix/weavatrix-quality",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@weavatrix/wvq",
-      "version": "0.1.0-alpha.2",
+      "version": "0.1.0-alpha.3",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

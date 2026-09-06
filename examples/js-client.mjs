@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Compatibility shim. Prefer the focused scripts:
  *
  *   node examples/js/plan-run-verify.mjs
@@ -10,7 +10,7 @@
  */
 console.log(`Weavatrix Quality JS examples live under examples/js/
 
-  npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
+  npm install --save-dev @weavatrix/wvq@0.1.0-alpha.3
   node examples/js/plan-run-verify.mjs
   node examples/js/mcp-default.mjs
 `)

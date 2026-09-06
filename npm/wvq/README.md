@@ -1,4 +1,4 @@
-﻿# `@weavatrix/wvq`
+# `@weavatrix/wvq`
 
 Native **Weavatrix Quality** binaries (`wvq`, `wvq-mcp`, `wvq-bench`) for
 Windows / macOS / Linux (x64 + arm64), plus a typed JavaScript client.
@@ -7,7 +7,7 @@ Rust remains the only implementation of policy, selection, evidence, proof,
 budgets, and MCP schemas. This package is a process boundary â€” never a second
 engine.
 
-**Alpha `0.1.0-alpha.2`.** [CHANGELOG](https://github.com/Weavatrix/weavatrix-quality/blob/main/CHANGELOG.md) Â·
+**Alpha `0.1.0-alpha.3`.** [CHANGELOG](https://github.com/Weavatrix/weavatrix-quality/blob/main/CHANGELOG.md) Â·
 [GitHub](https://github.com/Weavatrix/weavatrix-quality) Â·
 [MCP Registry](https://registry.modelcontextprotocol.io/) (`io.github.Weavatrix/weavatrix-quality`)
 
@@ -16,10 +16,10 @@ engine.
 ## Install
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.2
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.3
 
 # or without adding a dependency
-npx @weavatrix/wvq@0.1.0-alpha.2 --help
+npx @weavatrix/wvq@0.1.0-alpha.3 --help
 ```
 
 Unscoped `wvq` is reserved by npm similarity rules. Always use `@weavatrix/wvq`.
@@ -41,19 +41,19 @@ when you install matching binaries yourself.
 
 ```sh
 # discovery (read-only)
-npx @weavatrix/wvq@0.1.0-alpha.2 doctor
+npx @weavatrix/wvq@0.1.0-alpha.3 doctor
 
 # first-time policy
-npx @weavatrix/wvq@0.1.0-alpha.2 init
+npx @weavatrix/wvq@0.1.0-alpha.3 init
 
 # compile OpenSpec obligations
-npx @weavatrix/wvq@0.1.0-alpha.2 spec validate --change current
+npx @weavatrix/wvq@0.1.0-alpha.3 spec validate --change current
 
 # plan without executing
-npx @weavatrix/wvq@0.1.0-alpha.2 plan --change current
+npx @weavatrix/wvq@0.1.0-alpha.3 plan --change current
 
 # impacted run
-npx @weavatrix/wvq@0.1.0-alpha.2 run \
+npx @weavatrix/wvq@0.1.0-alpha.3 run \
   --change current \
   --base origin/main \
   --head HEAD \
@@ -61,16 +61,16 @@ npx @weavatrix/wvq@0.1.0-alpha.2 run \
   --evidence-policy minimal
 
 # composite verdict
-npx @weavatrix/wvq@0.1.0-alpha.2 verify --change current
+npx @weavatrix/wvq@0.1.0-alpha.3 verify --change current
 
 # Stage A CI (exit 0 even when UNPROVEN)
-npx @weavatrix/wvq@0.1.0-alpha.2 verify --change current --observe-only true
+npx @weavatrix/wvq@0.1.0-alpha.3 verify --change current --observe-only true
 
 # passive browser capture
-npx @weavatrix/wvq@0.1.0-alpha.2 record --change current --route /dashboard
+npx @weavatrix/wvq@0.1.0-alpha.3 record --change current --route /dashboard
 
 # shadow selected vs full
-npx @weavatrix/wvq@0.1.0-alpha.2 bench \
+npx @weavatrix/wvq@0.1.0-alpha.3 bench \
   --repo . --change current --base origin/main --head WORKTREE
 ```
 
@@ -98,7 +98,7 @@ Exit `2` = blocking contradicted verify. Exit `1` = unresolved / ordinary failur
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.2",
+        "@weavatrix/wvq@0.1.0-alpha.3",
         "mcp",
         "--repo",
         "."
@@ -125,7 +125,7 @@ Ask the agent:
 ### Authoring profile
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.2 mcp --repo . \
+npx @weavatrix/wvq@0.1.0-alpha.3 mcp --repo . \
   --profile authoring \
   --change current \
   --base origin/main \

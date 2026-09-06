@@ -1,18 +1,18 @@
-﻿# STATUS â€” Weavatrix Quality
+# STATUS â€” Weavatrix Quality
 
 Last updated: 2026-09-06
-Session: Alpha 0.1.0-alpha.2 docs publish â€” example-heavy README / npm / crates / examples/
+Session: Alpha 0.1.0-alpha.3 docs publish â€” example-heavy README / npm / crates / examples/
 
 ## Now
 
-Alpha gate `0.1.0-alpha.2` is published. User-facing docs were rebuilt around
+Alpha gate `0.1.0-alpha.3` is published. User-facing docs were rebuilt around
 copy-paste examples (CLI / MCP / JS) on GitHub README, npm `@weavatrix/wvq`,
 binary crate READMEs, and [`examples/`](../examples/).
 
-- npm: `@weavatrix/wvq@0.1.0-alpha.2`
-- MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.2`
-- GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.2
-- crates.io: full publishable closure at `0.1.0-alpha.2`
+- npm: `@weavatrix/wvq@0.1.0-alpha.3`
+- MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.3`
+- GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.3
+- crates.io: full publishable closure at `0.1.0-alpha.3`
 
 This is **not** the full v1 Definition of Done. Remaining v1 work is listed in
 [ADR 0003](adr/0003-alpha-orchestration-gate.md).

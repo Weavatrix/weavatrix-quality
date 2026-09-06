@@ -1,8 +1,8 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Quickstart: discovery â†’ plan â†’ impacted run â†’ verify
 set -euo pipefail
 
-WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.2}"
+WVQ="${WVQ:-npx @weavatrix/wvq@0.1.0-alpha.3}"
 REPO="${REPO:-.}"
 CHANGE="${CHANGE:-current}"
 BASE="${BASE:-origin/main}"
