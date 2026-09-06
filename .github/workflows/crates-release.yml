@@ -56,13 +56,35 @@ jobs:
           fi
           publish() {
             local crate="$1"
-            if cargo search "$crate" --limit 1 2>/dev/null | grep -q "^${crate} = \"${EXPECTED}\""; then
+            if cargo info "${crate}@${EXPECTED}" >/dev/null 2>&1; then
               echo "${crate}@${EXPECTED} already on crates.io; skipping"
               return 0
             fi
-            # crates.io rate-limits new crate names; wait between uploads.
-            sleep 65
-            cargo publish -p "$crate" --locked --no-verify
+            local attempt=1
+            while true; do
+              set +e
+              out="$(cargo publish -p "$crate" --locked --no-verify 2>&1)"
+              code=$?
+              set -e
+              echo "$out"
+              if [ "$code" -eq 0 ]; then
+                return 0
+              fi
+              if echo "$out" | grep -qi 'already exists'; then
+                echo "${crate}@${EXPECTED} already exists; skipping"
+                return 0
+              fi
+              if echo "$out" | grep -qi 'Too Many Requests'; then
+                echo "rate limited publishing ${crate}; sleeping 180s (attempt ${attempt})"
+                sleep 180
+                attempt=$((attempt + 1))
+                if [ "$attempt" -gt 8 ]; then
+                  return "$code"
+                fi
+                continue
+              fi
+              return "$code"
+            done
           }
           # Leaf → binaries. --no-verify avoids needing every transitive build
           # tool on the publisher; CI already built the workspace.
