@@ -81,6 +81,38 @@ pub(in crate::service) fn cheapest_evidence_document(
     Ok(plan_cheapest_evidence(&matrix))
 }
 
+pub(in crate::service) fn load_cheapest_evidence_plan(
+    store: &Store,
+    run: &RunId,
+) -> Result<CheapestEvidencePlanView, BusError> {
+    match read_single_run_json(store, run, CHEAPEST_EVIDENCE_PLAN_KIND) {
+        Ok(value) => Ok(view_from_json(&value)?),
+        Err(BusError::Store(message)) if message.contains("has no ") => {
+            Ok(CheapestEvidencePlanView::absent())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn view_from_json(value: &Value) -> Result<CheapestEvidencePlanView, BusError> {
+    let schema_v = value.get("schema_v").and_then(Value::as_u64).ok_or_else(|| {
+        BusError::Store("cheapest-evidence-plan omitted schema_v".into())
+    })?;
+    if schema_v != 1 {
+        return Err(BusError::Store(format!(
+            "unknown cheapest-evidence-plan schema version {schema_v}"
+        )));
+    }
+    let document: CheapestEvidenceDocument = serde_json::from_value(value.clone()).map_err(|err| {
+        BusError::Store(format!("malformed cheapest-evidence-plan: {err}"))
+    })?;
+    Ok(CheapestEvidencePlanView {
+        present: true,
+        truncated: document.truncated,
+        gaps: document.gaps,
+    })
+}
+
 #[cfg(test)]
 mod reuse_tests {
     use super::*;
@@ -112,36 +144,4 @@ mod reuse_tests {
             plan_cheapest_evidence(&matrix)
         );
     }
-}
-
-pub(in crate::service) fn load_cheapest_evidence_plan(
-    store: &Store,
-    run: &RunId,
-) -> Result<CheapestEvidencePlanView, BusError> {
-    match read_single_run_json(store, run, CHEAPEST_EVIDENCE_PLAN_KIND) {
-        Ok(value) => Ok(view_from_json(&value)?),
-        Err(BusError::Store(message)) if message.contains("has no ") => {
-            Ok(CheapestEvidencePlanView::absent())
-        }
-        Err(err) => Err(err),
-    }
-}
-
-fn view_from_json(value: &Value) -> Result<CheapestEvidencePlanView, BusError> {
-    let schema_v = value.get("schema_v").and_then(Value::as_u64).ok_or_else(|| {
-        BusError::Store("cheapest-evidence-plan omitted schema_v".into())
-    })?;
-    if schema_v != 1 {
-        return Err(BusError::Store(format!(
-            "unknown cheapest-evidence-plan schema version {schema_v}"
-        )));
-    }
-    let document: CheapestEvidenceDocument = serde_json::from_value(value.clone()).map_err(|err| {
-        BusError::Store(format!("malformed cheapest-evidence-plan: {err}"))
-    })?;
-    Ok(CheapestEvidencePlanView {
-        present: true,
-        truncated: document.truncated,
-        gaps: document.gaps,
-    })
 }

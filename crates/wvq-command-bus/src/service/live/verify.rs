@@ -187,11 +187,11 @@ impl LiveService {
         }
         let quality = compose(&self.verdict_inputs(&compiled, run.as_ref(), outcomes)?);
         let mut reply = combine_verify(&compiled.change, proofs, &verdicts, quality);
-        if let Some(run) = &run {
-            if let Some(range) = stored_range(&store, &run.id) {
-                reply.base = Some(range.base_ref);
-                reply.head = Some(range.head_ref);
-            }
+        if let Some(run) = &run
+            && let Some(range) = stored_range(&store, &run.id)
+        {
+            reply.base = Some(range.base_ref);
+            reply.head = Some(range.head_ref);
         }
         reply.application_surface = match &run {
             Some(run) => super::super::persist_surface::load_application_surface(&store, &run.id)?,

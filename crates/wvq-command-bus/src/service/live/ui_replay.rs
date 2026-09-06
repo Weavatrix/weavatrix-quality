@@ -13,6 +13,7 @@ impl LiveService {
     /// exact head values already executed. This prevents a changed test from
     /// making the two sides incomparable and avoids treating preview origins
     /// as product behavior.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::service) fn replay_base_browser_programs(
         &self,
         range: &RevisionRange,
@@ -157,6 +158,7 @@ impl LiveService {
     }
 
     /// Measure UI for a frozen program set at one viewport.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::service) fn measure_ui_at(
         &self,
         repo: &Path,
