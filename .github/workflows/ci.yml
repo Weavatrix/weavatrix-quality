@@ -75,6 +75,27 @@ jobs:
           mkdir -p target
           target/debug/wvq verify --change wvq-invariants --observe-only true | tee target/wvq-observe.json
           node scripts/wvq-observe-report.mjs target/wvq-observe.json
+      - name: Product self-dogfood run
+        id: dogfood_run
+        if: ${{ always() && steps.workspace.outcome == 'success' }}
+        run: |
+          mkdir -p target
+          target/debug/wvq run --change wvq-invariants --base HEAD~1 --head HEAD --scope impacted --evidence-policy minimal | tee target/wvq-dogfood-run.json
+      - name: Product self-dogfood verify
+        id: dogfood_verify
+        if: ${{ always() && steps.dogfood_run.outcome == 'success' }}
+        run: |
+          mkdir -p target
+          # Persist the positive vertical even when the composite stays incomplete.
+          # Contradictions still fail the step; incomplete Proofs are recorded.
+          set +e
+          target/debug/wvq verify --change wvq-invariants | tee target/wvq-dogfood-verify.json
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            exit 2
+          fi
+          exit 0
       - name: Exact-head validation manifest
         if: always()
         env:
@@ -87,6 +108,8 @@ jobs:
           WVQ_STEP_SPEC: ${{ steps.spec.outcome }}
           WVQ_STEP_DOCTOR: ${{ steps.doctor.outcome }}
           WVQ_STEP_OBSERVE: ${{ steps.observe.outcome }}
+          WVQ_STEP_DOGFOOD_RUN: ${{ steps.dogfood_run.outcome }}
+          WVQ_STEP_DOGFOOD_VERIFY: ${{ steps.dogfood_verify.outcome }}
         run: node scripts/exact-head-validation.mjs
       - name: Upload exact-head validation
         if: always()
@@ -101,6 +124,15 @@ jobs:
         with:
           name: wvq-observe-only
           path: target/wvq-observe.json
+          if-no-files-found: ignore
+      - name: Upload self-dogfood verify
+        if: ${{ always() && steps.dogfood_verify.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: wvq-self-dogfood
+          path: |
+            target/wvq-dogfood-run.json
+            target/wvq-dogfood-verify.json
           if-no-files-found: ignore
 
   # Full suite stays Linux. Path, process-tree, and worktree code also has to

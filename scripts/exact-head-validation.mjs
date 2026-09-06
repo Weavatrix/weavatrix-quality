@@ -19,6 +19,8 @@ const steps = {
   spec: process.env.WVQ_STEP_SPEC || "local",
   doctor: process.env.WVQ_STEP_DOCTOR || "local",
   observe: process.env.WVQ_STEP_OBSERVE || "local",
+  dogfood_run: process.env.WVQ_STEP_DOGFOOD_RUN || "local",
+  dogfood_verify: process.env.WVQ_STEP_DOGFOOD_VERIFY || "local",
 };
 
 const blockingSteps = [
@@ -30,6 +32,7 @@ const blockingSteps = [
   "clippy",
   "spec",
   "doctor",
+  "dogfood_run",
 ];
 
 const document = {
