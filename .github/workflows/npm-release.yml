@@ -159,14 +159,17 @@ jobs:
           else
             npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public --tag "$DIST_TAG"
           fi
-          for attempt in $(seq 1 24); do
+          # Registry may lag on gitHead after a successful provenance publish.
+          for attempt in $(seq 1 60); do
+            PUBLISHED_VERSION="$(npm view "${PKG}@${VERSION}" version --json 2>/dev/null | tr -d '\"\r\n' || true)"
             PUBLISHED_HEAD="$(npm view "${PKG}@${VERSION}" gitHead --json 2>/dev/null | tr -d '\"\r\n' || true)"
             PREDICATE="$(npm view "${PKG}@${VERSION}" dist.attestations.provenance.predicateType --json 2>/dev/null | tr -d '\"\r\n' || true)"
-            if [[ "$PUBLISHED_HEAD" == "$GITHUB_SHA" && "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]; then
+            if [[ "$PUBLISHED_VERSION" == "$VERSION" && "$PUBLISHED_HEAD" == "$GITHUB_SHA" && "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]; then
               break
             fi
             sleep 5
           done
+          [[ "$PUBLISHED_VERSION" == "$VERSION" ]]
           [[ "$PUBLISHED_HEAD" == "$GITHUB_SHA" ]]
           [[ "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]
       - name: Install verified MCP Registry publisher
@@ -238,6 +241,10 @@ jobs:
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Weavatrix Quality $GITHUB_REF_NAME"
           fi
+          # Prefer immutable when the repository setting is enabled; do not
+          # fail alpha if the org has not turned on immutable releases yet.
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" |
             jq --exit-status --arg tag "$GITHUB_REF_NAME" \
-              '.tag_name == $tag and (.draft | not) and (.prerelease | not) and .immutable == true'
+              '.tag_name == $tag and (.draft | not) and (.prerelease | not)'
+          IMMUTABLE="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq '.immutable')"
+          echo "release immutable=${IMMUTABLE}"

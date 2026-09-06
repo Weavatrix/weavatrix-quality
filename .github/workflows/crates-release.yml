@@ -56,7 +56,11 @@ jobs:
           fi
           publish() {
             local crate="$1"
-            if cargo info "${crate}@${EXPECTED}" >/dev/null 2>&1; then
+            # Prefer crates.io HTTP over `cargo info`: workspace path members
+            # make `cargo info crate@version` succeed even when unpublished.
+            if curl --fail --silent --show-error \
+              -A "weavatrix-quality-ci (github.com/Weavatrix/weavatrix-quality)" \
+              "https://crates.io/api/v1/crates/${crate}/${EXPECTED}" >/dev/null; then
               echo "${crate}@${EXPECTED} already on crates.io; skipping"
               return 0
             fi

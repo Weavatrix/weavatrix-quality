@@ -5,7 +5,17 @@ Session: Alpha orchestration gate → `0.1.0-alpha.1`
 
 ## Now
 
-Alpha gate implementation is landing per [ADR 0003](adr/0003-alpha-orchestration-gate.md): frozen UI plan + cancel, Studio debt range alignment, single matrix build, `runtime-profile`, positive CI dogfood, docs/examples, then `0.1.0-alpha.1` publish. This is **not** the full v1 Definition of Done.
+Alpha gate `0.1.0-alpha.1` is published for the primary distribution path:
+
+- npm: `@weavatrix/wvq@0.1.0-alpha.1` (unscoped `wvq` is blocked by npm similarity rules)
+- MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.1`
+- GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.1
+- crates.io: leaf libraries through `wvq-runtime` are live; remaining closure
+  (`wvq-intelligence` → `wvq-cli`) was falsely skipped by a local `cargo info`
+  check and is being republished via the fixed crates-release workflow
+
+This is **not** the full v1 Definition of Done. Remaining v1 work is listed in
+[ADR 0003](adr/0003-alpha-orchestration-gate.md).
 
 The Surface Evidence Matrix now fills live columns when those producers actually ran: Runtime from browser observations **and** `OBSERVED_ONLY` continuous journals (route, component, navigate, and exact API identity — never an invented endpoint from `activate`), Proof from exact passing bound cases, Protection from `ProtectionSnapshot` flows, UI/A11y from layout snapshots, Mutation from judged source-mutant paths. Coverage stays coverage. A missing producer stays `unmeasured`. A journal cannot mark Intent, Test, or Proof. The Playwright network-replay tests hide `role=status` until the JSON arrives so `wait visible` cannot assert the placeholder.
 
@@ -313,7 +323,10 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-After `0.1.0-alpha.1` is tagged and registries verify, resume the finite v1 sequence from ADR 0003 (AnalysisSession, RunSnapshot, browser worker/contexts, projection authority, bounded scheduling, journal index, `wvq check` profiles). Do not expand the release boundary with new evidence families.
+Finite v1 sequence from ADR 0003: AnalysisSession, RunSnapshot, browser
+worker/contexts, projection authority, bounded scheduling, journal index,
+`wvq check` profiles. Do not expand the release boundary with new evidence
+families.
 
 P0 from the 2026-09-02 reaudit is already on `main`. Remaining P1 observe-only campaign (30–50 PRs) and Coverage Autopilot stay post-alpha. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
