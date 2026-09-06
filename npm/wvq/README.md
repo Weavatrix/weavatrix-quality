@@ -5,12 +5,12 @@ Native Weavatrix Quality binaries plus a typed JavaScript boundary. Rust remains
 **Alpha (`0.1.0-alpha.1`):** useful first product loop, not the full v1 Definition of Done. See the [CHANGELOG](https://github.com/Weavatrix/weavatrix-quality/blob/main/CHANGELOG.md).
 
 ```sh
-npx wvq@0.1.0-alpha.1 --repo . doctor
-npx wvq@0.1.0-alpha.1 --repo . plan --change current
-npx wvq@0.1.0-alpha.1 --repo . run --change current --base origin/main --head HEAD --scope impacted
-npx wvq@0.1.0-alpha.1 --repo . verify --change current
-npx wvq@0.1.0-alpha.1 mcp --repo .
-npx wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head WORKTREE
+npx @weavatrix/wvq@0.1.0-alpha.1 --repo . doctor
+npx @weavatrix/wvq@0.1.0-alpha.1 --repo . plan --change current
+npx @weavatrix/wvq@0.1.0-alpha.1 --repo . run --change current --base origin/main --head HEAD --scope impacted
+npx @weavatrix/wvq@0.1.0-alpha.1 --repo . verify --change current
+npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head WORKTREE
 ```
 
 ### Cursor MCP config
@@ -20,15 +20,15 @@ npx wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head 
   "mcpServers": {
     "weavatrix-quality": {
       "command": "npx",
-      "args": ["-y", "wvq@0.1.0-alpha.1", "mcp", "--repo", "."]
+      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.1", "mcp", "--repo", "."]
     }
   }
 }
 ```
 
 ```js
-import { WvqClient } from 'wvq'
-import { WvqMcpClient } from 'wvq/mcp'
+import { WvqClient } from '@weavatrix/wvq'
+import { WvqMcpClient } from '@weavatrix/wvq/mcp'
 
 const quality = new WvqClient({ repo: process.cwd() })
 const run = await quality.run({

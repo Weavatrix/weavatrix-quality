@@ -27,10 +27,11 @@ whose Studio debt range matches the verified run. See
 
 ### Distribution
 
-- **npm** package `wvq@0.1.0-alpha.1` (primary): CLI, MCP, bench natives.
-- **crates.io**: publishable workspace closure (libraries + `wvq` / `wvq-mcp` /
+- **npm** package `@weavatrix/wvq@0.1.0-alpha.1` (primary): CLI, MCP, bench natives.
+  Unscoped `wvq` is reserved by npm similarity rules; the scoped name is required.
+- **crates.io**: publishable workspace closure (libraries + `wvq-cli` / `wvq-mcp` /
   `wvq-bench` / `qualityd`) marked unstable alpha. Primary install path remains
-  npm `wvq`.
+  npm `@weavatrix/wvq`.
 - **MCP Registry**: `io.github.Weavatrix/weavatrix-quality`.
 - **qualityd** is published so `wvq-cli` integration tests can resolve the
   Studio crate on crates.io; it is still not part of the npm release artifact.

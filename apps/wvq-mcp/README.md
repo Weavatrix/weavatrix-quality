@@ -6,7 +6,7 @@ Bounded MCP host for **Weavatrix Quality**, built on [mcport](https://crates.io/
 cargo install wvq-mcp --version 0.1.0-alpha.1
 wvq-mcp --repo .
 # or
-npx wvq@0.1.0-alpha.1 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
 ```
 
 Default tools: `quality_context`, `quality_plan`, `quality_run`, `quality_status`,

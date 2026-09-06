@@ -6,7 +6,7 @@ Shadow selected-vs-full evaluation harness for **Weavatrix Quality**.
 cargo install wvq-bench --version 0.1.0-alpha.1
 wvq-bench --repo . --change current --base origin/main --head WORKTREE
 # or
-npx wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head WORKTREE
+npx @weavatrix/wvq@0.1.0-alpha.1 bench --repo . --change current --base origin/main --head WORKTREE
 ```
 
 Compares impacted vs full failing identities through `LiveService`. Not a

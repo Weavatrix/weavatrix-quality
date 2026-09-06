@@ -21,7 +21,7 @@ Humans review unresolved product intent instead of ordinary green runs.
 
 ## Status
 
-**Alpha `0.1.0-alpha.1`.** Install with `npx wvq@0.1.0-alpha.1` or see [examples](examples/README.md). This is a finite orchestration gate (one plan → one execution set → one report), not the full v1 Definition of Done. Details: [CHANGELOG](CHANGELOG.md), [ADR 0003](docs/adr/0003-alpha-orchestration-gate.md).
+**Alpha `0.1.0-alpha.1`.** Install with `npx @weavatrix/wvq@0.1.0-alpha.1` or see [examples](examples/README.md). This is a finite orchestration gate (one plan → one execution set → one report), not the full v1 Definition of Done. Details: [CHANGELOG](CHANGELOG.md), [ADR 0003](docs/adr/0003-alpha-orchestration-gate.md).
 
 The canonical development checklist is implemented, but its items have different maturity levels. The core live vertical is connected; the [maturity matrix](docs/STATUS.md#maturity-matrix) distinguishes contracts and library primitives from wired, measured execution:
 
@@ -176,17 +176,17 @@ The `wvq` npm package is a typed JavaScript boundary around the same Rust implem
 
 ```sh
 npm install --save-dev wvq
-npx wvq --repo . plan --change current
-npx wvq --repo . record --change current --route /dashboard
-npx wvq mcp --repo .
-npx wvq bench --repo . --change current --base origin/main --head WORKTREE
+npx @weavatrix/wvq --repo . plan --change current
+npx @weavatrix/wvq --repo . record --change current --route /dashboard
+npx @weavatrix/wvq mcp --repo .
+npx @weavatrix/wvq bench --repo . --change current --base origin/main --head WORKTREE
 ```
 
 Applications can use the typed API or the bounded one-call MCP transport:
 
 ```js
-import { WvqClient } from 'wvq'
-import { WvqMcpClient } from 'wvq/mcp'
+import { WvqClient } from '@weavatrix/wvq'
+import { WvqMcpClient } from '@weavatrix/wvq/mcp'
 
 const quality = new WvqClient({ repo: process.cwd() })
 const plan = await quality.plan({ change: 'current' })
@@ -369,7 +369,7 @@ The authoring profile is fixed at startup to one change and Git range:
 ```sh
 wvq-mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
 # npm distribution:
-npx wvq mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
+npx @weavatrix/wvq mcp --repo . --profile authoring --change current --base HEAD --head WORKTREE
 ```
 
 It exposes six high-level operations:

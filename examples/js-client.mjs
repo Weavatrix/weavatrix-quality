@@ -2,8 +2,8 @@
  * Typed JS boundary over the native wvq / wvq-mcp binaries.
  * Run after: npm install wvq@0.1.0-alpha.1
  */
-import { WvqClient } from 'wvq'
-import { WvqMcpClient } from 'wvq/mcp'
+import { WvqClient } from '@weavatrix/wvq'
+import { WvqMcpClient } from '@weavatrix/wvq/mcp'
 
 const repo = process.cwd()
 const change = process.env.WVQ_CHANGE ?? 'current'

@@ -122,7 +122,7 @@ jobs:
           [[ "$SERVER_NAME" == "io.github.Weavatrix/weavatrix-quality" ]]
           [[ "$MCP_NAME" == "$SERVER_NAME" ]]
           [[ "$SERVER_VERSION" == "$VERSION" ]]
-          [[ "$SERVER_PACKAGE" == "wvq" ]]
+          [[ "$SERVER_PACKAGE" == "@weavatrix/wvq" ]]
           [[ "$SERVER_PACKAGE_VERSION" == "$VERSION" ]]
           [[ "$SERVER_COMMAND" == "mcp" ]]
           node scripts/build-npm-packages.mjs universal binaries "$VERSION"
@@ -149,18 +149,19 @@ jobs:
         shell: bash
         run: |
           VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          PKG="$(node -p "require('./npm/wvq/package.json').name")"
           DIST_TAG=latest
           case "$VERSION" in
             *alpha*|*beta*|*rc*) DIST_TAG=alpha ;;
           esac
-          if npm view "wvq@$VERSION" version >/dev/null 2>&1; then
-            echo "wvq@$VERSION already exists; verifying registry metadata"
+          if npm view "${PKG}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PKG}@${VERSION} already exists; verifying registry metadata"
           else
             npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public --tag "$DIST_TAG"
           fi
           for attempt in $(seq 1 24); do
-            PUBLISHED_HEAD="$(npm view "wvq@$VERSION" gitHead --json 2>/dev/null | tr -d '\"\r\n' || true)"
-            PREDICATE="$(npm view "wvq@$VERSION" dist.attestations.provenance.predicateType --json 2>/dev/null | tr -d '\"\r\n' || true)"
+            PUBLISHED_HEAD="$(npm view "${PKG}@${VERSION}" gitHead --json 2>/dev/null | tr -d '\"\r\n' || true)"
+            PREDICATE="$(npm view "${PKG}@${VERSION}" dist.attestations.provenance.predicateType --json 2>/dev/null | tr -d '\"\r\n' || true)"
             if [[ "$PUBLISHED_HEAD" == "$GITHUB_SHA" && "$PREDICATE" == "https://slsa.dev/provenance/v1" ]]; then
               break
             fi
@@ -201,7 +202,7 @@ jobs:
               jq --exit-status --arg version "$VERSION" \
                 '.server.name == "io.github.Weavatrix/weavatrix-quality" and
                  .server.version == $version and
-                 .server.packages[0].identifier == "wvq" and
+                 .server.packages[0].identifier == "@weavatrix/wvq" and
                  .server.packages[0].version == $version' >/dev/null; then
               break
             fi
@@ -211,7 +212,7 @@ jobs:
             jq --exit-status --arg version "$VERSION" \
               '.server.name == "io.github.Weavatrix/weavatrix-quality" and
                .server.version == $version and
-               .server.packages[0].identifier == "wvq" and
+               .server.packages[0].identifier == "@weavatrix/wvq" and
                .server.packages[0].version == $version' >/dev/null
 
   release:

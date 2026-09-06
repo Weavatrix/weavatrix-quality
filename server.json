@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "wvq",
+      "identifier": "@weavatrix/wvq",
       "version": "0.1.0-alpha.1",
       "runtimeHint": "npx",
       "transport": {

@@ -1,5 +1,5 @@
 {
-  "name": "wvq",
+  "name": "@weavatrix/wvq",
   "version": "0.1.0-alpha.1",
   "description": "Native Weavatrix Quality CLI, MCP server, live benchmark, and typed JavaScript client.",
   "author": "Sergii Ziborov <sergii.ziborov@gmail.com>",
