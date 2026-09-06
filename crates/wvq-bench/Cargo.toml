@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Shadow quality evaluation harness for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "benchmark"]
 categories = ["development-tools"]
 

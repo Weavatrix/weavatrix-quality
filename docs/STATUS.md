@@ -313,9 +313,7 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-Complete the alpha gate commits in order (ADR 0003): freeze UI plan scope + cancel → Studio debt range + single matrix → `runtime-profile` → positive CI `run`/`verify` dogfood → docs/examples → `0.1.0-alpha.1` publish surface → tag and verify registries.
-
-After alpha publishes, resume the finite v1 sequence from ADR 0003 (AnalysisSession, RunSnapshot, browser worker/contexts, projection authority, bounded scheduling, journal index, `wvq check` profiles). Do not expand the release boundary with new evidence families.
+After `0.1.0-alpha.1` is tagged and registries verify, resume the finite v1 sequence from ADR 0003 (AnalysisSession, RunSnapshot, browser worker/contexts, projection authority, bounded scheduling, journal index, `wvq check` profiles). Do not expand the release boundary with new evidence families.
 
 P0 from the 2026-09-02 reaudit is already on `main`. Remaining P1 observe-only campaign (30–50 PRs) and Coverage Autopilot stay post-alpha. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 

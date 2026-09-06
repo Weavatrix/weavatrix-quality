@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Stable typed contracts for Weavatrix Quality (WVQ)"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "wvq"]
 categories = ["development-tools"]
 

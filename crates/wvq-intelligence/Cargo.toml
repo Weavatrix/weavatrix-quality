@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Weavatrix-backed code evidence for Weavatrix Quality. No second parser or code graph."
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "wvq"]
 categories = ["development-tools"]
 

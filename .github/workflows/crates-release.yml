@@ -1,0 +1,65 @@
+name: Publish crates.io packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: crates-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'Weavatrix/weavatrix-quality'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.89
+        run: |
+          rustup toolchain install 1.89.0 --profile minimal
+          rustup default 1.89.0
+      - name: Verify tag matches Cargo/npm versions
+        run: |
+          VERSION="$(node -p "require('./npm/wvq/package.json').version")"
+          test "v${VERSION}" = "${GITHUB_REF_NAME}"
+          CARGO_VERSION="$(cargo metadata --locked --format-version 1 | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).packages.find(p=>p.name==='wvq-cli').version))")"
+          test "${CARGO_VERSION}" = "${VERSION}"
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
+            echo "CARGO_REGISTRY_TOKEN is not configured; skipping crates.io publish"
+            exit 0
+          fi
+          publish() {
+            local crate="$1"
+            if cargo search "$crate" --limit 1 2>/dev/null | grep -q "^${crate} = \"${GITHUB_REF_NAME#v}\""; then
+              echo "${crate}@${GITHUB_REF_NAME#v} already on crates.io; skipping"
+              return 0
+            fi
+            cargo publish -p "$crate" --locked --no-verify
+          }
+          # Leaf → binaries. --no-verify avoids needing every transitive build
+          # tool on the publisher; CI already built the workspace.
+          publish wvq-domain
+          publish wvq-spec
+          publish wvq-store
+          publish wvq-spec-recovery
+          publish wvq-ui
+          publish wvq-runtime
+          publish wvq-intelligence
+          publish wvq-proof
+          publish wvq-command-bus
+          publish wvq-bench
+          publish wvq-mcp
+          publish qualityd
+          publish wvq-cli

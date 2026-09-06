@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "wvq command-line surface for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "wvq"]
 categories = ["command-line-utilities"]
 
@@ -22,8 +22,8 @@ wvq-command-bus = { workspace = true }
 
 [dev-dependencies]
 mcport = { workspace = true }
-qualityd = { path = "../qualityd" }
-wvq-mcp = { path = "../wvq-mcp" }
+qualityd = { path = "../qualityd", version = "0.1.0-alpha.1" }
+wvq-mcp = { path = "../wvq-mcp", version = "0.1.0-alpha.1" }
 wvq-proof = { workspace = true }
 wvq-store = { workspace = true }
 

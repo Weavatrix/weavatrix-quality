@@ -51,8 +51,8 @@ alpha API warning on libraries.
    (observe-only remains the negative smoke).
 5. User docs, examples, CHANGELOG; version lock across Cargo/npm/`server.json`.
 6. Publish: npm + MCP Registry + GitHub Release; crates.io for the publishable
-   dependency closure of `wvq` / `wvq-mcp` / `wvq-bench`. `qualityd` stays
-   unpublished.
+   dependency closure of `wvq` / `wvq-mcp` / `wvq-bench` (and `qualityd`, so
+   `wvq-cli` can resolve Studio as a versioned path dep on crates.io).
 
 ### Deferred to v1 (not alpha incompleteness)
 

@@ -7,14 +7,14 @@
     "url": "https://github.com/Weavatrix/weavatrix-quality",
     "source": "github"
   },
-  "version": "0.0.1",
+  "version": "0.1.0-alpha.1",
   "websiteUrl": "https://github.com/Weavatrix/weavatrix-quality",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "wvq",
-      "version": "0.0.1",
+      "version": "0.1.0-alpha.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

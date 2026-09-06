@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Brownfield spec recovery with mandatory QA verification for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "openspec"]
 categories = ["development-tools"]
 

@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Shared CLI/HTTP/MCP command bus for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "wvq"]
 categories = ["development-tools"]
 

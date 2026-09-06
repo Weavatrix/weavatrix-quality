@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "SQLite + CAS evidence ledger for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "sqlite"]
 categories = ["development-tools"]
 

@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Bounded test-runner adapters and evidence normalization for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "junit"]
 categories = ["development-tools"]
 

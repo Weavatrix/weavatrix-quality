@@ -8,7 +8,7 @@ license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 description = "Quality Studio HTTP surface for Weavatrix Quality"
-publish = false
+publish = true
 keywords = ["weavatrix", "quality", "studio"]
 categories = ["development-tools"]
 
