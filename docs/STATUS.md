@@ -1,9 +1,11 @@
 # STATUS — Weavatrix Quality
 
-Last updated: 2026-09-03
-Session: P1 — Behavior Surface Observed origin from live browser runs
+Last updated: 2026-09-06
+Session: Alpha orchestration gate → `0.1.0-alpha.1`
 
 ## Now
+
+Alpha pre-release gate is in progress per [ADR 0003](adr/0003-alpha-orchestration-gate.md). Goal: one frozen plan → one execution set → one consistent report, then publish npm/MCP/GitHub and the crates.io closure as `0.1.0-alpha.1`. This is **not** the full v1 Definition of Done. Deferred v1 work (AnalysisSession, RunSnapshot, browser process pooling, projection authority cleanup, bounded scheduling, journal index, `wvq check` + pr/deep profiles) must not silently become alpha blockers.
 
 Linux CI writes an exact-head validation manifest (`target/exact-head-validation.json`, uploaded as `exact-head-validation`) naming this commit, the workflow run, and each test-job step outcome. STATUS claims are not that artifact. A failed Playwright/workspace/Clippy/spec/doctor step marks the manifest `blocking`. An observe-only verify failure is recorded and not blocking.
 
@@ -313,8 +315,10 @@ On sixty accepted, defect-free changes, text matching fired on 33–92% dependin
 
 ## Load next
 
-P0 from the 2026-09-02 reaudit is implemented on this tree. `wvq doctor`, product OpenSpec `wvq-invariants`, Studio exception cards, exact product test bindings, bounded cargo-test case filters, Linux CI observe-only self-dogfood, journal→Runtime matrix wiring, the Rust mutation catalogue, and Behavior Surface Role/State/Action/Flag projection (Recorded journals + Observed live action spans, MCP/Studio, never a gate) are on `main`. Remaining P1 is the 30–50 PR observe-only campaign across other repositories.
+Complete the alpha gate commits in order (ADR 0003): freeze UI plan scope + cancel → Studio debt range + single matrix → `runtime-profile` → positive CI `run`/`verify` dogfood → docs/examples → `0.1.0-alpha.1` publish surface → tag and verify registries.
 
-Then breadth and advanced producers. Coverage Autopilot closed-loop generation still waits. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
+After alpha publishes, resume the finite v1 sequence from ADR 0003 (AnalysisSession, RunSnapshot, browser worker/contexts, projection authority, bounded scheduling, journal index, `wvq check` profiles). Do not expand the release boundary with new evidence families.
+
+P0 from the 2026-09-02 reaudit is already on `main`. Remaining P1 observe-only campaign (30–50 PRs) and Coverage Autopilot stay post-alpha. Bounded failure evidence (`failure_reel`) stays diagnostic-only.
 
 Do not duplicate Rust policy or proof semantics in TypeScript, and do not add a default MCP tool for UI detail — `quality_verify`, `quality_explain`, and `quality_evidence` already carry it.
