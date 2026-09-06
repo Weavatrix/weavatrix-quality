@@ -1,17 +1,18 @@
 # STATUS — Weavatrix Quality
 
 Last updated: 2026-09-06
-Session: Alpha orchestration gate → `0.1.0-alpha.1`
+Session: Alpha docs upgrade — example-heavy README / npm / crates / examples/
 
 ## Now
 
-Alpha gate `0.1.0-alpha.1` is published for the primary distribution path:
+Alpha gate `0.1.0-alpha.1` is published. User-facing docs were rebuilt around
+copy-paste examples (CLI / MCP / JS) on GitHub README, npm `@weavatrix/wvq`,
+binary crate READMEs, and [`examples/`](../examples/).
 
-- npm: `@weavatrix/wvq@0.1.0-alpha.1` (unscoped `wvq` is blocked by npm similarity rules)
+- npm: `@weavatrix/wvq@0.1.0-alpha.1`
 - MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.1`
 - GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.1
-- crates.io: full publishable closure at `0.1.0-alpha.1` (`wvq-domain` …
-  `wvq-cli`, including `qualityd`)
+- crates.io: full publishable closure at `0.1.0-alpha.1`
 
 This is **not** the full v1 Definition of Done. Remaining v1 work is listed in
 [ADR 0003](adr/0003-alpha-orchestration-gate.md).

@@ -1,10 +1,23 @@
-# wvq-domain
+﻿# wvq-domain
 
-Stable typed contracts for **Weavatrix Quality** (IDs, findings, shared enums).
+Stable typed contracts (IDs, findings, shared enums).
 
-**Alpha:** public API may break without a major bump. Prefer the `wvq` CLI/MCP
-surface unless you are embedding WVQ deliberately.
+**Alpha `0.1.0-alpha.1` — unstable.** Published so binary crates can resolve on
+crates.io. Prefer the product surface:
+
+```sh
+npx @weavatrix/wvq@0.1.0-alpha.1 doctor
+npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
+```
+
+- Examples: https://github.com/Weavatrix/weavatrix-quality/tree/main/examples
+- Product README: https://github.com/Weavatrix/weavatrix-quality#readme
+- Binaries: [wvq-cli](https://crates.io/crates/wvq-cli) · [wvq-mcp](https://crates.io/crates/wvq-mcp) · [wvq-bench](https://crates.io/crates/wvq-bench)
 
 ```toml
 wvq-domain = "0.1.0-alpha.1"
 ```
+
+## License
+
+MIT

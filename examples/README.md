@@ -1,46 +1,31 @@
-# Examples — Weavatrix Quality alpha
+# Examples — Weavatrix Quality
 
-These snippets assume `@weavatrix/wvq@0.1.0-alpha.1` (npm) or a local `cargo build -p wvq-cli`.
+Copy-paste oriented samples for **alpha `0.1.0-alpha.1`**.
 
-## CLI: plan → run → verify
+| Path | What |
+| --- | --- |
+| [cli/](cli/) | Shell recipes: doctor → run → verify, dogfood, CI |
+| [mcp/](mcp/) | Cursor / Claude Desktop configs + tool recipes |
+| [js/](js/) | `WvqClient` + `WvqMcpClient` scripts |
+
+Install once:
 
 ```sh
-# Discover what is already configured (read-only)
-npx @weavatrix/wvq@0.1.0-alpha.1 doctor
-
-# Compile OpenSpec obligations for a change
-npx @weavatrix/wvq@0.1.0-alpha.1 spec validate --change wvq-invariants
-
-# Impacted execution (existing runners only)
-npx @weavatrix/wvq@0.1.0-alpha.1 run \
-  --change wvq-invariants \
-  --base origin/main \
-  --head HEAD \
-  --scope impacted \
-  --evidence-policy minimal
-
-# Read-only composite verdict from stored evidence
-npx @weavatrix/wvq@0.1.0-alpha.1 verify --change wvq-invariants
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.1
+# or use npx without installing
 ```
 
-## MCP (Cursor / Claude Desktop)
+From a repo that already has OpenSpec + `.weavatrix-quality/config.yaml`
+(this repository dogfoods `wvq-invariants`):
 
-`wvq-mcp` is an mcport host. Add to your MCP client config:
+```sh
+# CLI
+bash examples/cli/quickstart.sh
+bash examples/cli/dogfood.sh
 
-```json
-{
-  "mcpServers": {
-    "weavatrix-quality": {
-      "command": "npx",
-      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.1", "mcp", "--repo", "."]
-    }
-  }
-}
+# JS (Node 20+)
+node examples/js/plan-run-verify.mjs
+node examples/js/mcp-default.mjs
 ```
 
-Default tools: `quality_context`, `quality_plan`, `quality_run`, `quality_status`,
-`quality_verify`, `quality_explain`, `quality_evidence`.
-
-## JavaScript client
-
-See [`js-client.mjs`](js-client.mjs).
+Product overview: [../README.md](../README.md).

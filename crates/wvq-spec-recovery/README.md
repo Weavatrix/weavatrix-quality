@@ -1,7 +1,23 @@
-# Unstable alpha library
+﻿# wvq-spec-recovery
 
-Part of **Weavatrix Quality**. This crate is published so `cargo install` of
-`wvq` / `wvq-mcp` / `wvq-bench` can resolve the workspace graph.
+Brownfield spec recovery (QA-gated).
 
-**Do not treat this as a stable embedding API.** Prefer npm `wvq` or the binary
-crates. See [ADR 0003](https://github.com/Weavatrix/weavatrix-quality/blob/main/docs/adr/0003-alpha-orchestration-gate.md).
+**Alpha `0.1.0-alpha.1` — unstable.** Published so binary crates can resolve on
+crates.io. Prefer the product surface:
+
+```sh
+npx @weavatrix/wvq@0.1.0-alpha.1 doctor
+npx @weavatrix/wvq@0.1.0-alpha.1 mcp --repo .
+```
+
+- Examples: https://github.com/Weavatrix/weavatrix-quality/tree/main/examples
+- Product README: https://github.com/Weavatrix/weavatrix-quality#readme
+- Binaries: [wvq-cli](https://crates.io/crates/wvq-cli) · [wvq-mcp](https://crates.io/crates/wvq-mcp) · [wvq-bench](https://crates.io/crates/wvq-bench)
+
+```toml
+wvq-spec-recovery = "0.1.0-alpha.1"
+```
+
+## License
+
+MIT
