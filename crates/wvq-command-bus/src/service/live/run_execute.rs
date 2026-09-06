@@ -189,6 +189,7 @@ impl LiveService {
                     &browser_runs,
                     &ui_policy,
                     &cmd.evidence_policy,
+                    Arc::clone(&cancel),
                 )
             })
         });

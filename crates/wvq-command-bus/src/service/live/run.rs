@@ -14,7 +14,7 @@ impl LiveService {
         cancel: Arc<AtomicBool>,
     ) -> Result<RunReply, BusError> {
         let prepared = self.prepare_controlled_run(cmd)?;
-        let executed = self.execute_controlled_run(cmd, cancel, &prepared)?;
-        self.persist_controlled_run(cmd, &prepared, executed)
+        let executed = self.execute_controlled_run(cmd, Arc::clone(&cancel), &prepared)?;
+        self.persist_controlled_run(cmd, &prepared, executed, cancel)
     }
 }

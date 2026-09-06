@@ -53,7 +53,13 @@ impl LiveService {
                 head_run.run_id
             ))
         })?;
-        let base_snapshot = self.measure_base_ui(&range, &compiled, &policy)?;
+        let base_snapshot = self.measure_base_ui(
+            &range,
+            &compiled,
+            &policy,
+            None,
+            Arc::new(AtomicBool::new(false)),
+        )?;
         let previously_fixed = store
             .previously_fixed_debt()
             .map_err(|err| BusError::Store(err.to_string()))?
@@ -62,6 +68,7 @@ impl LiveService {
             .collect::<BTreeSet<_>>();
         let mut delta = ratchet_ui(&base_snapshot, &head_snapshot, &previously_fixed, &policy);
         if policy.responsive.enabled {
+            // All-scope view: empty selection falls back to the head catalog.
             let (intervals, truncated) = self.measure_responsive_ui(
                 &range,
                 &compiled,
@@ -69,6 +76,8 @@ impl LiveService {
                 &base_snapshot,
                 &head_snapshot,
                 &previously_fixed,
+                &[],
+                Arc::new(AtomicBool::new(false)),
             )?;
             delta.responsive_intervals = intervals;
             delta.responsive_truncated = truncated;

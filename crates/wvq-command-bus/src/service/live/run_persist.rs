@@ -17,9 +17,10 @@ impl LiveService {
         cmd: &RunCommand,
         prepared: &PreparedControlledRun,
         executed: ExecutedControlledRun<'_>,
+        cancel: Arc<AtomicBool>,
     ) -> Result<RunReply, BusError> {
         let persisted = self.persist_run_core_artifacts(cmd, prepared, &executed)?;
-        self.finish_controlled_run(cmd, prepared, executed, persisted)
+        self.finish_controlled_run(cmd, prepared, executed, persisted, cancel)
     }
 
     #[allow(clippy::too_many_lines)]

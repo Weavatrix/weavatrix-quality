@@ -60,6 +60,7 @@ pub(in crate::service) struct BrowserPolicy {
     pub(in crate::service) programs: Vec<ConfiguredBrowserProgram>,
 }
 
+#[derive(Clone)]
 pub(in crate::service) struct ConfiguredBrowserProgram {
     pub(in crate::service) path: String,
     pub(in crate::service) program: TestProgram,

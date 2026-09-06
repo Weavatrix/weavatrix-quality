@@ -27,6 +27,7 @@ impl LiveService {
         prepared: &PreparedControlledRun,
         executed: ExecutedControlledRun<'_>,
         persisted: PersistedControlledRun,
+        cancel: Arc<AtomicBool>,
     ) -> Result<RunReply, BusError> {
         let store = &prepared.store;
         let compiled = &prepared.compiled;
@@ -79,6 +80,10 @@ impl LiveService {
                 .collect::<BTreeSet<_>>();
             let mut delta = ratchet_ui(&base_ui, head_ui, &previously_fixed, ui_policy);
             if ui_policy.responsive.enabled && base_replay.is_ok() {
+                let selected: Vec<ConfiguredBrowserProgram> = browser_runs
+                    .iter()
+                    .map(|(configured, _)| (*configured).clone())
+                    .collect();
                 let (intervals, truncated) = self.measure_responsive_ui(
                     range,
                     compiled,
@@ -86,6 +91,8 @@ impl LiveService {
                     &base_ui,
                     head_ui,
                     &previously_fixed,
+                    &selected,
+                    Arc::clone(&cancel),
                 )?;
                 delta.responsive_intervals = intervals;
                 delta.responsive_truncated = truncated;

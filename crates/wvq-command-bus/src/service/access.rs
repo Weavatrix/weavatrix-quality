@@ -81,6 +81,7 @@ pub(in crate::service) use super::graph::*;
 pub(in crate::service) use super::paths::*;
 pub(in crate::service) use super::policy::*;
 pub(in crate::service) use super::types::*;
+pub(in crate::service) use super::ui_plan::{ensure_not_cancelled, frozen_ui_programs};
 pub(in crate::service) use super::validate::*;
 pub(in crate::service) use super::{
     APPLICATION_SURFACE_GRAPH_KIND, BEHAVIOR_SURFACE_GRAPH_KIND, CHEAPEST_EVIDENCE_PLAN_KIND,

@@ -57,6 +57,7 @@ mod persist_evidence;
 mod persist_surface;
 mod persist_matrix;
 mod persist_plan;
+mod ui_plan;
 mod impact;
 mod protection_snapshot;
 mod protection_coverage;

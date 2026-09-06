@@ -21,6 +21,7 @@ impl LiveService {
         head_runs: &[(&ConfiguredBrowserProgram, BrowserProgramRun)],
         ui_policy: &UiIntegrityPolicy,
         run_evidence_policy: &str,
+        cancel: Arc<AtomicBool>,
     ) -> Result<BaseBrowserReplay, BusError> {
         let worktree = TemporaryWorktree::create(&self.repo, &range.merge_base)?;
         let revision = WeavatrixProvider
@@ -33,9 +34,9 @@ impl LiveService {
                 .ok_or_else(|| {
                     BusError::Runtime("merge base has no browser runtime configuration".into())
                 })?;
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut runs = Vec::new();
         for (configured, _) in head_runs {
+            ensure_not_cancelled(&cancel)?;
             let mut executable = configured.program.clone();
             cap_browser_evidence(&mut executable, run_evidence_policy);
             // Binary capture is not an input to structured comparison and its
@@ -80,12 +81,17 @@ impl LiveService {
         })
     }
 
-    /// Replay the configured browser programs at the merge base.
+    /// Replay browser programs at the merge base.
+    ///
+    /// When `selected` is set, only those (head-selected) programs run. When
+    /// omitted, the base catalog is measured in full (all-scope views).
     pub(in crate::service) fn measure_base_ui(
         &self,
         range: &RevisionRange,
         compiled: &Compiled,
         policy: &UiIntegrityPolicy,
+        selected: Option<&[ConfiguredBrowserProgram]>,
+        cancel: Arc<AtomicBool>,
     ) -> Result<UiIntegritySnapshot, BusError> {
         // The browser engine is toolchain, not source: a fresh worktree has no
         // node_modules, and replaying base with a different engine would
@@ -111,9 +117,10 @@ impl LiveService {
                 ..UiIntegritySnapshot::default()
             });
         };
-        let cancel = Arc::new(AtomicBool::new(false));
+        let programs = frozen_ui_programs(selected, &browser.programs);
         let mut runs = Vec::new();
-        for configured in &browser.programs {
+        for configured in programs {
+            ensure_not_cancelled(&cancel)?;
             let result = run_browser_program_at(
                 &BrowserRunConfig {
                     base_url: browser.base_url.clone(),
@@ -149,18 +156,21 @@ impl LiveService {
         Ok(analyse_ui_snapshots(&evidence.revision, policy, &borrowed)?.snapshot)
     }
 
+    /// Measure UI for a frozen program set at one viewport.
     pub(in crate::service) fn measure_ui_at(
         &self,
         repo: &Path,
         revision: &RevisionId,
         browser: &BrowserPolicy,
+        programs: &[ConfiguredBrowserProgram],
         policy: &UiIntegrityPolicy,
         viewport: BrowserViewport,
         side: &str,
+        cancel: Arc<AtomicBool>,
     ) -> Result<UiIntegritySnapshot, BusError> {
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut runs = Vec::new();
-        for configured in &browser.programs {
+        for configured in programs {
+            ensure_not_cancelled(&cancel)?;
             let result = run_browser_program_at(
                 &BrowserRunConfig {
                     base_url: browser.base_url.clone(),

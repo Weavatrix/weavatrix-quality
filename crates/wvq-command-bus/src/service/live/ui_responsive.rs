@@ -7,6 +7,10 @@ use super::LiveService;
 impl LiveService {
     /// Probe sentinels and parsed CSS/container boundaries on base and head,
     /// then bisect only intervals whose measured finding sets disagree.
+    ///
+    /// `selected_programs` is the frozen head-selected plan. Both revisions
+    /// execute those program definitions; runtime coordinates come from each
+    /// side. The helper never silently expands to the full configured catalog.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::service) fn measure_responsive_ui(
         &self,
@@ -16,7 +20,10 @@ impl LiveService {
         base_default: &UiIntegritySnapshot,
         head_default: &UiIntegritySnapshot,
         previously_fixed: &BTreeSet<String>,
+        selected_programs: &[ConfiguredBrowserProgram],
+        cancel: Arc<AtomicBool>,
     ) -> Result<(Vec<wvq_ui::ResponsiveFailureInterval>, bool), BusError> {
+        ensure_not_cancelled(&cancel)?;
         let engine = load_browser_policy(&self.repo, &compiled.obligations)?
             .map(|browser| browser.module_root)
             .ok_or_else(|| {
@@ -44,6 +51,22 @@ impl LiveService {
         let head_revision = RevisionId::new(&head_default.revision)
             .map_err(|err| BusError::Identity(err.to_string()))?;
 
+        // Head-selected programs are the frozen plan. An empty selection in an
+        // all-scope view falls back to the head catalog explicitly.
+        let catalog_fallback: Vec<ConfiguredBrowserProgram> = if selected_programs.is_empty() {
+            frozen_ui_programs(None, &head_browser.programs)
+                .into_iter()
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let programs: &[ConfiguredBrowserProgram] = if selected_programs.is_empty() {
+            &catalog_fallback
+        } else {
+            selected_programs
+        };
+
         let breakpoints = base_default
             .responsive_breakpoints
             .union(&head_default.responsive_breakpoints)
@@ -55,6 +78,7 @@ impl LiveService {
             || head_default.responsive_breakpoints_incomplete;
         let mut probes = Vec::new();
         for width in plan.widths {
+            ensure_not_cancelled(&cancel)?;
             probes.push(self.measure_responsive_probe_with_retry(
                 width,
                 &base_worktree.path,
@@ -62,11 +86,14 @@ impl LiveService {
                 &base_browser,
                 &head_revision,
                 &head_browser,
+                programs,
                 policy,
                 previously_fixed,
+                Arc::clone(&cancel),
             )?);
         }
         while let Some(width) = next_responsive_probe(&policy.responsive, &probes) {
+            ensure_not_cancelled(&cancel)?;
             probes.push(self.measure_responsive_probe_with_retry(
                 width,
                 &base_worktree.path,
@@ -74,8 +101,10 @@ impl LiveService {
                 &base_browser,
                 &head_revision,
                 &head_browser,
+                programs,
                 policy,
                 previously_fixed,
+                Arc::clone(&cancel),
             )?);
         }
         probes.sort_by_key(|probe| probe.width);
@@ -107,8 +136,10 @@ impl LiveService {
         base_browser: &BrowserPolicy,
         head_revision: &RevisionId,
         head_browser: &BrowserPolicy,
+        programs: &[ConfiguredBrowserProgram],
         policy: &UiIntegrityPolicy,
         previously_fixed: &BTreeSet<String>,
+        cancel: Arc<AtomicBool>,
     ) -> Result<ResponsiveProbe, BusError> {
         let first = self.measure_responsive_probe(
             width,
@@ -117,12 +148,15 @@ impl LiveService {
             base_browser,
             head_revision,
             head_browser,
+            programs,
             policy,
             previously_fixed,
+            Arc::clone(&cancel),
         )?;
         if !responsive_probe_incomplete(&first) {
             return Ok(first);
         }
+        ensure_not_cancelled(&cancel)?;
         self.measure_responsive_probe(
             width,
             base_repo,
@@ -130,8 +164,10 @@ impl LiveService {
             base_browser,
             head_revision,
             head_browser,
+            programs,
             policy,
             previously_fixed,
+            cancel,
         )
     }
 
@@ -144,8 +180,10 @@ impl LiveService {
         base_browser: &BrowserPolicy,
         head_revision: &RevisionId,
         head_browser: &BrowserPolicy,
+        programs: &[ConfiguredBrowserProgram],
         policy: &UiIntegrityPolicy,
         previously_fixed: &BTreeSet<String>,
+        cancel: Arc<AtomicBool>,
     ) -> Result<ResponsiveProbe, BusError> {
         let viewport = BrowserViewport {
             width,
@@ -155,17 +193,21 @@ impl LiveService {
             base_repo,
             base_revision,
             base_browser,
+            programs,
             policy,
             viewport,
             "base",
+            Arc::clone(&cancel),
         )?;
         let head = self.measure_ui_at(
             &self.repo,
             head_revision,
             head_browser,
+            programs,
             policy,
             viewport,
             "head",
+            cancel,
         )?;
         Ok(ResponsiveProbe {
             width,
