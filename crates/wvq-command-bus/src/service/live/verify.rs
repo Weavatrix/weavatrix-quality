@@ -190,6 +190,10 @@ impl LiveService {
             Some(run) => super::super::persist_surface::load_application_surface(&store, &run.id)?,
             None => ApplicationSurfaceView::absent(),
         };
+        reply.behavior_surface = match &run {
+            Some(run) => super::super::persist_surface::load_behavior_surface(&store, &run.id)?,
+            None => BehaviorSurfaceView::absent(),
+        };
         reply.surface_evidence = match &run {
             Some(run) => {
                 super::super::persist_matrix::load_surface_evidence_matrix(&store, &run.id)?

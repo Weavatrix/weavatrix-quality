@@ -227,6 +227,29 @@ impl ApplicationSurfaceView {
     }
 }
 
+/// Read-only Behavior Surface projection for MCP and Studio.
+///
+/// Combinations exist only when evidenced. Two facts are never crossed into a
+/// third. A missing artifact is [`Self::absent`], not an empty clean list.
+/// This view is never a gate.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct BehaviorSurfaceView {
+    /// False when the run never stored a behavior-surface graph.
+    pub present: bool,
+    /// True when the projection hit [`wvq_intelligence::MAX_BEHAVIOR_SURFACES`].
+    pub truncated: bool,
+    /// Evidenced combination ids. Never a Cartesian product.
+    pub behaviors: Vec<String>,
+}
+
+impl BehaviorSurfaceView {
+    /// No artifact. Missing evidence is not an empty combination list.
+    #[must_use]
+    pub fn absent() -> Self {
+        Self::default()
+    }
+}
+
 /// Read-only Surface Evidence Matrix for MCP and Studio.
 ///
 /// Each cell is `present`, `absent`, or `unmeasured`. A missing artifact is
@@ -294,6 +317,8 @@ pub struct VerifyReply {
     pub quality: ChangeQualityVerdict,
     /// Read-only Application Surface Graph projection. Never a gate.
     pub application_surface: ApplicationSurfaceView,
+    /// Read-only Behavior Surface projection. Never a gate.
+    pub behavior_surface: BehaviorSurfaceView,
     /// Read-only Surface Evidence Matrix. Never a gate.
     pub surface_evidence: SurfaceEvidenceMatrixView,
     /// Read-only cheapest-evidence plan. Never a gate.

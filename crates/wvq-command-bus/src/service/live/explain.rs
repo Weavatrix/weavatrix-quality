@@ -11,6 +11,9 @@ impl LiveService {
         if let Some(reply) = super::super::persist_surface::explain_application_surface(&store, &cmd.id)? {
             return Ok(reply);
         }
+        if let Some(reply) = super::super::persist_surface::explain_behavior_surface(&store, &cmd.id)? {
+            return Ok(reply);
+        }
         if let Some(reply) = explain_ui_finding(&store, &cmd.id)? {
             return Ok(reply);
         }

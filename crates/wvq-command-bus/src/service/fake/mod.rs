@@ -26,6 +26,7 @@ pub(in crate::service) struct FakeInner {
     pub(in crate::service) explanations: BTreeMap<String, ExplainReply>,
     pub(in crate::service) proofs: Vec<ProofSummary>,
     pub(in crate::service) application_surface: ApplicationSurfaceView,
+    pub(in crate::service) behavior_surface: BehaviorSurfaceView,
     pub(in crate::service) surface_evidence: SurfaceEvidenceMatrixView,
     pub(in crate::service) evidence_plan: CheapestEvidencePlanView,
     pub(in crate::service) existing_debt: Vec<String>,
@@ -50,6 +51,7 @@ impl Default for FakeService {
                 explanations: BTreeMap::new(),
                 proofs: Vec::new(),
                 application_surface: ApplicationSurfaceView::absent(),
+                behavior_surface: BehaviorSurfaceView::absent(),
                 surface_evidence: SurfaceEvidenceMatrixView::absent(),
                 evidence_plan: CheapestEvidencePlanView::absent(),
                 existing_debt: vec!["legacy-clone".into()],
@@ -91,6 +93,11 @@ impl FakeService {
     /// Read-only Application Surface Graph projection [`QualityService::verify`] returns.
     pub fn set_application_surface(&self, view: ApplicationSurfaceView) {
         self.lock().application_surface = view;
+    }
+
+    /// Read-only Behavior Surface projection [`QualityService::verify`] returns.
+    pub fn set_behavior_surface(&self, view: BehaviorSurfaceView) {
+        self.lock().behavior_surface = view;
     }
 
     /// Read-only Surface Evidence Matrix [`QualityService::verify`] returns.

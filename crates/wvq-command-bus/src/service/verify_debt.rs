@@ -21,6 +21,7 @@ pub(in crate::service) fn combine_verify(
         state: quality.state.as_str().to_owned(),
         quality,
         application_surface: ApplicationSurfaceView::absent(),
+        behavior_surface: BehaviorSurfaceView::absent(),
         surface_evidence: SurfaceEvidenceMatrixView::absent(),
         evidence_plan: CheapestEvidencePlanView::absent(),
         observe_only: false,

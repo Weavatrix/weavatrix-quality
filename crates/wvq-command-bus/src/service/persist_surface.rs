@@ -6,7 +6,7 @@ use super::access::*;
 use super::persist_run::put_json_run_artifact;
 use super::selection_audit::read_single_run_json;
 use super::verify_reply::artifact_handle_of_kind;
-use crate::replies::ApplicationSurfaceView;
+use crate::replies::{ApplicationSurfaceView, BehaviorSurfaceView};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,10 +276,108 @@ pub(in crate::service) fn persist_behavior_surface_graph(
         store,
         run,
         &format!("artifact-{}-behavior-surface-graph", run.as_str()),
-        super::BEHAVIOR_SURFACE_GRAPH_KIND,
+        BEHAVIOR_SURFACE_GRAPH_KIND,
         &document,
         handles,
     )
+}
+
+pub(in crate::service) fn load_behavior_surface(
+    store: &Store,
+    run: &RunId,
+) -> Result<BehaviorSurfaceView, BusError> {
+    match read_single_run_json(store, run, BEHAVIOR_SURFACE_GRAPH_KIND) {
+        Ok(value) => Ok(behavior_view_from_json(&value)?),
+        Err(BusError::Store(message)) if message.contains("has no ") => {
+            Ok(BehaviorSurfaceView::absent())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+pub(in crate::service) fn explain_behavior_surface(
+    store: &Store,
+    id: &str,
+) -> Result<Option<ExplainReply>, BusError> {
+    if !looks_like_behavior(id) {
+        return Ok(None);
+    }
+    let Some(run) = store
+        .latest_run_any()
+        .map_err(|err| BusError::Store(err.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let Ok(document) = read_single_run_json(store, &run.id, BEHAVIOR_SURFACE_GRAPH_KIND) else {
+        return Ok(None);
+    };
+    let parsed = parse_behavior_document(&document)?;
+    let Some(item) = parsed.behaviors.iter().find(|item| item.id == id) else {
+        return Ok(None);
+    };
+    let origins = item
+        .origins
+        .iter()
+        .map(|origin| origin_token(*origin))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut provenance = vec![
+        format!("behavior {}", item.id),
+        format!("surface {}", item.surface),
+        format!("origins {origins}"),
+        format!("head revision {}", parsed.revision),
+    ];
+    if let Some(role) = &item.role {
+        provenance.push(format!("role {role}"));
+    }
+    if let Some(state) = &item.state {
+        provenance.push(format!("state {state}"));
+    }
+    if let Some(action) = &item.action {
+        provenance.push(format!("action {action}"));
+    }
+    if let Some(flag) = &item.flag {
+        provenance.push(format!("flag {flag}"));
+    }
+    if parsed.truncated {
+        provenance.push("projection truncated".into());
+    }
+    if let Some(handle) = artifact_handle_of_kind(store, &run.id, BEHAVIOR_SURFACE_GRAPH_KIND)? {
+        provenance.push(format!("artifact {BEHAVIOR_SURFACE_GRAPH_KIND} {handle}"));
+    }
+    Ok(Some(ExplainReply {
+        id: id.to_owned(),
+        kind: "behavior_surface".into(),
+        summary: format!("behavior surface {id} is evidenced ({origins})"),
+        provenance,
+    }))
+}
+
+fn behavior_view_from_json(value: &Value) -> Result<BehaviorSurfaceView, BusError> {
+    let document = parse_behavior_document(value)?;
+    Ok(BehaviorSurfaceView {
+        present: true,
+        truncated: document.truncated,
+        behaviors: document
+            .behaviors
+            .into_iter()
+            .map(|item| item.id)
+            .collect(),
+    })
+}
+
+fn parse_behavior_document(value: &Value) -> Result<BehaviorSurfaceDocument, BusError> {
+    let schema_v = value.get("schema_v").and_then(Value::as_u64).ok_or_else(|| {
+        BusError::Store("behavior-surface-graph omitted schema_v".into())
+    })?;
+    if schema_v != 1 {
+        return Err(BusError::Store(format!(
+            "unknown behavior-surface-graph schema version {schema_v}"
+        )));
+    }
+    serde_json::from_value(value.clone()).map_err(|err| {
+        BusError::Store(format!("malformed behavior-surface-graph: {err}"))
+    })
 }
 
 fn behavior_facts_from_journals(journals: &[ContinuousJournal]) -> Vec<BehaviorSurfaceFact> {
@@ -335,6 +433,23 @@ fn looks_like_surface(id: &str) -> bool {
         || id.starts_with("operation:")
         || id.starts_with("event:")
         || id.starts_with("public_api:")
+}
+
+fn looks_like_behavior(id: &str) -> bool {
+    let Some((surface, rest)) = id.split_once('|') else {
+        return false;
+    };
+    looks_like_surface(surface) && !rest.is_empty()
+}
+
+fn origin_token(origin: BehaviorSurfaceOrigin) -> &'static str {
+    match origin {
+        BehaviorSurfaceOrigin::Declared => "declared",
+        BehaviorSurfaceOrigin::Observed => "observed",
+        BehaviorSurfaceOrigin::Recorded => "recorded",
+        BehaviorSurfaceOrigin::Story => "story",
+        BehaviorSurfaceOrigin::Graph => "graph",
+    }
 }
 
 impl ApplicationSurfaceReading {

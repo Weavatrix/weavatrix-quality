@@ -20,7 +20,8 @@ pub use commands::{
 pub use replies::{
     AnalyzeReply, ApplicationSurfaceView, AuthorDraftReply, AuthorHealReply, AuthorModelUsage,
     AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply, AuthoringObligation,
-    BaselineReply, ChangesReply, CheapestEvidencePlanView, ContextReply, DebtReply, DoctorBinding,
+    BaselineReply, BehaviorSurfaceView, ChangesReply, CheapestEvidencePlanView, ContextReply,
+    DebtReply, DoctorBinding,
     DoctorReply, DoctorRunner, EvidenceReply, ExplainReply, INLINE_LIMIT, IngestCassetteReply,
     IngestJournalReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
     Reply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply,

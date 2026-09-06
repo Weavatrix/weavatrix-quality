@@ -214,6 +214,7 @@ fn an_absent_surface_view_does_not_block_verify() {
     let reply = verify_from_token("surface-change", "PROVEN");
     assert!(!reply.blocking);
     assert!(!reply.application_surface.present);
+    assert!(!reply.behavior_surface.present);
     assert!(!reply.surface_evidence.present);
 }
 
@@ -284,5 +285,78 @@ fn a_recorded_journal_adds_behavior_surfaces_without_crossing_dimensions() {
         ids.iter()
             .all(|id| !(id.contains("role:admin") && id.contains("state:empty_cart"))),
         "admin × empty_cart must not be invented: {ids:?}"
+    );
+
+    let view = load_behavior_surface(&store, &run).unwrap();
+    assert!(view.present);
+    assert_eq!(view.behaviors, ids);
+    let explained = explain_behavior_surface(
+        &store,
+        "route:/checkout|role:admin|action:activate",
+    )
+    .unwrap()
+    .expect("recorded admin activate");
+    assert_eq!(explained.kind, "behavior_surface");
+    assert!(explained.summary.contains("evidenced"));
+    assert!(
+        explained
+            .provenance
+            .iter()
+            .any(|line| line.contains("artifact behavior-surface-graph")),
+        "{:?}",
+        explained.provenance
+    );
+}
+
+#[test]
+fn a_missing_behavior_artifact_is_absent_not_an_empty_clean_view() {
+    let root = TempDir::new("behavior-absent");
+    let store = Store::open(&root.0).unwrap();
+    let run = RunId::new("run-behavior-absent").unwrap();
+    store
+        .put_run(&StoredRun {
+            id: run.clone(),
+            change_id: "surface".into(),
+            revision: RevisionId::new("rev-absent").unwrap(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    let view = load_behavior_surface(&store, &run).unwrap();
+    assert!(!view.present, "missing evidence is not an empty graph");
+    assert!(view.behaviors.is_empty());
+}
+
+#[test]
+fn unknown_behavior_surface_schema_fails_closed() {
+    let root = TempDir::new("behavior-schema");
+    let store = Store::open(&root.0).unwrap();
+    let run = RunId::new("run-behavior-schema").unwrap();
+    store
+        .put_run(&StoredRun {
+            id: run.clone(),
+            change_id: "surface".into(),
+            revision: RevisionId::new("rev-schema").unwrap(),
+            status: "complete".into(),
+            passed: true,
+            outcome: "passed".into(),
+        })
+        .unwrap();
+    let mut handles = Vec::new();
+    put_json_run_artifact(
+        &store,
+        &run,
+        "artifact-run-behavior-schema-behavior-surface-graph",
+        BEHAVIOR_SURFACE_GRAPH_KIND,
+        &json!({ "schema_v": 99, "truncated": false, "behaviors": [] }),
+        &mut handles,
+    )
+    .unwrap();
+    let err = load_behavior_surface(&store, &run).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("unknown behavior-surface-graph schema"),
+        "{err}"
     );
 }

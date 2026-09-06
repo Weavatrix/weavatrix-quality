@@ -212,6 +212,14 @@ export interface ApplicationSurfaceView {
     unmeasured: string[]
 }
 
+export interface BehaviorSurfaceView {
+    /** False when the run never stored a behavior-surface graph. Missing is not empty. */
+    present: boolean
+    truncated: boolean
+    /** Evidenced combination ids. Never a Cartesian product. */
+    behaviors: string[]
+}
+
 export interface VerifyReply {
     change: string
     /** Combined ProofVerdict token, kept for backward compatibility. */
@@ -223,6 +231,8 @@ export interface VerifyReply {
     quality: ChangeQualityVerdict
     /** Read-only surface projection. Never a gate. */
     application_surface: ApplicationSurfaceView
+    /** Read-only behavior combinations. Never a gate. */
+    behavior_surface: BehaviorSurfaceView
     /** Read-only evidence matrix. Never a gate. */
     surface_evidence: SurfaceEvidenceMatrixView
     /** Read-only cheapest-evidence plan. Never a gate. */

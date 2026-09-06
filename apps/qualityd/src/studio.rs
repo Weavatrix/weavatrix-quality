@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::{Deserialize, Serialize};
 use wvq_command_bus::{
     ApplicationSurfaceView, AuthorDraftCommand, AuthorHealCommand, AuthorPreviewCommand,
+    BehaviorSurfaceView,
     AuthorPromoteCommand, AuthorValidateCommand, BusError, ChangesCommand,
     CheapestEvidencePlanView, DebtCommand, DebtReply, EvidenceCell, EvidenceCommand,
     EvidenceProducer, ExplainCommand, ProofSummary, QualityService, RecordCommand, StatusCommand,
@@ -116,6 +117,8 @@ struct SummaryBody {
     ui_integrity: UiIntegrityBody,
     /// Read-only Application Surface Graph. Never a gate.
     application_surface: ApplicationSurfaceView,
+    /// Read-only Behavior Surface projection. Never a gate.
+    behavior_surface: BehaviorSurfaceView,
     /// Read-only Surface Evidence Matrix. Never a gate.
     surface_evidence: SurfaceEvidenceMatrixView,
     /// Read-only cheapest-evidence plan. Never a gate.
@@ -530,6 +533,7 @@ impl Studio {
             limitations: quality.limitations,
             ui_integrity,
             application_surface: verify.application_surface,
+            behavior_surface: verify.behavior_surface,
             surface_evidence: verify.surface_evidence,
             evidence_plan: verify.evidence_plan,
         })

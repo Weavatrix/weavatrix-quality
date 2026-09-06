@@ -412,6 +412,44 @@ fn the_dashboard_projects_application_surfaces_without_gating() {
 }
 
 #[test]
+fn the_dashboard_projects_behavior_surfaces_without_gating() {
+    let fake = Arc::new(FakeService::default());
+    fake.set_verdict("PROVEN");
+    fake.set_behavior_surface(wvq_command_bus::BehaviorSurfaceView {
+        present: true,
+        truncated: false,
+        behaviors: vec![
+            "route:/checkout|role:admin|action:activate".into(),
+            "route:/checkout|state:empty_cart|action:activate".into(),
+        ],
+    });
+    let studio = studio_with(&fake);
+
+    let body = json(&get(&studio, "/api/v1/changes/sankey-others/summary"));
+    assert_eq!(body["blocking"], false);
+    assert_eq!(body["verdict"], "PROVEN");
+    let surfaces = &body["behavior_surface"];
+    assert_eq!(surfaces["present"], true);
+    assert_eq!(
+        surfaces["behaviors"][0],
+        "route:/checkout|role:admin|action:activate"
+    );
+    assert_eq!(
+        surfaces["behaviors"][1],
+        "route:/checkout|state:empty_cart|action:activate"
+    );
+    let ids = surfaces["behaviors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item.as_str())
+        .collect::<Vec<_>>();
+    assert!(ids
+        .iter()
+        .all(|id| !(id.contains("role:admin") && id.contains("state:empty_cart"))));
+}
+
+#[test]
 fn the_dashboard_projects_the_surface_evidence_matrix_without_gating() {
     let fake = Arc::new(FakeService::default());
     fake.set_verdict("PROVEN");

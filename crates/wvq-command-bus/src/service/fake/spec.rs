@@ -133,6 +133,7 @@ impl FakeService {
         let verdict = inner.verdict.clone();
         let proofs = inner.proofs.clone();
         let application_surface = inner.application_surface.clone();
+        let behavior_surface = inner.behavior_surface.clone();
         let surface_evidence = inner.surface_evidence.clone();
         let evidence_plan = inner.evidence_plan.clone();
         drop(inner);
@@ -141,6 +142,7 @@ impl FakeService {
             reply.proofs = proofs;
         }
         reply.application_surface = application_surface;
+        reply.behavior_surface = behavior_surface;
         reply.surface_evidence = surface_evidence;
         reply.evidence_plan = evidence_plan;
         reply.observe_only = cmd.observe_only;

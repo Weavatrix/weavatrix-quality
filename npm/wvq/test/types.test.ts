@@ -47,6 +47,8 @@ verified.application_surface.present satisfies boolean
 verified.application_surface.protected satisfies string[]
 verified.application_surface.partial satisfies string[]
 verified.application_surface.unmeasured satisfies string[]
+verified.behavior_surface.present satisfies boolean
+verified.behavior_surface.behaviors satisfies string[]
 verified.surface_evidence.present satisfies boolean
 verified.surface_evidence.surfaces satisfies Array<{
     surface: string
