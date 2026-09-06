@@ -22,7 +22,7 @@ impl LiveService {
         previously_fixed: &BTreeSet<String>,
         selected_programs: &[ConfiguredBrowserProgram],
         cancel: Arc<AtomicBool>,
-    ) -> Result<(Vec<wvq_ui::ResponsiveFailureInterval>, bool), BusError> {
+    ) -> Result<(Vec<wvq_ui::ResponsiveFailureInterval>, bool, u64), BusError> {
         ensure_not_cancelled(&cancel)?;
         let engine = load_browser_policy(&self.repo, &compiled.obligations)?
             .map(|browser| browser.module_root)
@@ -119,6 +119,7 @@ impl LiveService {
         Ok((
             responsive_failure_intervals(&policy.responsive, &probes),
             truncated,
+            probes.len() as u64,
         ))
     }
 

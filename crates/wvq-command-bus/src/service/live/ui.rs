@@ -69,7 +69,7 @@ impl LiveService {
         let mut delta = ratchet_ui(&base_snapshot, &head_snapshot, &previously_fixed, &policy);
         if policy.responsive.enabled {
             // All-scope view: empty selection falls back to the head catalog.
-            let (intervals, truncated) = self.measure_responsive_ui(
+            let (intervals, truncated, _) = self.measure_responsive_ui(
                 &range,
                 &compiled,
                 &policy,

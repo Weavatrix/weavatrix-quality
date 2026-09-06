@@ -79,12 +79,21 @@ impl LiveService {
                 .filter(|item| item.starts_with("ui:"))
                 .collect::<BTreeSet<_>>();
             let mut delta = ratchet_ui(&base_ui, head_ui, &previously_fixed, ui_policy);
+            let mut profile = RuntimeProfileCounts {
+                runner_invocation: records.len() as u64,
+                program_invocation: browser_runs.len() as u64,
+                cancelled: cancel.load(std::sync::atomic::Ordering::SeqCst),
+                ..RuntimeProfileCounts::default()
+            };
+            if let Ok(base) = base_replay {
+                profile.program_invocation += base.runs.len() as u64;
+            }
             if ui_policy.responsive.enabled && base_replay.is_ok() {
                 let selected: Vec<ConfiguredBrowserProgram> = browser_runs
                     .iter()
                     .map(|(configured, _)| (*configured).clone())
                     .collect();
-                let (intervals, truncated) = self.measure_responsive_ui(
+                match self.measure_responsive_ui(
                     range,
                     compiled,
                     ui_policy,
@@ -93,9 +102,22 @@ impl LiveService {
                     &previously_fixed,
                     &selected,
                     Arc::clone(&cancel),
-                )?;
-                delta.responsive_intervals = intervals;
-                delta.responsive_truncated = truncated;
+                ) {
+                    Ok((intervals, truncated, probes)) => {
+                        profile.responsive_probe = probes;
+                        profile.program_invocation +=
+                            probes.saturating_mul(2).saturating_mul(selected.len() as u64);
+                        delta.responsive_intervals = intervals;
+                        delta.responsive_truncated = truncated;
+                    }
+                    Err(err) if err.to_string().contains("cancelled") => {
+                        profile.cancelled = true;
+                        profile
+                            .remaining_required_work
+                            .push("responsive_ui".into());
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             let fixed = delta.fixed_fingerprints();
             if !fixed.is_empty() {
@@ -104,6 +126,15 @@ impl LiveService {
                     .map_err(|err| BusError::Store(err.to_string()))?;
             }
             Self::persist_ui_delta_with_handles(store, run_id, &base_ui, &delta, &mut handles)?;
+            persist_runtime_profile(store, run_id, "default", &profile, &mut handles)?;
+        } else {
+            let profile = RuntimeProfileCounts {
+                runner_invocation: records.len() as u64,
+                program_invocation: browser_runs.len() as u64,
+                cancelled: cancel.load(std::sync::atomic::Ordering::SeqCst),
+                ..RuntimeProfileCounts::default()
+            };
+            persist_runtime_profile(store, run_id, "default", &profile, &mut handles)?;
         }
         persist_dynamic_coverage_history(store, run_id, before, protection_graph, records)?;
         let mut code_flows = Vec::new();
