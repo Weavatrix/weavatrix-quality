@@ -44,6 +44,8 @@ jobs:
         id: javascript
         run: |
           npm --prefix npm/wvq test
+          mkdir -p npm/wvq/node_modules/@weavatrix
+          ln -sfn "$(pwd)/npm/wvq" npm/wvq/node_modules/@weavatrix/wvq
           node js/playwright-runner/node_modules/typescript/bin/tsc --project npm/wvq/test/tsconfig.json
           node --test scripts/wvq-observe-report.test.mjs scripts/exact-head-validation.test.mjs
       - name: Assemble and smoke-test the installable package

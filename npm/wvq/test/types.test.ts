@@ -1,5 +1,5 @@
-import { WvqClient, type AxisState, type ChangeVerdictState, type Severity } from 'wvq'
-import { WvqMcpClient } from 'wvq/mcp'
+import { WvqClient, type AxisState, type ChangeVerdictState, type Severity } from '@weavatrix/wvq'
+import { WvqMcpClient } from '@weavatrix/wvq/mcp'
 
 const client = new WvqClient({ repo: '.' })
 const run = await client.run({

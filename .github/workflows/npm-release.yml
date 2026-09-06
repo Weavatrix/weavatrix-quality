@@ -159,6 +159,13 @@ jobs:
           else
             npm publish ./npm/dist/wvq --ignore-scripts --provenance --access public --tag "$DIST_TAG"
           fi
+          # First publish of a scoped package often pins `latest` forever on the
+          # first version. While we only ship alphas, keep `latest` on the newest
+          # published version so the npm package page and bare `npm i` match.
+          npm dist-tag add "${PKG}@${VERSION}" latest
+          if [[ "$DIST_TAG" != "latest" ]]; then
+            npm dist-tag add "${PKG}@${VERSION}" "$DIST_TAG"
+          fi
           # Registry may lag on gitHead after a successful provenance publish.
           for attempt in $(seq 1 60); do
             PUBLISHED_VERSION="$(npm view "${PKG}@${VERSION}" version --json 2>/dev/null | tr -d '\"\r\n' || true)"

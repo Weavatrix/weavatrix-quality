@@ -1,0 +1,36 @@
+name: Promote npm latest tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Already-published @weavatrix/wvq version to mark as latest"
+        required: true
+        default: "0.1.0-alpha.3"
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: github.repository == 'Weavatrix/weavatrix-quality'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Set up Node.js for npm registry
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Point latest (and alpha) at the requested version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="@weavatrix/wvq"
+          VERSION="${{ inputs.version }}"
+          npm view "${PKG}@${VERSION}" version
+          npm dist-tag add "${PKG}@${VERSION}" latest
+          npm dist-tag add "${PKG}@${VERSION}" alpha
+          npm dist-tag ls "$PKG"
