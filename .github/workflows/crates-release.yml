@@ -46,6 +46,8 @@ jobs:
               echo "${crate}@${GITHUB_REF_NAME#v} already on crates.io; skipping"
               return 0
             fi
+            # crates.io rate-limits new crate names; wait between uploads.
+            sleep 65
             cargo publish -p "$crate" --locked --no-verify
           }
           # Leaf → binaries. --no-verify avoids needing every transitive build
