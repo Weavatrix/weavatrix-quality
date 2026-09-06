@@ -10,9 +10,8 @@ Alpha gate `0.1.0-alpha.1` is published for the primary distribution path:
 - npm: `@weavatrix/wvq@0.1.0-alpha.1` (unscoped `wvq` is blocked by npm similarity rules)
 - MCP Registry: `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.1`
 - GitHub Release: https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.1
-- crates.io: leaf libraries through `wvq-runtime` are live; remaining closure
-  (`wvq-intelligence` → `wvq-cli`) was falsely skipped by a local `cargo info`
-  check and is being republished via the fixed crates-release workflow
+- crates.io: full publishable closure at `0.1.0-alpha.1` (`wvq-domain` …
+  `wvq-cli`, including `qualityd`)
 
 This is **not** the full v1 Definition of Done. Remaining v1 work is listed in
 [ADR 0003](adr/0003-alpha-orchestration-gate.md).
