@@ -12,10 +12,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use wvq_command_bus::{
     AuthorDraftCommand, AuthorHealCommand, AuthorHealEdit, AuthorPreviewCommand,
-    AuthorPromoteCommand, AuthorValidateCommand, BusError, Command, ContextCommand,
-    EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT, LiveService, ModelCommand,
-    PlanCommand, QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand,
-    VerifyCommand, dispatch, estimate_tokens, BaselineCommand, IngestCassetteCommand, IngestJournalCommand,
+    AuthorPromoteCommand, AuthorValidateCommand, BaselineCommand, BusError, Command,
+    ContextCommand, EvidenceCommand, ExplainCommand, FakeService, INLINE_LIMIT,
+    IngestCassetteCommand, IngestJournalCommand, LiveService, ModelCommand, PlanCommand,
+    QualityService, RecordCommand, Reply, RunCommand, SelectCommand, SpecCommand, VerifyCommand,
+    dispatch, estimate_tokens,
 };
 
 fn fixture_repo() -> PathBuf {
@@ -788,6 +789,25 @@ fn explicit_committed_head_rejects_a_dirty_worktree() {
         })
         .unwrap_err();
     assert!(err.to_string().contains("dirty worktree"), "{err}");
+}
+
+#[test]
+fn published_weavatrix_coverage_is_not_user_dirt() {
+    let repo = live_runner_repo();
+    std::fs::create_dir_all(repo.0.join(".weavatrix/coverage")).unwrap();
+    std::fs::write(
+        repo.0.join(".weavatrix/coverage/lcov.info"),
+        "TN:\nSF:src/lib.rs\nDA:1,1\nend_of_record\n",
+    )
+    .unwrap();
+    let service = LiveService::new(&repo.0);
+    service
+        .select(&SelectCommand {
+            change: "live-add".into(),
+            base: "HEAD".into(),
+            head: "HEAD".into(),
+        })
+        .expect("Quality-published LCOV must not force WORKTREE");
 }
 
 #[test]

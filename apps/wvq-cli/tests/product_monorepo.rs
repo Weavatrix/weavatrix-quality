@@ -324,6 +324,7 @@ fn product_fixture(scenario: HeadScenario) -> ProductFixture {
         ".gitignore",
         "node_modules\nfrontend/coverage/\nfrontend/.weavatrix-quality/\n\
          backend/.weavatrix-quality/\nservice/.weavatrix-quality/\n\
+         .weavatrix/coverage/\n\
          .weavatrix-quality/*.db*\n.weavatrix-quality/cas/\n.weavatrix-quality/objects/\n\
          .weavatrix-quality/runtime/\n.weavatrix-quality/browser-evidence/\n",
     );

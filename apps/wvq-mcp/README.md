@@ -3,18 +3,18 @@
 Bounded **MCP** host for [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality),
 built on [`mcport`](https://crates.io/crates/mcport).
 
-Alpha `0.1.0-alpha.4`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
+Alpha `0.1.0-alpha.5`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
 
 Most users should launch via npm:
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.5 mcp --repo .
 ```
 
 ## Install
 
 ```sh
-cargo install wvq-mcp --version 0.1.0-alpha.4
+cargo install wvq-mcp --version 0.1.0-alpha.5
 wvq-mcp --repo /path/to/app
 ```
 
@@ -27,7 +27,7 @@ wvq-mcp --repo /path/to/app
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.4",
+        "@weavatrix/wvq@0.1.0-alpha.5",
         "mcp",
         "--repo",
         "/absolute/path/to/repo"
@@ -94,7 +94,7 @@ quality_test_promote   quality_test_record     quality_test_heal
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.4",
+        "@weavatrix/wvq@0.1.0-alpha.5",
         "mcp",
         "--repo", ".",
         "--profile", "authoring",

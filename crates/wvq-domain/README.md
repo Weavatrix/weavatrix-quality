@@ -2,12 +2,12 @@
 
 Stable typed contracts (IDs, findings, shared enums).
 
-**Alpha `0.1.0-alpha.4` — unstable.** Published so binary crates can resolve on
+**Alpha `0.1.0-alpha.5` — unstable.** Published so binary crates can resolve on
 crates.io. Prefer the product surface:
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.4 doctor
-npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.5 doctor
+npx @weavatrix/wvq@0.1.0-alpha.5 mcp --repo .
 ```
 
 - Examples: https://github.com/Weavatrix/weavatrix-quality/tree/main/examples
@@ -15,7 +15,7 @@ npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
 - Binaries: [wvq-cli](https://crates.io/crates/wvq-cli) · [wvq-mcp](https://crates.io/crates/wvq-mcp) · [wvq-bench](https://crates.io/crates/wvq-bench)
 
 ```toml
-wvq-domain = "0.1.0-alpha.4"
+wvq-domain = "0.1.0-alpha.5"
 ```
 
 ## License

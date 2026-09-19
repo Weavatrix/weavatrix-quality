@@ -3,13 +3,13 @@
 Local HTTP **Quality Studio** for
 [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality).
 
-Alpha `0.1.0-alpha.4`. Exception-first cockpit over the same command bus as
+Alpha `0.1.0-alpha.5`. Exception-first cockpit over the same command bus as
 `wvq` / `wvq-mcp` â€” not a second policy engine.
 
 ## Install
 
 ```sh
-cargo install qualityd --version 0.1.0-alpha.4
+cargo install qualityd --version 0.1.0-alpha.5
 qualityd --repo /path/to/app
 ```
 
@@ -23,9 +23,9 @@ want the local Studio UI/API.
 qualityd --repo .
 
 # then drive the same change from CLI
-npx @weavatrix/wvq@0.1.0-alpha.4 run \
+npx @weavatrix/wvq@0.1.0-alpha.5 run \
   --change current --base origin/main --head HEAD --scope impacted
-npx @weavatrix/wvq@0.1.0-alpha.4 verify --change current
+npx @weavatrix/wvq@0.1.0-alpha.5 verify --change current
 ```
 
 Authoring HTTP endpoints (same semantics as MCP authoring tools):

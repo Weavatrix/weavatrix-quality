@@ -3,6 +3,7 @@
 use std::process::Command as ProcessCommand;
 
 use super::super::access::*;
+use super::super::porcelain_has_user_dirt;
 use super::LiveService;
 
 impl LiveService {
@@ -128,7 +129,7 @@ impl LiveService {
             .args([
                 "status",
                 "--porcelain=v1",
-                "--untracked-files=normal",
+                "--untracked-files=all",
                 "--ignore-submodules=none",
             ])
             .current_dir(&self.repo)
@@ -140,7 +141,7 @@ impl LiveService {
                 String::from_utf8_lossy(&output.stderr).trim()
             )));
         }
-        Ok(!output.stdout.is_empty())
+        Ok(porcelain_has_user_dirt(&output.stdout))
     }
 
     pub(in crate::service) fn weavatrix_operation(

@@ -1,6 +1,6 @@
 # Examples â€” Weavatrix Quality
 
-Copy-paste oriented samples for **alpha `0.1.0-alpha.4`**.
+Copy-paste oriented samples for **alpha `0.1.0-alpha.5`**.
 
 | Path | What |
 | --- | --- |
@@ -11,7 +11,7 @@ Copy-paste oriented samples for **alpha `0.1.0-alpha.4`**.
 Install once:
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.4
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.5
 # or use npx without installing
 ```
 

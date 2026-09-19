@@ -22,8 +22,8 @@ wvq-command-bus = { workspace = true }
 
 [dev-dependencies]
 mcport = { workspace = true }
-qualityd = { path = "../qualityd", version = "0.1.0-alpha.4" }
-wvq-mcp = { path = "../wvq-mcp", version = "0.1.0-alpha.4" }
+qualityd = { path = "../qualityd", version = "0.1.0-alpha.5" }
+wvq-mcp = { path = "../wvq-mcp", version = "0.1.0-alpha.5" }
 wvq-proof = { workspace = true }
 wvq-store = { workspace = true }
 

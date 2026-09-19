@@ -58,7 +58,10 @@ pub(in crate::service) fn git_output(repo: &Path, args: &[String]) -> Result<Vec
     Ok(output.stdout)
 }
 
-pub(in crate::service) fn changed_files(repo: &Path, range: &RevisionRange) -> Result<ChangedFiles, BusError> {
+pub(in crate::service) fn changed_files(
+    repo: &Path,
+    range: &RevisionRange,
+) -> Result<ChangedFiles, BusError> {
     let mut args = vec![
         "diff".into(),
         "--name-status".into(),
@@ -140,4 +143,21 @@ pub(in crate::service) fn resolve_change(repo: &Path, change: &str) -> Result<St
             "change=current is ambiguous; pass a change id".into(),
         )),
     }
+}
+
+/// Quality-published LCOV is generated evidence, not user dirt.
+pub(in crate::service) fn porcelain_has_user_dirt(stdout: &[u8]) -> bool {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .any(|line| !line.is_empty() && !is_quality_generated_path(porcelain_path(line)))
+}
+
+fn porcelain_path(line: &str) -> &str {
+    let rest = line.get(3..).unwrap_or(line);
+    rest.rsplit_once(" -> ").map_or(rest, |(_, dest)| dest)
+}
+
+fn is_quality_generated_path(path: &str) -> bool {
+    let path = path.trim().trim_matches('"').replace('\\', "/");
+    path == ".weavatrix/coverage" || path.starts_with(".weavatrix/coverage/")
 }

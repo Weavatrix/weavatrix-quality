@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha.5 — 2026-09-19
+
+Published `.weavatrix/coverage/lcov.info` is generated evidence. An
+explicit committed head stays clean when that file is the only worktree
+change, so `quality_verify` does not force `WORKTREE`.
+
+### Distribution
+
+- npm `@weavatrix/wvq@0.1.0-alpha.5`
+- crates.io workspace closure `0.1.0-alpha.5`
+- MCP Registry `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.5`
+- GitHub Release `v0.1.0-alpha.5`
+
 ## 0.1.0-alpha.4 — 2026-09-19
 
 Quality now **builds** measured coverage with the repository's own frozen

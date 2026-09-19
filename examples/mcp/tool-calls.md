@@ -78,5 +78,5 @@ Process must be started with `--profile authoring --change â€¦ --base â€�
 
 ```sh
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
+  | npx @weavatrix/wvq@0.1.0-alpha.5 mcp --repo .
 ```

@@ -9,7 +9,7 @@ on:
       version:
         description: "Version already on the branch (must match Cargo/npm)"
         required: true
-        default: "0.1.0-alpha.4"
+        default: "0.1.0-alpha.5"
 
 concurrency:
   group: crates-release-${{ github.ref }}
