@@ -4,7 +4,11 @@ use super::access::*;
 
 pub(in crate::service) const ARTIFACT_CLOCK_TOLERANCE: Duration = Duration::from_secs(2);
 
-pub(in crate::service) fn normalize_coverage_paths(repo: &Path, cwd: &Path, coverage: &mut CoverageArtifact) {
+pub(in crate::service) fn normalize_coverage_paths(
+    repo: &Path,
+    cwd: &Path,
+    coverage: &mut CoverageArtifact,
+) {
     let repo_path = normalize_path(&repo.to_string_lossy());
     let cwd_path = normalize_path(&cwd.to_string_lossy());
     let cwd_prefix = cwd
@@ -61,6 +65,7 @@ pub(in crate::service) fn runner_artifact_candidates(cwd: &Path) -> Vec<(PathBuf
         ("coverage.lcov", "lcov"),
         ("coverage/lcov.info", "lcov"),
         ("coverage/lcov-report/lcov.info", "lcov"),
+        (".weavatrix/coverage/lcov.info", "lcov"),
     ];
     candidates
         .into_iter()
@@ -68,7 +73,10 @@ pub(in crate::service) fn runner_artifact_candidates(cwd: &Path) -> Vec<(PathBuf
         .collect()
 }
 
-pub(in crate::service) fn artifact_is_fresh(metadata: &std::fs::Metadata, started: SystemTime) -> bool {
+pub(in crate::service) fn artifact_is_fresh(
+    metadata: &std::fs::Metadata,
+    started: SystemTime,
+) -> bool {
     let threshold = started
         .checked_sub(ARTIFACT_CLOCK_TOLERANCE)
         .unwrap_or(UNIX_EPOCH);
@@ -77,7 +85,10 @@ pub(in crate::service) fn artifact_is_fresh(metadata: &std::fs::Metadata, starte
         .is_ok_and(|modified| modified >= threshold)
 }
 
-pub(in crate::service) fn set_record_error(record: &mut ExecutorRecord, message: impl Into<String>) {
+pub(in crate::service) fn set_record_error(
+    record: &mut ExecutorRecord,
+    message: impl Into<String>,
+) {
     let message = message.into();
     record.passed = false;
     record.error = Some(match record.error.take() {

@@ -24,9 +24,9 @@ WVQ        â†’ same-revision Proof + composite verdict
 | **npm (primary)** | [`@weavatrix/wvq`](https://www.npmjs.com/package/@weavatrix/wvq) |
 | **MCP Registry** | `io.github.Weavatrix/weavatrix-quality` |
 | **crates.io** | [`wvq-cli`](https://crates.io/crates/wvq-cli) Â· [`wvq-mcp`](https://crates.io/crates/wvq-mcp) Â· [`wvq-bench`](https://crates.io/crates/wvq-bench) |
-| **Release** | [v0.1.0-alpha.3](https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.3) |
+| **Release** | [v0.1.0-alpha.4](https://github.com/Weavatrix/weavatrix-quality/releases/tag/v0.1.0-alpha.4) |
 
-**Alpha `0.1.0-alpha.3`.** Useful first product loop (one plan â†’ one execution â†’
+**Alpha `0.1.0-alpha.4`.** Useful first product loop (one plan â†’ one execution â†’
 one report). Not the full v1 DoD â€” see [CHANGELOG](CHANGELOG.md) and
 [ADR 0003](docs/adr/0003-alpha-orchestration-gate.md).
 
@@ -36,15 +36,15 @@ one report). Not the full v1 DoD â€” see [CHANGELOG](CHANGELOG.md) and
 
 ```sh
 # primary distribution (ships wvq + wvq-mcp + wvq-bench for 6 platforms)
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.3
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.4
 
 # one-shot without adding a dependency
-npx @weavatrix/wvq@0.1.0-alpha.3 --help
+npx @weavatrix/wvq@0.1.0-alpha.4 --help
 
 # Rust binaries (alpha crates; API unstable)
-cargo install wvq-cli --version 0.1.0-alpha.3
-cargo install wvq-mcp --version 0.1.0-alpha.3
-cargo install wvq-bench --version 0.1.0-alpha.3
+cargo install wvq-cli --version 0.1.0-alpha.4
+cargo install wvq-mcp --version 0.1.0-alpha.4
+cargo install wvq-bench --version 0.1.0-alpha.4
 ```
 
 Unscoped `wvq` is blocked by npm name-similarity rules â€” always use `@weavatrix/wvq`.
@@ -57,24 +57,27 @@ Unscoped `wvq` is blocked by npm name-similarity rules â€” always use `@wea
 cd your-repo
 
 # 1) read-only discovery (never writes, never seals)
-npx @weavatrix/wvq@0.1.0-alpha.3 doctor
+npx @weavatrix/wvq@0.1.0-alpha.4 doctor
 
 # 2) write fail-closed policy (first time only)
-npx @weavatrix/wvq@0.1.0-alpha.3 init
+npx @weavatrix/wvq@0.1.0-alpha.4 init
 
 # 3) compile OpenSpec obligations for a change folder
-npx @weavatrix/wvq@0.1.0-alpha.3 spec validate --change current
+npx @weavatrix/wvq@0.1.0-alpha.4 spec validate --change current
 
-# 4) run the smallest safe protection set
-npx @weavatrix/wvq@0.1.0-alpha.3 run \
+# 4) run the smallest safe protection set (also builds measured coverage)
+npx @weavatrix/wvq@0.1.0-alpha.4 run \
   --change current \
   --base origin/main \
   --head HEAD \
   --scope impacted \
   --evidence-policy minimal
+# After a successful native coverage runner, Weavatrix `coverage_map` reads:
+#   .weavatrix/coverage/lcov.info
+# Quality does not invent a second stack. Playwright is last-resort JS only.
 
 # 5) read-only composite verdict from stored evidence
-npx @weavatrix/wvq@0.1.0-alpha.3 verify --change current
+npx @weavatrix/wvq@0.1.0-alpha.4 verify --change current
 ```
 
 Need bindings before proofs can seal? Start from [.weavatrix-quality/config.yaml](#repository-policy)
@@ -89,7 +92,7 @@ All commands take `--repo <path>` (default: `.`). Prefer absolute paths in CI.
 ### Day-to-day cycle
 
 ```sh
-alias wvq='npx @weavatrix/wvq@0.1.0-alpha.3'
+alias wvq='npx @weavatrix/wvq@0.1.0-alpha.4'
 
 wvq doctor
 wvq plan --change checkout-fix
@@ -128,7 +131,7 @@ wvq ingest-cassette --file captures/checkout.har --origin https://app.example.te
 
 ```sh
 wvq bench --repo . --change checkout-fix --base origin/main --head WORKTREE
-# or: npx @weavatrix/wvq@0.1.0-alpha.3 bench --repo . ...
+# or: npx @weavatrix/wvq@0.1.0-alpha.4 bench --repo . ...
 ```
 
 ### Exit codes
@@ -158,7 +161,7 @@ large artifacts as handles only.
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.3",
+        "@weavatrix/wvq@0.1.0-alpha.4",
         "mcp",
         "--repo",
         "C:/path/to/your-repo"
@@ -175,7 +178,7 @@ large artifacts as handles only.
   "mcpServers": {
     "weavatrix-quality": {
       "command": "npx",
-      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.3", "mcp", "--repo", "/Users/you/src/app"]
+      "args": ["-y", "@weavatrix/wvq@0.1.0-alpha.4", "mcp", "--repo", "/Users/you/src/app"]
     }
   }
 }
@@ -192,14 +195,15 @@ Example agent workflow:
 
 1. `quality_context` â€” what obligations exist for this change  
 2. `quality_plan` â€” gaps vs existing proofs (no execution)  
-3. `quality_run` â€” execute impacted protection  
+3. `quality_run` — execute impacted protection and publish
+   `.weavatrix/coverage/lcov.info` for Weavatrix `coverage_map`
 4. `quality_verify` â€” composite verdict  
 5. `quality_explain` / `quality_evidence` â€” drill into a handle or id  
 
 ### Authoring profile (TestProgram draft â†’ preview â†’ promote)
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.3 mcp --repo . \
+npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo . \
   --profile authoring \
   --change checkout-fix \
   --base origin/main \
@@ -221,7 +225,7 @@ More configs and JSON-RPC samples: [examples/mcp/](examples/mcp/).
 ## JavaScript library cookbook
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.3
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.4
 ```
 
 ### Plan â†’ run â†’ verify
@@ -313,12 +317,12 @@ if (preview.passed) {
 - uses: actions/setup-node@v4
   with:
     node-version: 24
-- run: npx @weavatrix/wvq@0.1.0-alpha.3 doctor
+- run: npx @weavatrix/wvq@0.1.0-alpha.4 doctor
 - run: >
-    npx @weavatrix/wvq@0.1.0-alpha.3 run
+    npx @weavatrix/wvq@0.1.0-alpha.4 run
     --change current --base origin/${{ github.base_ref }} --head HEAD
     --scope impacted --evidence-policy minimal
-- run: npx @weavatrix/wvq@0.1.0-alpha.3 verify --change current --observe-only true
+- run: npx @weavatrix/wvq@0.1.0-alpha.4 verify --change current --observe-only true
 ```
 
 Runnable copies: [examples/js/](examples/js/) Â· [examples/cli/](examples/cli/).

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-alpha.4 — 2026-09-19
+
+Quality now **builds** measured coverage with the repository's own frozen
+runner and publishes `.weavatrix/coverage/lcov.info` for Weavatrix
+`coverage_map`. Playwright is last-resort JavaScript only. Mutation stays
+on `cargo-test`. `quality_run` MCP text states the split so agents do not
+treat `coverage_map` as a test runner.
+
+### Distribution
+
+- npm `@weavatrix/wvq@0.1.0-alpha.4`
+- crates.io workspace closure `0.1.0-alpha.4`
+- MCP Registry `io.github.Weavatrix/weavatrix-quality` @ `0.1.0-alpha.4`
+- GitHub Release `v0.1.0-alpha.4`
+
 ## 0.1.0-alpha.3 — 2026-09-06
 
 Docs publish fix: strip accidental UTF-8 BOM from `package.json` / release

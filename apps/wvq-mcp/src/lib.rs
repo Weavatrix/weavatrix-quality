@@ -144,7 +144,7 @@ pub fn quality_server(service: &Arc<dyn QualityService>) -> ConcurrentMcpServer 
         )
         .typed_tool(
             "quality_run",
-            "Execute repository-discovered registered runners for an explicit base/head range with bounded argv, deadline, output, CAS evidence, and revision checks. Impacted widens to all until selection evidence is complete. No arbitrary shell.",
+            "Execute registered runners for an explicit base/head range. Builds measured coverage with the project's native runner and writes `.weavatrix/coverage/lcov.info` for Weavatrix `coverage_map`. Playwright is not the default JS runner. Bounded argv; no arbitrary shell.",
             schema_run(),
             move |ctx, input: RunCommand| {
                 let cancel = Arc::new(AtomicBool::new(false));

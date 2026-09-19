@@ -1,7 +1,7 @@
 # MCP client configs and tool recipes for Weavatrix Quality.
 #
 # Launchers:
-#   npx @weavatrix/wvq@0.1.0-alpha.3 mcp --repo <abs-path>
+#   npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo <abs-path>
 #   cargo install wvq-mcp && wvq-mcp --repo <abs-path>
 #
 # Registry: io.github.Weavatrix/weavatrix-quality
@@ -21,6 +21,10 @@
 quality_context  quality_plan  quality_run  quality_status
 quality_verify   quality_explain  quality_evidence
 ```
+
+`quality_run` builds measured coverage with the project's native runner and
+writes `.weavatrix/coverage/lcov.info` for Weavatrix `coverage_map`.
+`coverage_map` never runs tests. Playwright is last-resort JS only.
 
 ## Authoring tools
 

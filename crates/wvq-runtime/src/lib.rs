@@ -8,9 +8,12 @@ mod browser_protocol;
 mod cargotest;
 mod cassette;
 mod continuous_journal;
+mod coverage_probe;
 mod diff;
 mod discovery;
+mod emit_lcov;
 mod executor;
+mod executor_family;
 mod failure_reel;
 mod gocover;
 mod gojson;
@@ -19,19 +22,13 @@ mod lcov;
 mod normalize;
 mod process;
 mod program;
+mod registered;
 mod request_identity;
 
 pub use behavior::{
     BehaviorEdge, BehaviorState, BehaviorTrace, CoverageContribution, GraphMemory, RecordedEvent,
     Recorder, ReplayHost, coverage_contribution, promote, replay_program, replay_trace,
     semantic_target,
-};
-pub use continuous_journal::{
-    CONTINUOUS_JOURNAL_SCHEMA_V, ContinuousJournal, ContinuousJournalEvent,
-    ContinuousJournalSource, MAX_CONTINUOUS_JOURNAL_BYTES, MAX_CONTINUOUS_JOURNAL_EVENTS,
-};
-pub use cassette::{
-    CassetteAdmission, CassetteError, MAX_NETWORK_CASSETTE_BYTES, ingest_har,
 };
 pub use browser_bridge::{
     ActionSpan, BrowserAssertionObservation, BrowserAssertionStatus, BrowserBridgeError,
@@ -45,18 +42,26 @@ pub use browser_protocol::{
     BridgeReply, BridgeRequest, decode_request, encode_reply, observe_body,
 };
 pub use cargotest::parse_cargo_test;
+pub use cassette::{CassetteAdmission, CassetteError, MAX_NETWORK_CASSETTE_BYTES, ingest_har};
+pub use continuous_journal::{
+    CONTINUOUS_JOURNAL_SCHEMA_V, ContinuousJournal, ContinuousJournalEvent,
+    ContinuousJournalSource, MAX_CONTINUOUS_JOURNAL_BYTES, MAX_CONTINUOUS_JOURNAL_EVENTS,
+};
+pub use coverage_probe::RustCoverageTool;
 pub use diff::{
     AxisDelta, BehaviorDelta, DiffAxis, StructuredView, behavior_delta, replay_base_head,
 };
 pub use discovery::{ExecutorTarget, discover_executor_targets};
+pub use emit_lcov::encode_lcov;
 pub use executor::{
     ExecutionResult, Executor, ExecutorCapabilities, ExecutorId, ExecutorRegistry, ExecutorSpec,
     PrepareRequest, PreparedRun, default_limits,
 };
+pub use executor_family::{is_cargo_test_family, is_vitest_family, rust_runner_matches};
 pub use failure_reel::{
     FAILURE_REEL_SCHEMA_V, FailureCause, FailureCauseKind, FailureReel, FailureReelCapture,
-    FailureReelFrames, MAX_FAILURE_REEL_CAUSE_CHARS, MAX_FAILURE_REEL_FRAMES,
-    MAX_FAILURE_REEL_FRAME_BYTES, assemble_failure_reel, copy_reel_frame, failure_cause,
+    FailureReelFrames, MAX_FAILURE_REEL_CAUSE_CHARS, MAX_FAILURE_REEL_FRAME_BYTES,
+    MAX_FAILURE_REEL_FRAMES, assemble_failure_reel, copy_reel_frame, failure_cause,
     summarize_target,
 };
 pub use gocover::parse_go_coverprofile;

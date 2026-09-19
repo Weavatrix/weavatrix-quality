@@ -22,7 +22,8 @@ use wvq_proof::{
 };
 use wvq_runtime::{
     ExecutorId, ExecutorRegistry, PrepareRequest, ProcessLimits, TestStatus,
-    discover_executor_targets, parse_cargo_test, parse_go_json, parse_junit,
+    discover_executor_targets, is_cargo_test_family, is_vitest_family, parse_cargo_test,
+    parse_go_json, parse_junit,
 };
 use wvq_spec::QualityContract;
 
@@ -645,12 +646,12 @@ fn execute_one(
         else {
             continue;
         };
-        if target.executor.as_str() != binding.runner {
+        if !runner_matches_target(binding.runner.as_str(), target.executor.as_str()) {
             continue;
         }
         let filter = match binding.runner.as_str() {
             "go-test" => String::new(),
-            "cargo-test" => binding.case.clone(),
+            runner if is_cargo_test_family(runner) => binding.case.clone(),
             _ => binding_path
                 .strip_prefix(&target.cwd)
                 .map(|path| path.to_string_lossy().replace('\\', "/"))
@@ -683,7 +684,7 @@ fn execute_one(
             executor,
             cwd: target.cwd.clone(),
             filters: (!filter.is_empty()).then_some(filter).into_iter().collect(),
-            exact_case: (runner != "cargo-test").then(|| case.to_owned()),
+            exact_case: (!is_cargo_test_family(&runner)).then(|| case.to_owned()),
             extra: BTreeMap::new(),
             limits: ProcessLimits {
                 deadline: MAX_MUTANT_TIME,
@@ -703,7 +704,7 @@ fn execute_one(
             std::str::from_utf8(&executed.stdout)
                 .ok()
                 .and_then(|stdout| parse_go_json(stdout).ok())
-        } else if runner == "cargo-test" {
+        } else if is_cargo_test_family(&runner) {
             let stdout = std::str::from_utf8(&executed.stdout).ok();
             let stderr = std::str::from_utf8(&executed.stderr).ok();
             stdout
@@ -844,14 +845,23 @@ fn looks_like_test(path: &str) -> bool {
         || lower.contains(".stories.")
 }
 
+fn runner_matches_target(binding: &str, executor: &str) -> bool {
+    if binding == executor {
+        return true;
+    }
+    if is_cargo_test_family(binding) && is_cargo_test_family(executor) {
+        return true;
+    }
+    is_vitest_family(binding)
+        && is_vitest_family(executor)
+        && binding.starts_with("storybook") == executor.starts_with("storybook")
+}
+
 fn binding_supported(ecosystem: MutantEcosystem, runner: &str) -> bool {
     match ecosystem {
         MutantEcosystem::Go => runner == "go-test",
-        MutantEcosystem::TsJs => matches!(
-            runner,
-            "vitest" | "storybook-vitest" | "storybook-vitest-v8"
-        ),
-        MutantEcosystem::Rust => runner == "cargo-test",
+        MutantEcosystem::TsJs => is_vitest_family(runner),
+        MutantEcosystem::Rust => is_cargo_test_family(runner),
     }
 }
 

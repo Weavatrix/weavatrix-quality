@@ -1,14 +1,14 @@
 //! Task 11: unknown ids fail; argv is frozen; no user-injected executable.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 #[cfg(windows)]
 use std::time::Duration;
 
 use wvq_runtime::{
-    default_limits, discover_executor_targets, Executor, ExecutorId, ExecutorRegistry,
-    PrepareRequest, RuntimeError,
+    Executor, ExecutorId, ExecutorRegistry, PrepareRequest, RuntimeError, default_limits,
+    discover_executor_targets,
 };
 #[cfg(windows)]
 use wvq_runtime::{ExecutorSpec, ProcessLimits};
@@ -141,6 +141,9 @@ fn path_filters_share_one_runner_process_without_becoming_name_patterns() {
         registry.prepare(jest).unwrap().args,
         [
             "--runInBand",
+            "--coverage",
+            "--coverageReporters=lcov",
+            "--coverageDirectory=coverage",
             "--runTestsByPath",
             "tests/alpha.test.ts",
             "tests/beta.test.ts"
@@ -187,7 +190,7 @@ fn storybook_vitest_is_discovered_as_a_distinct_browser_project() {
         .iter()
         .map(|target| target.executor.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(ids, ["storybook-vitest-v8", "vitest"]);
+    assert_eq!(ids, ["storybook-vitest-v8", "vitest-coverage"]);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -208,7 +211,99 @@ fn repository_discovery_returns_only_registered_ids() {
         .iter()
         .map(|target| target.executor.as_str())
         .collect();
-    assert_eq!(ids, ["cargo-test", "vitest"]);
+    assert!(
+        wvq_runtime::is_cargo_test_family(ids[0]),
+        "rust runner should stay in the cargo-test family, got {ids:?}"
+    );
+    assert_eq!(ids[1], "vitest");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn cargo_coverage_producers_write_weavatrix_lcov() {
+    let registry = ExecutorRegistry::production().unwrap();
+    assert_eq!(
+        registry
+            .prepare(request("cargo-llvm-cov", BTreeMap::new()))
+            .unwrap()
+            .args,
+        [
+            "llvm-cov",
+            "test",
+            "--color",
+            "never",
+            "--workspace",
+            "--all-targets",
+            "--lcov",
+            "--output-path",
+            ".weavatrix/coverage/lcov.info"
+        ]
+    );
+    assert_eq!(
+        registry
+            .prepare(request("cargo-tarpaulin", BTreeMap::new()))
+            .unwrap()
+            .args,
+        [
+            "tarpaulin",
+            "--color",
+            "never",
+            "--workspace",
+            "--out",
+            "Lcov",
+            "--output-dir",
+            ".weavatrix/coverage",
+            "--skip-clean",
+            "--"
+        ]
+    );
+}
+
+#[test]
+fn vitest_coverage_is_discovered_when_the_package_already_has_a_provider() {
+    let root =
+        std::env::temp_dir().join(format!("wvq-discovery-vitest-cov-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"scripts":{"test":"vitest run"},"devDependencies":{"vitest":"4","@vitest/coverage-v8":"4"}}"#,
+    )
+    .unwrap();
+
+    let targets = discover_executor_targets(&root).unwrap();
+    assert_eq!(targets[0].executor.as_str(), "vitest-coverage");
+    let prepared = ExecutorRegistry::production()
+        .unwrap()
+        .prepare(request("vitest-coverage", BTreeMap::new()))
+        .unwrap();
+    assert!(prepared.args.iter().any(|arg| arg == "--coverage"));
+    assert!(
+        prepared
+            .args
+            .iter()
+            .any(|arg| arg == "--coverage.reporter=lcov")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn playwright_is_not_selected_when_vitest_already_owns_the_package() {
+    let root = std::env::temp_dir().join(format!("wvq-discovery-not-pw-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"devDependencies":{"vitest":"4","@playwright/test":"1"}}"#,
+    )
+    .unwrap();
+
+    let targets = discover_executor_targets(&root).unwrap();
+    let ids = targets
+        .iter()
+        .map(|target| target.executor.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["vitest"]);
     let _ = std::fs::remove_dir_all(root);
 }
 

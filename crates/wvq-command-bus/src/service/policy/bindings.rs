@@ -83,7 +83,10 @@ pub(in crate::service) fn load_test_bindings(repo: &Path) -> Result<Vec<TestBind
             && !matches!(
                 runner,
                 "cargo-test"
+                    | "cargo-llvm-cov"
+                    | "cargo-tarpaulin"
                     | "vitest"
+                    | "vitest-coverage"
                     | "storybook-vitest"
                     | "storybook-vitest-v8"
                     | "jest"

@@ -20,6 +20,10 @@ Replace `checkout-fix` with your OpenSpec change folder name.
      "evidence_policy": "minimal"
    }
 
+   After a native coverage runner, Quality writes
+   `.weavatrix/coverage/lcov.info`. Weavatrix `coverage_map` ingests that
+   file. It does not run tests. Playwright is not the default JS runner.
+
 4. quality_status
    {}
 
@@ -74,5 +78,5 @@ Process must be started with `--profile authoring --change â€¦ --base â€�
 
 ```sh
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  | npx @weavatrix/wvq@0.1.0-alpha.3 mcp --repo .
+  | npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
 ```

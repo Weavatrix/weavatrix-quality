@@ -1,4 +1,5 @@
 use super::access::*;
+use super::publish_coverage::publish_measured_coverage;
 use super::runner::{attach_normalized_artifacts, clear_generated_runner_artifacts};
 
 pub(in crate::service) fn build_execution_requests(
@@ -89,7 +90,7 @@ pub(in crate::service) fn batch_filter_groups(grouped: FilterGroups) -> Vec<Exec
 
     let mut requests = Vec::new();
     for (_, (target, pairs)) in grouped {
-        let max_filters = if target.executor.as_str() == "cargo-test" {
+        let max_filters = if is_cargo_test_family(target.executor.as_str()) {
             1
         } else {
             MAX_FILTERS_PER_PROCESS
@@ -144,13 +145,13 @@ fn map_selected_filters(
     let cargo_cases = cargo_exact_cases(selected, bindings);
     let Some(target) = matching.into_iter().find(|target| {
         target_accepts_filter(target, selected)
-            || (target.executor.as_str() == "cargo-test" && !cargo_cases.is_empty())
+            || (is_cargo_test_family(target.executor.as_str()) && !cargo_cases.is_empty())
     }) else {
         return Err(format!(
             "impacted selection widened: selected test `{selected}` has no filterable registered executor"
         ));
     };
-    if target.executor.as_str() == "cargo-test" && !cargo_cases.is_empty() {
+    if is_cargo_test_family(target.executor.as_str()) && !cargo_cases.is_empty() {
         return Ok((target.clone(), cargo_cases));
     }
     let filter = absolute
@@ -171,7 +172,7 @@ fn cargo_exact_cases(path: &str, bindings: &[TestBinding]) -> Vec<String> {
         .iter()
         .filter(|binding| {
             binding.path == path
-                && binding.runner.as_deref() == Some("cargo-test")
+                && rust_runner_matches(binding.runner.as_deref(), "cargo-test")
                 && binding.case.as_deref().is_some_and(|case| !case.is_empty())
         })
         .filter_map(|binding| binding.case.clone())
@@ -181,7 +182,13 @@ fn cargo_exact_cases(path: &str, bindings: &[TestBinding]) -> Vec<String> {
 pub(in crate::service) fn supports_path_filters(executor: &str) -> bool {
     matches!(
         executor,
-        "vitest" | "storybook-vitest" | "storybook-vitest-v8" | "jest" | "bun-test" | "playwright"
+        "vitest"
+            | "vitest-coverage"
+            | "storybook-vitest"
+            | "storybook-vitest-v8"
+            | "jest"
+            | "bun-test"
+            | "playwright"
     )
 }
 
@@ -249,7 +256,8 @@ pub(in crate::service) fn full_execution_requests(
                     target.executor.as_str(),
                     "storybook-vitest" | "storybook-vitest-v8"
                 ) || !targets.iter().any(|candidate| {
-                    candidate.cwd == target.cwd && candidate.executor.as_str() == "vitest"
+                    candidate.cwd == target.cwd
+                        && matches!(candidate.executor.as_str(), "vitest" | "vitest-coverage")
                 })
             })
             .cloned()
@@ -277,6 +285,12 @@ pub(in crate::service) fn execute_full_targets(
             BusError::Runtime(format!(
                 "cannot prepare runner evidence directory in {}: {err}",
                 target.cwd.display()
+            ))
+        })?;
+        std::fs::create_dir_all(repo.join(".weavatrix/coverage")).map_err(|err| {
+            BusError::Runtime(format!(
+                "cannot prepare Weavatrix coverage directory in {}: {err}",
+                repo.display()
             ))
         })?;
         clear_generated_runner_artifacts(&target.cwd)?;
@@ -321,6 +335,7 @@ pub(in crate::service) fn execute_full_targets(
             },
         };
         attach_normalized_artifacts(repo, &target.cwd, started, &mut record);
+        publish_measured_coverage(repo, &record)?;
         clear_generated_runner_artifacts(&target.cwd)?;
         records.push(record);
     }

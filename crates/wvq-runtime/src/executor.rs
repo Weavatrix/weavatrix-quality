@@ -123,92 +123,6 @@ impl ExecutorRegistry {
         }
     }
 
-    /// Vitest / Jest / Bun / Go / Playwright, frozen argv prefixes.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RuntimeError::InvalidArg`] if a built-in id is illegal.
-    pub fn production() -> Result<Self, RuntimeError> {
-        let mut registry = Self::new();
-        let npm = if cfg!(windows) { "npm.cmd" } else { "npm" };
-        registry.register(spec(
-            "cargo-test",
-            "cargo",
-            &["test", "--color", "never", "--workspace", "--all-targets"],
-            None,
-        )?)?;
-        registry.register(spec("npm-test", npm, &["test", "--"], None)?)?;
-        registry.register(spec(
-            "vitest",
-            npm,
-            &[
-                "exec",
-                "--offline",
-                "--yes=false",
-                "--",
-                "vitest",
-                "run",
-                "--reporter=junit",
-                "--outputFile=.weavatrix-quality/junit.xml",
-            ],
-            None,
-        )?)?;
-        registry.register(spec(
-            "storybook-vitest",
-            npm,
-            &[
-                "exec",
-                "--offline",
-                "--yes=false",
-                "--",
-                "vitest",
-                "run",
-                "--project=storybook",
-                "--reporter=junit",
-                "--outputFile=.weavatrix-quality/junit.xml",
-            ],
-            None,
-        )?)?;
-        registry.register(spec(
-            "storybook-vitest-v8",
-            npm,
-            &[
-                "exec",
-                "--offline",
-                "--yes=false",
-                "--",
-                "vitest",
-                "run",
-                "--project=storybook",
-                "--coverage",
-                "--coverage.reporter=lcov",
-                "--reporter=junit",
-                "--outputFile=.weavatrix-quality/junit.xml",
-            ],
-            None,
-        )?)?;
-        registry.register(spec(
-            "jest",
-            "jest",
-            &["--runInBand"],
-            Some("--runTestsByPath"),
-        )?)?;
-        registry.register(spec("bun-test", "bun", &["test"], None)?)?;
-        registry.register(spec(
-            "go-test",
-            "go",
-            &[
-                "test",
-                "-json",
-                "-coverprofile=.weavatrix-quality/go-cover.out",
-                "./...",
-            ],
-            Some("-run"),
-        )?)?;
-        registry.register(spec("playwright", "playwright", &["test"], None)?)?;
-        Ok(registry)
-    }
-
     /// Add a spec. `program` must be a bare filename.
     ///
     /// # Errors
@@ -250,7 +164,7 @@ impl ExecutorRegistry {
         if let Some(case) = &request.exact_case {
             let pattern = exact_case_pattern(case)?;
             match spec.id.as_str() {
-                "vitest" | "storybook-vitest" | "storybook-vitest-v8" => {
+                id if crate::is_vitest_family(id) => {
                     args.push("--testNamePattern".into());
                     args.push(pattern);
                 }
@@ -330,27 +244,6 @@ impl Executor for ExecutorRegistry {
     fn execute(&self, run: &PreparedRun) -> Result<ExecutionResult, RuntimeError> {
         Self::execute(self, run)
     }
-}
-
-fn spec(
-    id: &str,
-    program: &str,
-    prefix: &[&str],
-    filter_flag: Option<&str>,
-) -> Result<ExecutorSpec, RuntimeError> {
-    Ok(ExecutorSpec {
-        id: ExecutorId::new(id)?,
-        program: program.to_owned(),
-        prefix: prefix.iter().map(|item| (*item).to_owned()).collect(),
-        filter_flag: filter_flag.map(ToOwned::to_owned),
-        capabilities: ExecutorCapabilities {
-            cases: true,
-            coverage: matches!(
-                id,
-                "vitest" | "storybook-vitest-v8" | "jest" | "bun-test" | "go-test"
-            ),
-        },
-    })
 }
 
 fn validate_program(program: &str) -> Result<(), RuntimeError> {

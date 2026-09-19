@@ -3,6 +3,7 @@
 use super::super::access::*;
 use super::super::persist_evidence::cap_browser_evidence;
 use super::super::persist_run::make_run_id;
+use super::super::publish_coverage::publish_measured_coverage;
 use super::super::runner::{attach_normalized_artifacts, clear_generated_runner_artifacts};
 use super::LiveService;
 use super::run_types::{ExecutedControlledRun, PreparedControlledRun};
@@ -32,6 +33,12 @@ impl LiveService {
                 BusError::Runtime(format!(
                     "cannot prepare runner evidence directory in {}: {err}",
                     target.cwd.display()
+                ))
+            })?;
+            std::fs::create_dir_all(self.repo.join(".weavatrix/coverage")).map_err(|err| {
+                BusError::Runtime(format!(
+                    "cannot prepare Weavatrix coverage directory in {}: {err}",
+                    self.repo.display()
                 ))
             })?;
             clear_generated_runner_artifacts(&target.cwd)?;
@@ -77,6 +84,7 @@ impl LiveService {
                 },
             };
             attach_normalized_artifacts(&self.repo, &target.cwd, started, &mut record);
+            publish_measured_coverage(&self.repo, &record)?;
             clear_generated_runner_artifacts(&target.cwd)?;
             records.push(record);
         }

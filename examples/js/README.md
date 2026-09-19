@@ -1,9 +1,9 @@
 # JS examples
 
-Requires Node 20+ and `@weavatrix/wvq@0.1.0-alpha.3` (or a local `npm link`).
+Requires Node 20+ and `@weavatrix/wvq@0.1.0-alpha.4` (or a local `npm link`).
 
 ```sh
-npm install --save-dev @weavatrix/wvq@0.1.0-alpha.3
+npm install --save-dev @weavatrix/wvq@0.1.0-alpha.4
 
 node examples/js/plan-run-verify.mjs
 WVQ_CHANGE=wvq-invariants node examples/js/plan-run-verify.mjs

@@ -27,6 +27,9 @@ node_modules/
 !js/playwright-runner/dist/
 !js/playwright-runner/dist/**
 
+# Measured coverage published for Weavatrix `coverage_map`.
+.weavatrix/coverage/
+
 # Local quality store / CAS. Keep the fail-closed policy committed.
 .weavatrix-quality/*
 !.weavatrix-quality/config.yaml

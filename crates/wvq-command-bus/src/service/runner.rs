@@ -103,7 +103,9 @@ pub(in crate::service) fn attach_normalized_artifacts(
     started: SystemTime,
     record: &mut ExecutorRecord,
 ) {
-    if record.executor == "cargo-test" && (!record.stdout.is_empty() || !record.stderr.is_empty()) {
+    if is_cargo_test_family(&record.executor)
+        && (!record.stdout.is_empty() || !record.stderr.is_empty())
+    {
         match std::str::from_utf8(&record.stdout)
             .map_err(|err| format!("cargo-test stdout is not UTF-8: {err}"))
             .and_then(|stdout| {
@@ -256,4 +258,3 @@ pub(in crate::service) fn attach_normalized_artifacts(
         }
     }
 }
-

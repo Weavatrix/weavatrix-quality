@@ -3,18 +3,18 @@
 Bounded **MCP** host for [Weavatrix Quality](https://github.com/Weavatrix/weavatrix-quality),
 built on [`mcport`](https://crates.io/crates/mcport).
 
-Alpha `0.1.0-alpha.3`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
+Alpha `0.1.0-alpha.4`. Registry name: **`io.github.Weavatrix/weavatrix-quality`**.
 
 Most users should launch via npm:
 
 ```sh
-npx @weavatrix/wvq@0.1.0-alpha.3 mcp --repo .
+npx @weavatrix/wvq@0.1.0-alpha.4 mcp --repo .
 ```
 
 ## Install
 
 ```sh
-cargo install wvq-mcp --version 0.1.0-alpha.3
+cargo install wvq-mcp --version 0.1.0-alpha.4
 wvq-mcp --repo /path/to/app
 ```
 
@@ -27,7 +27,7 @@ wvq-mcp --repo /path/to/app
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.3",
+        "@weavatrix/wvq@0.1.0-alpha.4",
         "mcp",
         "--repo",
         "/absolute/path/to/repo"
@@ -55,7 +55,7 @@ Or point at the cargo-installed binary:
 ```text
 quality_context   â€” obligations + bounded code context
 quality_plan      â€” gaps vs existing proofs (no execution)
-quality_run       â€” execute impacted / all protection
+quality_run       — execute protection; writes `.weavatrix/coverage/lcov.info` for Weavatrix `coverage_map`
 quality_status    â€” latest run status + handles
 quality_verify    â€” composite change verdict
 quality_explain   â€” provenance for an id
@@ -94,7 +94,7 @@ quality_test_promote   quality_test_record     quality_test_heal
       "command": "npx",
       "args": [
         "-y",
-        "@weavatrix/wvq@0.1.0-alpha.3",
+        "@weavatrix/wvq@0.1.0-alpha.4",
         "mcp",
         "--repo", ".",
         "--profile", "authoring",

@@ -53,9 +53,12 @@ fn failed_junit_fails_the_record_even_when_the_process_exits_zero() {
     attach_normalized_artifacts(&root.0, &root.0, started, &mut record);
 
     assert!(!record.passed);
-    assert!(record.error.as_deref().is_some_and(|message| {
-        message.contains("reports 1 failed or errored test case")
-    }));
+    assert!(
+        record
+            .error
+            .as_deref()
+            .is_some_and(|message| { message.contains("reports 1 failed or errored test case") })
+    );
     assert!(
         record
             .artifacts
@@ -78,4 +81,30 @@ fn artifact_from_before_the_run_is_not_reused() {
     attach_normalized_artifacts(&root.0, &root.0, started, &mut record);
 
     assert!(record.artifacts.is_empty());
+}
+
+#[test]
+fn normalized_coverage_is_published_where_weavatrix_coverage_map_looks() {
+    let root = TempDir::new("publish-weavatrix-coverage");
+    let coverage = CoverageArtifact {
+        files: vec![wvq_runtime::FileCoverage {
+            path: "src/add.rs".into(),
+            covered: vec![wvq_runtime::LineRange { start: 1, end: 2 }],
+            uncovered: vec![wvq_runtime::LineRange { start: 3, end: 3 }],
+        }],
+    };
+    let mut record = record("go-test");
+    record.artifacts.push(ProducedArtifact {
+        kind: "coverage".into(),
+        path: "go-cover#normalized".into(),
+        bytes: serde_json::to_vec_pretty(&coverage).unwrap(),
+    });
+
+    publish_measured_coverage(&root.0, &record).unwrap();
+
+    let published = root.0.join(".weavatrix/coverage/lcov.info");
+    let text = std::fs::read_to_string(&published).unwrap();
+    assert!(text.contains("SF:src/add.rs"), "{text}");
+    assert!(text.contains("DA:1,1"), "{text}");
+    assert!(text.contains("DA:3,0"), "{text}");
 }

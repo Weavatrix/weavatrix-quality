@@ -34,9 +34,10 @@ pub(in crate::service) use wvq_runtime::{
     BrowserRunConfig, BrowserViewport, CaptureWhen, ContinuousJournal, CoverageArtifact,
     ExecutionResult, ExecutorRegistry, ExecutorTarget, NetworkMode, NetworkRunPolicy,
     NormalizedTestRun, PrepareRequest, ProgramOracle, Recorder, TestAction, TestProgram,
-    TestStatus, default_limits, discover_executor_targets, ingest_har, parse_cargo_test,
-    parse_go_coverprofile, parse_go_json, parse_junit, parse_lcov, promote, record_browser_session,
-    run_browser_program, run_browser_program_at,
+    TestStatus, default_limits, discover_executor_targets, ingest_har, is_cargo_test_family,
+    is_vitest_family, parse_cargo_test, parse_go_coverprofile, parse_go_json, parse_junit,
+    parse_lcov, promote, record_browser_session, run_browser_program, run_browser_program_at,
+    rust_runner_matches,
 };
 pub(in crate::service) use wvq_spec::{
     EvidenceKind, RiskLevel, SpecError, TestObligation, load_quality_contract, seal,
@@ -62,11 +63,10 @@ pub(in crate::service) use crate::replies::{
     ApplicationSurfaceView, AuthorDraftReply, AuthorHealReply, AuthorModelUsage,
     AuthorPreviewReply, AuthorPromoteReply, AuthorValidateReply, AuthoringObligation,
     BaselineReply, BehaviorSurfaceView, ChangesReply, CheapestEvidencePlanView, ContextReply,
-    DebtReply, DoctorBinding,
-    DoctorReply, DoctorRunner, EvidenceReply, ExplainReply, IngestCassetteReply,
-    IngestJournalReply, InitReply, ModelReply, PlanReply, ProofSummary, RecordReply, RecoveryReply,
-    RunReply, SelectReply, SelectionAuditReply, SpecSealReply, SpecValidateReply, StatusReply,
-    SurfaceEvidenceMatrixView, VerifyReply,
+    DebtReply, DoctorBinding, DoctorReply, DoctorRunner, EvidenceReply, ExplainReply,
+    IngestCassetteReply, IngestJournalReply, InitReply, ModelReply, PlanReply, ProofSummary,
+    RecordReply, RecoveryReply, RunReply, SelectReply, SelectionAuditReply, SpecSealReply,
+    SpecValidateReply, StatusReply, SurfaceEvidenceMatrixView, VerifyReply,
 };
 pub(in crate::service) use crate::source_mutation::{
     MutationBinding, MutationPolicy, MutationRunDocument, MutationRunRequest,
@@ -80,11 +80,11 @@ pub(in crate::service) use super::git::*;
 pub(in crate::service) use super::graph::*;
 pub(in crate::service) use super::paths::*;
 pub(in crate::service) use super::policy::*;
+pub(in crate::service) use super::runtime_profile::{
+    RUNTIME_PROFILE_KIND, RuntimeProfileCounts, persist_runtime_profile,
+};
 pub(in crate::service) use super::types::*;
 pub(in crate::service) use super::ui_plan::{ensure_not_cancelled, frozen_ui_programs};
-pub(in crate::service) use super::runtime_profile::{
-    persist_runtime_profile, RuntimeProfileCounts, RUNTIME_PROFILE_KIND,
-};
 pub(in crate::service) use super::validate::*;
 pub(in crate::service) use super::{
     APPLICATION_SURFACE_GRAPH_KIND, BEHAVIOR_SURFACE_GRAPH_KIND, CHEAPEST_EVIDENCE_PLAN_KIND,

@@ -27,48 +27,49 @@ pub(in crate::service) const CONTINUOUS_OBSERVATION_JOURNAL_KIND: &str =
 /// CAS artifact kind for a HAR-derived privacy-safe network cassette.
 pub(in crate::service) const NETWORK_CASSETTE_KIND: &str = "network-replay-profile";
 
-mod authoring;
-mod recovery;
-mod policy;
-mod delta;
-mod types;
-mod error;
+mod access;
+mod analytics;
 mod api;
+mod authoring;
+mod delta;
+mod error;
+mod execute;
 mod fake;
-mod live;
-mod validate;
 mod git;
 mod graph;
+mod impact;
+mod live;
 mod paths;
-mod verify_reply;
-mod verify_axes;
-mod verify_json;
-mod verify_debt;
-mod selection_build;
-mod selection_audit;
-mod execute;
-mod persist_run;
-mod persist_browser;
-mod persist_failure_reel;
-mod persist_ui;
-mod persist_ui_analyse;
 mod persist_behavior;
+mod persist_browser;
 mod persist_evidence;
-mod persist_surface;
+mod persist_failure_reel;
 mod persist_matrix;
 mod persist_plan;
-mod ui_plan;
-mod runtime_profile;
-mod impact;
-mod protection_snapshot;
+mod persist_run;
+mod persist_surface;
+mod persist_ui;
+mod persist_ui_analyse;
+mod policy;
 mod protection_coverage;
-mod protection_view;
-mod protection_lineage;
 mod protection_graph_extra;
-mod analytics;
+mod protection_lineage;
+mod protection_snapshot;
+mod protection_view;
+mod publish_coverage;
+mod recovery;
 mod runner;
 mod runner_coverage;
-mod access;
+mod runtime_profile;
+mod selection_audit;
+mod selection_build;
+mod types;
+mod ui_plan;
+mod validate;
+mod verify_axes;
+mod verify_debt;
+mod verify_json;
+mod verify_reply;
 
 pub use api::{QualityService, dispatch};
 pub use error::BusError;
@@ -76,32 +77,22 @@ pub use fake::FakeService;
 pub use live::LiveService;
 
 pub(in crate::service) use authoring::*;
-pub(in crate::service) use types::*;
 pub(in crate::service) use git::*;
 pub(in crate::service) use graph::*;
 pub(in crate::service) use paths::*;
-pub(in crate::service) use persist_run::*;
 pub(in crate::service) use persist_evidence::*;
+pub(in crate::service) use persist_run::*;
 pub(in crate::service) use protection_snapshot::*;
+pub(in crate::service) use types::*;
 
 #[cfg(test)]
-pub(in crate::service) use std::collections::BTreeSet;
-#[cfg(test)]
-pub(in crate::service) use std::path::Path;
-#[cfg(test)]
-pub(in crate::service) use serde_json::{Value, json};
-#[cfg(test)]
-pub(in crate::service) use wvq_runtime::{CaptureWhen, CoverageArtifact, ExecutorTarget, TestStatus};
-#[cfg(test)]
-pub(in crate::service) use policy::*;
+pub(in crate::service) use analytics::*;
 #[cfg(test)]
 pub(in crate::service) use delta::*;
 #[cfg(test)]
-pub(in crate::service) use selection_build::*;
-#[cfg(test)]
-pub(in crate::service) use selection_audit::*;
-#[cfg(test)]
 pub(in crate::service) use execute::*;
+#[cfg(test)]
+pub(in crate::service) use impact::*;
 #[cfg(test)]
 pub(in crate::service) use persist_matrix::*;
 #[cfg(test)]
@@ -111,15 +102,29 @@ pub(in crate::service) use persist_surface::*;
 #[cfg(test)]
 pub(in crate::service) use persist_ui::*;
 #[cfg(test)]
-pub(in crate::service) use impact::*;
+pub(in crate::service) use policy::*;
 #[cfg(test)]
 pub(in crate::service) use protection_coverage::*;
 #[cfg(test)]
 pub(in crate::service) use protection_lineage::*;
 #[cfg(test)]
-pub(in crate::service) use analytics::*;
+pub(in crate::service) use publish_coverage::*;
 #[cfg(test)]
 pub(in crate::service) use runner::*;
+#[cfg(test)]
+pub(in crate::service) use selection_audit::*;
+#[cfg(test)]
+pub(in crate::service) use selection_build::*;
+#[cfg(test)]
+pub(in crate::service) use serde_json::{Value, json};
+#[cfg(test)]
+pub(in crate::service) use std::collections::BTreeSet;
+#[cfg(test)]
+pub(in crate::service) use std::path::Path;
+#[cfg(test)]
+pub(in crate::service) use wvq_runtime::{
+    CaptureWhen, CoverageArtifact, ExecutorTarget, TestStatus,
+};
 
 #[cfg(test)]
 mod tests;

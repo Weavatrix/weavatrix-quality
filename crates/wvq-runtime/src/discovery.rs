@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::{ExecutorId, RuntimeError};
+use crate::{ExecutorId, RuntimeError, RustCoverageTool};
 
 /// One registered executor discovered from repository manifests.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,11 +37,12 @@ pub fn discover_executor_targets(repo: &Path) -> Result<Vec<ExecutorTarget>, Run
     }
 
     let mut targets = BTreeSet::new();
+    let rust = RustCoverageTool::detect();
     let root_cargo = repo.join("Cargo.toml").is_file();
     if root_cargo {
-        insert(&mut targets, "cargo-test", repo)?;
+        insert(&mut targets, rust.executor_id(), repo)?;
     }
-    discover_dir(repo, repo, root_cargo, &mut targets, 0)?;
+    discover_dir(repo, repo, root_cargo, rust, &mut targets, 0)?;
     Ok(targets.into_iter().collect())
 }
 
@@ -49,6 +50,7 @@ fn discover_dir(
     repo: &Path,
     dir: &Path,
     root_cargo: bool,
+    rust: RustCoverageTool,
     targets: &mut BTreeSet<ExecutorTarget>,
     depth: usize,
 ) -> Result<(), RuntimeError> {
@@ -61,7 +63,7 @@ fn discover_dir(
     }
 
     if dir != repo && !root_cargo && dir.join("Cargo.toml").is_file() {
-        insert(targets, "cargo-test", dir)?;
+        insert(targets, rust.executor_id(), dir)?;
     }
     if dir.join("go.mod").is_file() {
         insert(targets, "go-test", dir)?;
@@ -82,7 +84,7 @@ fn discover_dir(
             .map_err(|err| RuntimeError::InvalidArg(err.to_string()))?
             .is_dir()
         {
-            discover_dir(repo, &entry.path(), root_cargo, targets, depth + 1)?;
+            discover_dir(repo, &entry.path(), root_cargo, rust, targets, depth + 1)?;
         }
     }
     Ok(())
@@ -133,23 +135,36 @@ fn discover_package(
         if cwd.join("bun.lock").is_file() || cwd.join("bun.lockb").is_file() {
             insert(targets, "bun-test", cwd)?;
         } else if direct_test_executor(script, &json).is_some_and(|id| id == "vitest") {
-            insert(targets, "vitest", cwd)?;
+            insert(targets, vitest_executor(&json), cwd)?;
         } else {
             insert(targets, "npm-test", cwd)?;
         }
         return Ok(());
     }
 
-    for (dependency, executor) in [
-        ("vitest", "vitest"),
-        ("jest", "jest"),
-        ("@playwright/test", "playwright"),
-    ] {
-        if has_dependency(&json, dependency) {
-            insert(targets, executor, cwd)?;
-        }
+    let mut js_runner = false;
+    if has_dependency(&json, "vitest") {
+        insert(targets, vitest_executor(&json), cwd)?;
+        js_runner = true;
+    }
+    if has_dependency(&json, "jest") {
+        insert(targets, "jest", cwd)?;
+        js_runner = true;
+    }
+    if !js_runner && has_dependency(&json, "@playwright/test") {
+        insert(targets, "playwright", cwd)?;
     }
     Ok(())
+}
+
+fn vitest_executor(package: &Value) -> &'static str {
+    if has_dependency(package, "@vitest/coverage-v8")
+        || has_dependency(package, "@vitest/coverage-istanbul")
+    {
+        "vitest-coverage"
+    } else {
+        "vitest"
+    }
 }
 
 fn direct_test_executor<'a>(script: &str, package: &'a Value) -> Option<&'a str> {

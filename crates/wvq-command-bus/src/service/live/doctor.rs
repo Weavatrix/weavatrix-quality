@@ -134,13 +134,13 @@ fn ecosystems_from(targets: &[wvq_runtime::ExecutorTarget]) -> Vec<String> {
     let mut ecosystems = BTreeSet::new();
     for target in targets {
         match target.executor.as_str() {
-            "cargo-test" => {
+            id if wvq_runtime::is_cargo_test_family(id) => {
                 ecosystems.insert("rust".into());
             }
             "go-test" => {
                 ecosystems.insert("go".into());
             }
-            "vitest" | "jest" | "bun-test" | "npm-test" => {
+            "vitest" | "vitest-coverage" | "jest" | "bun-test" | "npm-test" => {
                 ecosystems.insert("javascript".into());
             }
             "playwright" => {

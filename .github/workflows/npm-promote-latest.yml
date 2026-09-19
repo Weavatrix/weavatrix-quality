@@ -6,7 +6,7 @@ on:
       version:
         description: "Already-published @weavatrix/wvq version to mark as latest"
         required: true
-        default: "0.1.0-alpha.3"
+        default: "0.1.0-alpha.4"
 
 permissions:
   contents: read
